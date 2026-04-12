@@ -10,10 +10,8 @@
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
-// @grant        GM_xmlhttpRequest
-// @connect      raw.kkgithub.com
-// @updateURL    [https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/xinye.user.js](https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/xinye.user.js)
-// @downloadURL  [https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/xinye.user.js](https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/xinye.user.js)
+// @updateURL    https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/xinye.user.js
+// @downloadURL  https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/xinye.user.js
 // ==/UserScript==
 
 (function () {
@@ -1203,38 +1201,47 @@
     }
 
     // ==========================================
-    // ☁️ 欣野云端情报站 (系统公告)
+    // ☁️ 欣野云端情报站 (系统公告) - 终极多节点防拦截版
     // ==========================================
-    function fetchCloudIntelligence() {
+    async function fetchCloudIntelligence() {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
         
-        // 使用国内加速镜像
-        const apiUrl = 'https://raw.kkgithub.com/fieldlu/xy-script-assets/refs/heads/main/notice.json?t=' + Date.now();
+        // 终极方案：摒弃 GM_xmlhttpRequest，使用原生 fetch 配合自带跨域允许（CORS）的国内开源加速节点
+        const githubRawUrl = 'raw.githubusercontent.com/fieldlu/xy-script-assets/main/notice.json';
+        const timestamp = Date.now();
+        
+        // 配置3个不同的国内高可用镜像节点，自带 CORS，不需要特殊脚本权限，直接用原生 fetch 不会被拦截
+        const mirrors = [
+            `https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/notice.json?t=${timestamp}`,
+            `https://gcore.jsdelivr.net/gh/fieldlu/xy-script-assets@main/notice.json?t=${timestamp}`,
+            `https://ghp.ci/https://${githubRawUrl}?t=${timestamp}`
+        ];
 
-        GM_xmlhttpRequest({
-            method: 'GET',
-            url: apiUrl,
-            timeout: 8000,
-            onload: function(response) {
-                try {
-                    const realData = JSON.parse(response.responseText);
-                    contentBox.innerHTML = `
-                        <div style="padding: 12px 14px 16px 14px;">
-                            <div style="font-weight:bold; color:#0f172a; margin-bottom:8px; font-size: 13px;">${realData.title}</div>
-                            <ul style="margin:0; padding-left:16px; color:#475569;">
-                                ${realData.items.map(i => `<li style="margin-bottom:6px;">${i}</li>`).join('')}
-                            </ul>
-                        </div>
-                    `;
-                } catch(e) {
-                    contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">情报解析失败，请检查云端JSON格式。</div>`;
-                }
-            },
-            onerror: function(error) {
-                contentBox.innerHTML = `<div style="padding: 12px 14px; color:#64748b;">云端通讯握手失败，网络被拦截。</div>`;
+        for (let i = 0; i < mirrors.length; i++) {
+            try {
+                const response = await fetch(mirrors[i]);
+                if (!response.ok) continue; // 如果当前节点不通，直接跳过试下一个
+                
+                const realData = await response.json();
+                
+                contentBox.innerHTML = `
+                    <div style="padding: 12px 14px 16px 14px;">
+                        <div style="font-weight:bold; color:#0f172a; margin-bottom:8px; font-size: 13px;">${realData.title}</div>
+                        <ul style="margin:0; padding-left:16px; color:#475569;">
+                            ${realData.items.map(item => `<li style="margin-bottom:6px;">${item}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+                return; // 只要有一个成功加载并渲染，直接大功告成退出函数！
+            } catch (e) {
+                // 当前节点报错（被墙或拦截），默默继续尝试下一个节点
+                console.log(`欣野情报局: 节点 ${i+1} 失效，正在尝试下一个...`);
             }
-        });
+        }
+        
+        // 如果3个最强节点全部阵亡，那就真的没辙了
+        contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败，所有加速节点均无响应。</div>`;
     }
 
     // ==========================================
