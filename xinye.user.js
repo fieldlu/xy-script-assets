@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         欣野（小雅辅助工具）
-// @version      2.2.0
+// @version      2.2.1
 // @description  「欣野」✨ 小雅网页版终极效率外挂！双核驱动刷课+讨论区自动点赞～ 刷课智能防卡、循环连播、心跳加密🥳；点赞精准狙击、API抓名单、仿生间隔超安全🎯！致敬前辈 zygame1314 ❤️，一个面板全搞定，效率拉满🚀！
 // @author       xinye
 // @license      MIT
@@ -1201,29 +1201,56 @@
     }
 
     // ==========================================
-    // ☁️ 欣野云端情报站 (系统公告) - 终极多节点防拦截版
+    // ☁️ 欣野云端情报站 (系统公告) - 彻底解决延迟的终极方案
     // ==========================================
     async function fetchCloudIntelligence() {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
         
-        // 终极方案：摒弃 GM_xmlhttpRequest，使用原生 fetch 配合自带跨域允许（CORS）的国内开源加速节点
-        const githubRawUrl = 'raw.githubusercontent.com/fieldlu/xy-script-assets/main/notice.json';
         const timestamp = Date.now();
-        
-        // 配置3个不同的国内高可用镜像节点，自带 CORS，不需要特殊脚本权限，直接用原生 fetch 不会被拦截
-        const mirrors = [
-            `https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/notice.json?t=${timestamp}`,
-            `https://gcore.jsdelivr.net/gh/fieldlu/xy-script-assets@main/notice.json?t=${timestamp}`,
-            `https://ghp.ci/https://${githubRawUrl}?t=${timestamp}`
+        const githubRawUrl = 'raw.githubusercontent.com/fieldlu/xy-script-assets/main/notice.json';
+
+        // 终极无延迟方案：优先通过 GitHub API 读取文件仓库树获取 base64 内容，彻底跳过所有 CDN 和代理服务器的缓存拦截
+        const sources = [
+            {
+                type: 'api', // 0延迟，直接从仓库读取最新状态，部分地区直连可通
+                url: `https://api.github.com/repos/fieldlu/xy-script-assets/contents/notice.json?t=${timestamp}`
+            },
+            { type: 'raw', url: `https://mirror.ghproxy.com/https://${githubRawUrl}?t=${timestamp}` },
+            { type: 'raw', url: `https://ghproxy.net/https://${githubRawUrl}?t=${timestamp}` },
+            { type: 'raw', url: `https://ghp.ci/https://${githubRawUrl}?t=${timestamp}` },
+            { type: 'raw', url: `https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/notice.json?t=${timestamp}` } // 最后兜底
         ];
 
-        for (let i = 0; i < mirrors.length; i++) {
+        for (let i = 0; i < sources.length; i++) {
             try {
-                const response = await fetch(mirrors[i]);
-                if (!response.ok) continue; // 如果当前节点不通，直接跳过试下一个
+                const response = await fetch(sources[i].url, {
+                    cache: 'no-store',
+                    headers: {
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Pragma': 'no-cache',
+                        'Accept': sources[i].type === 'api' ? 'application/vnd.github.v3+json' : '*/*'
+                    }
+                });
                 
-                const realData = await response.json();
+                if (!response.ok) continue; 
+                
+                let realData;
+                
+                // 如果是 API 请求，需要将 base64 转换回 JSON（处理包含中文的情况）
+                if (sources[i].type === 'api') {
+                    const apiData = await response.json();
+                    const base64Str = apiData.content.replace(/\n/g, '');
+                    const binaryStr = atob(base64Str);
+                    const bytes = new Uint8Array(binaryStr.length);
+                    for (let j = 0; j < binaryStr.length; j++) {
+                        bytes[j] = binaryStr.charCodeAt(j);
+                    }
+                    const decodedStr = new TextDecoder('utf-8').decode(bytes);
+                    realData = JSON.parse(decodedStr);
+                } else {
+                    realData = await response.json();
+                }
                 
                 contentBox.innerHTML = `
                     <div style="padding: 12px 14px 16px 14px;">
@@ -1233,14 +1260,14 @@
                         </ul>
                     </div>
                 `;
-                return; // 只要有一个成功加载并渲染，直接大功告成退出函数！
+                return; // 只要有一个成功加载并渲染，直接大功告成退出函数
             } catch (e) {
-                // 当前节点报错（被墙或拦截），默默继续尝试下一个节点
-                console.log(`欣野情报局: 节点 ${i+1} 失效，正在尝试下一个...`);
+                // 当前节点报错或解析失败（被墙或拦截），默默继续尝试下一个节点
+                console.log(`欣野情报局: 节点 ${i+1} (${sources[i].type}) 失效或拦截，正在尝试下一个...`);
             }
         }
         
-        // 如果3个最强节点全部阵亡，那就真的没辙了
+        // 如果节点全部阵亡，作为最后报错
         contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败，所有加速节点均无响应。</div>`;
     }
 
