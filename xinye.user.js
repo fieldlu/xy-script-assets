@@ -1209,7 +1209,7 @@
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
         
-        const rawUrl = '[https://raw.githubusercontent.com/fieldlu/xy-script-assets/refs/heads/main/notice.json)';
+        const rawUrl = '[https://github.com/fieldlu/xy-script-assets/raw/refs/heads/main/notice.json](https://github.com/fieldlu/xy-script-assets/raw/refs/heads/main/notice.json)';
         
         // 加上时间戳防止 GitHub 缓存，保证用户秒开最新公告
         const apiUrl = rawUrl + '?t=' + Date.now();
