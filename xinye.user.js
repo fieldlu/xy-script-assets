@@ -11,8 +11,9 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
+// @updateURL    https://github.com/fieldlu/xy-script-assets/raw/refs/heads/main/xinye.user.js
+// @downloadURL  https://github.com/fieldlu/xy-script-assets/raw/refs/heads/main/xinye.user.js
 // @connect      ai-augmented.com
-// @connect      docs.qq.com
 // ==/UserScript==
 
 (function () {
