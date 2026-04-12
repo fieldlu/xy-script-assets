@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         欣野（小雅辅助工具）
-// @version      2.1.3
+// @version      2.2.0
 // @description  「欣野」✨ 小雅网页版终极效率外挂！双核驱动刷课+讨论区自动点赞～ 刷课智能防卡、循环连播、心跳加密🥳；点赞精准狙击、API抓名单、仿生间隔超安全🎯！致敬前辈 zygame1314 ❤️，一个面板全搞定，效率拉满🚀！
 // @author       xinye
 // @license      MIT
@@ -10,6 +10,8 @@
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @updateURL    https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/xinye.user.js
+// @downloadURL  https://fastly.jsdelivr.net/gh/fieldlu/xy-script-assets@main/xinye.user.js
 // ==/UserScript==
 
 (function () {
