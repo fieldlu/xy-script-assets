@@ -97,8 +97,8 @@
         aiMode: GM_getValue('xy_ai_mode', true),
         videoAutoSubmit: GM_getValue('xy_video_submit', true),
         docBatchSubmit: GM_getValue('xy_doc_batch', true),
-        autoRefresh: GM_getValue('xy_auto_refresh', true),
-        refreshInterval: GM_getValue('xy_refresh_interval', 30), 
+        showRefreshPanel: GM_getValue('xy_show_refresh_panel', true),
+        showTerminal: GM_getValue('xy_show_terminal', false),
         enableDomScan: true, 
         currentEngine: 'none',
         docReadTime: 0,
@@ -113,25 +113,38 @@
         targetNames: [],
         selectedNames: new Set(),
         docPreviewDoneNodeId: null,
-        discLockedUrl: null
+        discLockedUrl: null,
+        jumpFailCount: 0,
+        jumpSleepUntil: 0,
+        useCustomReply: GM_getValue('xy_use_custom_reply', false),
+        customReplies: []
     };
 
     try { 
         appState.targetNames = JSON.parse(GM_getValue('xy_target_names', '[]')); 
-        // 纯手动模式：取消自动勾选 15 人的逻辑
     } catch(e) { 
         appState.targetNames = []; 
+    }
+
+    try {
+        appState.customReplies = JSON.parse(GM_getValue('xy_custom_replies', '[]'));
+    } catch(e) {
+        appState.customReplies = [];
     }
     
     let sessionLogs = [];
     try { sessionLogs = JSON.parse(sessionStorage.getItem('xy_session_logs')) || []; } catch(e) { sessionLogs = []; }
     
-    let autoRefreshTimeoutId = null;
     let recordIntervalTimer = null; 
     let realTimeTimer = null;
     let isFetchingResources = false;
     let isSubmittingLock = false;
     let isJumpingLock = false;
+
+    // 动态定时重载调度器变量
+    let dynamicRefreshTimeoutId = null;
+    let refreshCountdownTimer = null;
+    let lastRefreshStrategy = 'none';
 
     function syncHardwareMute() { document.dispatchEvent(new CustomEvent('xy-volume-change', { detail: { mute: appState.hardwareMute } })); }
     function getCourseGroupId() { const match = window.location.href.match(/(?:mycourse|course)\/(\d+)/); return match ? match[1] : null; }
@@ -171,6 +184,15 @@
             toggleRecord(false); 
         }
         
+        if (newZone === 'standby' || newZone === 'disc') {
+            clearDynamicRefresh();
+        }
+        
+        const superConsole = document.getElementById('xy-super-console');
+        if (superConsole) {
+            superConsole.style.display = 'flex';
+        }
+        
         const viewC = document.getElementById('xy-view-course'), viewD = document.getElementById('xy-view-disc'), viewS = document.getElementById('xy-view-standby'), badge = document.getElementById('xy-zone-badge');
         if (viewC && viewD && viewS && badge) {
             viewC.style.display = newZone === 'course' ? 'block' : 'none';
@@ -199,7 +221,6 @@
             appState.videoScriptProgress = undefined; 
             appState.isTaskCompleted = false;
         }
-        setupAutoRefresh();
     }
 
     async function runLowLevelScanner() {
@@ -325,11 +346,133 @@
         if (!el) return;
         try { const opts = { bubbles: true, cancelable: true, view: window }; el.dispatchEvent(new MouseEvent('pointerdown', opts)); el.dispatchEvent(new MouseEvent('click', opts)); el.click(); } catch (e) { el.click(); }
     }
-    
-    function setupAutoRefresh() {
-        if (autoRefreshTimeoutId) { clearTimeout(autoRefreshTimeoutId); autoRefreshTimeoutId = null; }
-        if (!appState.autoRefresh || appState.refreshInterval <= 0) return;
-        autoRefreshTimeoutId = setTimeout(() => { logMsg(`🔄 触发定时自动刷新...`, 'info', false); window.location.reload(); }, appState.refreshInterval * 60000);
+
+    // ==========================================
+    // 动态条件定时重载引擎
+    // ==========================================
+    function scheduleDynamicRefresh(delayMs, reason) {
+        if (dynamicRefreshTimeoutId) clearTimeout(dynamicRefreshTimeoutId);
+        if (refreshCountdownTimer) clearInterval(refreshCountdownTimer);
+        
+        const targetTime = Date.now() + delayMs;
+        logMsg(`🔄 动态重载调度：已设定 ${Math.round(delayMs/60000)} 分钟后刷新 (${reason})`, 'silent', true);
+        
+        const updateVisuals = () => {
+            const statusEl = document.getElementById('xy-refresh-status');
+            if (statusEl) {
+                const leftMs = targetTime - Date.now();
+                if (leftMs > 0) {
+                    const m = Math.floor(leftMs / 60000);
+                    const s = Math.floor((leftMs % 60000) / 1000).toString().padStart(2, '0');
+                    statusEl.innerText = `即将重载: ${m}分 ${s}秒 (${reason})`;
+                } else {
+                    statusEl.innerText = `正在执行重载...`;
+                }
+            }
+        };
+        updateVisuals();
+        refreshCountdownTimer = setInterval(updateVisuals, 1000);
+
+        dynamicRefreshTimeoutId = setTimeout(() => {
+            logMsg(`🔄 触发动态定时重载...`, 'info', false);
+            window.location.reload();
+        }, delayMs);
+    }
+
+    // 🔥暴力且彻底地销毁调度器的方法
+    function clearDynamicRefresh() {
+        let cleared = false;
+        if (dynamicRefreshTimeoutId) {
+            clearTimeout(dynamicRefreshTimeoutId);
+            dynamicRefreshTimeoutId = null;
+            cleared = true;
+        }
+        if (refreshCountdownTimer) {
+            clearInterval(refreshCountdownTimer);
+            refreshCountdownTimer = null;
+            cleared = true;
+        }
+        
+        lastRefreshStrategy = 'none';
+        
+        const statusEl = document.getElementById('xy-refresh-status');
+        if (statusEl && statusEl.innerText !== '目前无重载任务') {
+            statusEl.innerText = '目前无重载任务';
+        }
+        
+        if (cleared) {
+            logMsg(`🛑 动态重载已在当前区域彻底挂起并强停`, 'silent', true);
+        }
+    }
+
+    function checkDynamicRefresh() {
+        // 如果处于待命区/讨论区，无条件拦截并清空倒计时
+        if (appState.activeZone !== 'course') {
+            if (lastRefreshStrategy !== 'none' || dynamicRefreshTimeoutId) { 
+                clearDynamicRefresh(); 
+            }
+            return;
+        }
+
+        const currentTaskType = appState.currentEngine;
+
+        if (appState.mode === 'loop') {
+            if (currentTaskType === 'doc') {
+                if (lastRefreshStrategy !== 'loop_doc') {
+                    lastRefreshStrategy = 'loop_doc';
+                    scheduleDynamicRefresh(15 * 60 * 1000, `文档挂机防卡死`);
+                }
+            } else {
+                let video = document.querySelector('video');
+                if (!video) {
+                    const iframes = document.querySelectorAll('iframe');
+                    for (let i = 0; i < iframes.length; i++) {
+                        try { if (iframes[i].contentDocument) video = iframes[i].contentDocument.querySelector('video'); } catch(e){}
+                        if (video) break;
+                    }
+                }
+                if (video && video.duration >= 3600) {
+                    const strategyKey = `loop_video_${video.duration}`;
+                    if (lastRefreshStrategy !== strategyKey) {
+                        lastRefreshStrategy = strategyKey;
+                        scheduleDynamicRefresh(1.2 * video.duration * 1000, `安全循环>1h长视频`);
+                    }
+                } else {
+                    if (lastRefreshStrategy !== 'none' && !lastRefreshStrategy.startsWith('loop_video_')) {
+                        clearDynamicRefresh(); 
+                    } else if (lastRefreshStrategy.startsWith('loop_video_') && video && video.duration < 3600) {
+                        clearDynamicRefresh(); 
+                    }
+                }
+            }
+        } else if (appState.mode === 'sequence') {
+            if (appState.isTaskCompleted || Date.now() < appState.jumpSleepUntil) {
+                if (lastRefreshStrategy !== 'sequence_completed') {
+                    lastRefreshStrategy = 'sequence_completed';
+                    scheduleDynamicRefresh(10 * 60 * 1000, `连播状态休眠探测`);
+                }
+            } else if (currentTaskType === 'doc') {
+                if (lastRefreshStrategy !== 'sequence_doc') {
+                    lastRefreshStrategy = 'sequence_doc';
+                    scheduleDynamicRefresh(15 * 60 * 1000, `文档挂机防卡死`);
+                }
+            } else {
+                if (lastRefreshStrategy !== 'none') {
+                    clearDynamicRefresh(); 
+                }
+            }
+        } else {
+            if (currentTaskType === 'doc') {
+                if (lastRefreshStrategy !== 'manual_doc') {
+                    lastRefreshStrategy = 'manual_doc';
+                    scheduleDynamicRefresh(15 * 60 * 1000, `文档挂机防卡死`);
+                }
+            } else {
+                if (lastRefreshStrategy !== 'none') {
+                    clearDynamicRefresh(); 
+                }
+            }
+        }
     }
 
     // ==========================================
@@ -450,14 +593,12 @@
             switchToZone('disc'); 
         }
         
-        // 核心更新：探测到新的讨论区（通过 did / gid 变动触发此事件），自动清空并自动全量扫盘
         logMsg('🔄 检测到新讨论区，自动清空旧名单并开启全量采集...', 'info');
         appState.targetNames = [];
         appState.selectedNames.clear();
         GM_setValue('xy_target_names', JSON.stringify([]));
         renderTargetList(document.getElementById('xy-name-search')?.value || '');
         
-        // 不阻塞地启动全量抓取
         setTimeout(() => {
             fetchCurrentUsers();
         }, 800);
@@ -532,6 +673,8 @@
 
     async function tryJumpToNext() {
         if (isJumpingLock) return; 
+        if (Date.now() < appState.jumpSleepUntil) return; // 休眠保护机制
+
         isJumpingLock = true;
         
         try {
@@ -580,6 +723,7 @@
 
                 const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
 
+                appState.jumpFailCount = 0; // 跳转成功，清空失败计数
                 setTimeout(() => { 
                     window.location.href = `/app/jx-web/${pathPrefix}/${targetTask.group_id}/resource/${resId}/${targetTask.node_id}`; 
                 }, 500);
@@ -588,12 +732,30 @@
                 return;
             }
             
-            logMsg('⏳ 雷达显示全网已无自主观看任务，无需跳转，5秒后自动重查...', 'warning', false);
-            setTimeout(() => { isJumpingLock = false; }, 5000);
+            appState.jumpFailCount++;
+            if (appState.jumpFailCount >= 3) {
+                 logMsg('⏳ 连续3次探测无新任务，引擎进入休眠模式，10分钟后重载...', 'warning', false);
+                 appState.jumpSleepUntil = Date.now() + 10 * 60 * 1000;
+                 appState.jumpFailCount = 0;
+                 updateCourseUI();
+                 isJumpingLock = false;
+            } else {
+                 logMsg(`⏳ 探测无新任务，5秒后重试 (第${appState.jumpFailCount}次)...`, 'warning', false);
+                 setTimeout(() => { isJumpingLock = false; }, 5000);
+            }
 
         } catch(e) {
-            logMsg('雷达连通异常，5秒后重试跳转', 'error', false);
-            setTimeout(() => { isJumpingLock = false; }, 5000);
+            appState.jumpFailCount++;
+            if (appState.jumpFailCount >= 3) {
+                 logMsg('⏳ 网络探测连续3次异常，进入深度休眠，10分钟后重新探测...', 'warning', false);
+                 appState.jumpSleepUntil = Date.now() + 10 * 60 * 1000;
+                 appState.jumpFailCount = 0;
+                 updateCourseUI();
+                 isJumpingLock = false;
+            } else {
+                 logMsg('雷达连通异常，5秒后重试跳转', 'error', false);
+                 setTimeout(() => { isJumpingLock = false; }, 5000);
+            }
         }
     }
 
@@ -727,8 +889,17 @@
     setInterval(async () => {
         await runLowLevelScanner(); 
 
-        if (appState.activeZone !== 'course') return;
+        // 🔥 核心修复：将清理检测提到最外层，100%保证进入非刷课页面就直接销毁倒计时
+        checkDynamicRefresh();
+
+        if (appState.activeZone !== 'course') {
+            watchdogLastActiveTime = Date.now(); // 防死锁强刷：处于待命区/讨论区时，持续给看门狗喂时间戳
+            return;
+        }
         if (appState.guardActive) forceDismissPopups(document);
+
+        // 统一提取当前任务类型，用于全局调度和引擎判断
+        appState.currentEngine = await getTaskTypeAccurate();
 
         if (Date.now() - watchdogLastActiveTime > 180000) {
             sessionStorage.setItem('xy_reload_reason', '180秒无响应，防死锁刷新');
@@ -737,10 +908,16 @@
             return;
         }
 
+        // 如果正处于休眠探测状态，则跳过后续检查，直接放行循环
+        if (appState.mode === 'sequence' && Date.now() < appState.jumpSleepUntil) {
+            updateCourseUI();
+            watchdogLastActiveTime = Date.now(); 
+            return; 
+        }
+
         const groupId = getCourseGroupId();
         if (groupId && appState.mode !== 'manual') {
-            const taskType = await getTaskTypeAccurate();
-            appState.currentEngine = taskType;
+            const taskType = appState.currentEngine; // 直接复用
 
             const vEngine = document.getElementById('xy-engine-video'), dEngine = document.getElementById('xy-engine-doc');
             if(vEngine) vEngine.style.opacity = taskType === 'video' ? '1' : '0.4';
@@ -755,7 +932,6 @@
                 if (video) {
                     if (video.paused && !video.ended) video.play().catch(() => { if(!appState.hardwareMute) video.muted = true; video.play().catch(()=>{}); });
                     
-                    // 新增：循环对页面DOM进行一次状态同步，保证新加载的视频也能吃到底层静音
                     if (appState.hardwareMute && !video.muted) video.muted = true;
 
                     if (appState.mode === 'sequence') {
@@ -807,25 +983,14 @@
                              appState.isProcessingJump = true;
                              autoSubmitCurrentTask(true).then(success => {
                                  if (success || appState.isTaskCompleted) {
-                                      logMsg('✅ 安全循环：当前任务已达标，继续静默挂机...', 'success', false);
+                                      logMsg('✅ 安全循环：当前任务已达标，即将刷新页面重载继续挂机...', 'success', false);
                                  } else {
-                                      logMsg('⚠️ 安全循环：时长暂未达标，自动重置重新播放...', 'warning', true);
+                                      logMsg('⚠️ 安全循环：时长暂未达标，即将刷新页面重置播放...', 'warning', true);
                                  }
                                  
                                  setTimeout(() => {
-                                      try {
-                                          video.currentTime = 0;
-                                          video.play().catch(()=>{});
-                                      } catch(e) {}
-                                      
-                                      setTimeout(() => {
-                                          if (video.paused || video.ended) {
-                                              logMsg('🔄 播放器复位状态异常，执行硬刷新强制重载...', 'warning', true);
-                                              window.location.reload();
-                                          }
-                                      }, 2000);
-                                      
-                                      appState.isProcessingJump = false;
+                                      logMsg('🔄 触发安全循环单次播完重载机制...', 'info', false);
+                                      window.location.reload();
                                  }, 1500);
                              });
                         }
@@ -896,6 +1061,8 @@
     // 频段2：5秒级跳课与连播模式的专属提交调度
     setInterval(async () => {
         if (!appState.aiMode || appState.activeZone !== 'course' || appState.mode !== 'sequence') return;
+
+        if (Date.now() < appState.jumpSleepUntil) return;
 
         const groupId = getCourseGroupId();
         const nodeId = getNodeId();
@@ -1018,10 +1185,10 @@
                         }
                     } 
                 });
-                if (list.length < 20) break; // 当前页不满20条，说明到了最后一页
-                await sleep(300); // 礼貌延迟，防风控
+                if (list.length < 20) break; 
+                await sleep(300); 
                 pageIndex++;
-                if (pageIndex > 300) break; // 终极安全阀（防止极其罕见的无限循环）
+                if (pageIndex > 300) break; 
             }
 
             const domNames = scanDomForUserNames();
@@ -1091,7 +1258,7 @@
         } catch (e) { logMsg('点赞异常', 'error'); } finally { btn.disabled = false; btn.innerText = originalText; }
     }
 
-        function getRandomReplyText() {
+    function getRandomReplyText() {
         const templates = [
             "非常赞同你的观点，这种思路确实能给我们带来很多新的启发和思考！",
             "同学说得太对了，我也一直有这个想法，按照这个方法去做肯定会有很大收获。",
@@ -1104,11 +1271,20 @@
             "特别认同这段话的内容，学习到了新的知识点，期待以后能有更多这样的干货！",
             "说得非常有见地，而且语言表达也很清晰易懂，把复杂的问题简单化了，佩服！"
         ];
+        
+        if (appState.useCustomReply && appState.customReplies && appState.customReplies.length > 0) {
+            // 过滤符合条件的句子（≥16汉字）
+            const validCustoms = appState.customReplies.filter(text => (text.match(/[\u4e00-\u9fa5]/g) || []).length >= 16);
+            if (validCustoms.length > 0) {
+                return validCustoms[Math.floor(Math.random() * validCustoms.length)];
+            } else {
+                logMsg('⚠️ 自定义回复库中没有合规句子，系统已自动回退到默认语料', 'warning', true);
+            }
+        }
         return templates[Math.floor(Math.random() * templates.length)];
     }
 
     function buildDraftJsComment(text) {
-        // 模拟富文本编辑器随机生成的 5 位标识符
         const randomKey = Math.random().toString(36).substring(2, 7);
         const obj = {
             blocks: [
@@ -1124,7 +1300,6 @@
             ],
             entityMap: {}
         };
-        // 必须返回字符串，外层请求时会再次 JSON.stringify 以实现转义
         return JSON.stringify(obj);
     }
 
@@ -1194,7 +1369,7 @@
                         logMsg(`✅ 成功回复 [${decodeNickname(item.nickname)}]: ${replyText.substring(0,8)}...`, 'success', true);
                     }
                 } catch(e) {} 
-                await sleep(Math.floor(Math.random() * 1200) + 1800); // 随机间隔 1.8-3秒，防风控
+                await sleep(Math.floor(Math.random() * 1200) + 1800); 
             }
             logMsg(`🎉 回复任务结束！成功回复 ${successCount} 次！即将刷新页面...`, 'success'); 
             setTimeout(() => { window.location.reload(); }, 2000);
@@ -1202,7 +1377,7 @@
     }
 
     // ==========================================
-    // ☁️ 欣野云端情报站 (系统公告) - 强力修复方案
+    // ☁️ 欣野云端情报站 (系统公告) 
     // ==========================================
     function fetchCloudIntelligence() {
         const contentBox = document.getElementById('xy-bc-content');
@@ -1211,16 +1386,12 @@
         const timestamp = Date.now();
         const url = `https://gitee.com/fieldlu/xy-script-assets/raw/main/notice.json?t=${timestamp}`;
 
-        // 强力修复：使用 GM_xmlhttpRequest 绕过浏览器严格的 CORS 跨域拦截
         try {
             if (typeof GM_xmlhttpRequest !== "undefined") {
                 GM_xmlhttpRequest({
                     method: 'GET',
                     url: url,
-                    headers: {
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache'
-                    },
+                    headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' },
                     nocache: true,
                     timeout: 10000, 
                     onload: function(response) {
@@ -1235,25 +1406,13 @@
                                         </ul>
                                     </div>
                                 `;
-                            } catch (err) {
-                                console.error('情报解析异常:', err);
-                                contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败 (数据格式异常)。</div>`;
-                            }
-                        } else {
-                            console.error('情报请求非200:', response.status);
-                            contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败 (状态码: ${response.status})。</div>`;
-                        }
+                            } catch (err) { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败 (数据格式异常)。</div>`; }
+                        } else { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败 (状态码: ${response.status})。</div>`; }
                     },
-                    onerror: function(err) {
-                        console.error('情报请求网络失败:', err);
-                        contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报网络异常，请检查网络连接。</div>`;
-                    },
-                    ontimeout: function() {
-                        contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报超时，服务器可能正忙。</div>`;
-                    }
+                    onerror: function(err) { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报网络异常，请检查网络连接。</div>`; },
+                    ontimeout: function() { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报超时，服务器可能正忙。</div>`; }
                 });
             } else {
-                // 退化回原生 fetch
                 fetch(url, { cache: 'no-store' }).then(res => res.json()).then(realData => {
                      contentBox.innerHTML = `
                         <div style="padding: 12px 14px 16px 14px;">
@@ -1263,12 +1422,9 @@
                             </ul>
                         </div>
                     `;
-                }).catch(e => {
-                    contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败，且当前环境不支持跨域请求。</div>`;
-                });
+                }).catch(e => { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败，且当前环境不支持跨域请求。</div>`; });
             }
         } catch (e) {
-            console.log(`欣野情报局: 请求执行报错...`, e);
             contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报时发生了不可预知的错误。</div>`;
         }
     }
@@ -1287,10 +1443,17 @@
                 statusBanner.style.background = 'rgba(241, 245, 249, 0.6)'; 
                 statusBanner.style.borderColor = 'rgba(226,232,240,0.6)'; 
             } 
-            else if (!getCourseGroupId()) { 
-                statusBanner.innerHTML = `<span style="color:#4338ca;">🌐 雷达系统扫描中...</span>`; 
-                statusBanner.style.background = 'rgba(224, 231, 255, 0.6)'; 
-                statusBanner.style.borderColor = 'rgba(199,210,254,0.6)'; 
+            else if (!getCourseGroupId()) {
+                if (appState.mode === 'sequence' && Date.now() < appState.jumpSleepUntil) {
+                    let leftMin = Math.ceil((appState.jumpSleepUntil - Date.now()) / 60000);
+                    statusBanner.innerHTML = `<span style="color:#b45309;">💤 寻路深度休眠 (约 ${leftMin} 分钟后重载探测)</span>`; 
+                    statusBanner.style.background = 'rgba(254, 243, 197, 0.6)'; 
+                    statusBanner.style.borderColor = 'rgba(253,230,138,0.6)'; 
+                } else {
+                    statusBanner.innerHTML = `<span style="color:#4338ca;">🌐 雷达系统扫描中...</span>`; 
+                    statusBanner.style.background = 'rgba(224, 231, 255, 0.6)'; 
+                    statusBanner.style.borderColor = 'rgba(199,210,254,0.6)'; 
+                }
             } 
             else if (appState.isTaskCompleted) { 
                 statusBanner.innerHTML = appState.mode === 'loop' 
@@ -1373,6 +1536,188 @@
         updateCheckedCount();
     }
 
+    // ==========================================
+    // 🌟 自定义回复设置模态框
+    // ==========================================
+    function openReplySettingsModal() {
+        let overlay = document.getElementById('xy-reply-settings-overlay');
+        if (overlay) return;
+        
+        overlay = document.createElement('div');
+        overlay.id = 'xy-reply-settings-overlay';
+        overlay.style.cssText = `position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15, 23, 42, 0.6); z-index:2147483646; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(6px); opacity:0; transition:opacity 0.3s;`;
+        
+        function showModalToast(msg, type = 'info') {
+            const modalBody = overlay.firstElementChild;
+            if (!modalBody) return;
+            
+            let toastContainer = document.getElementById('xy-modal-toast-container');
+            if (!toastContainer) {
+                toastContainer = document.createElement('div');
+                toastContainer.id = 'xy-modal-toast-container';
+                toastContainer.style.cssText = `position:absolute; top:24px; left:50%; transform:translateX(-50%); z-index:99999; display:flex; flex-direction:column; gap:8px; pointer-events:none;`;
+                modalBody.appendChild(toastContainer);
+            }
+            
+            const colors = {
+                success: { bg: '#dcfce7', color: '#166534', border: '#bbf7d0', icon: '✅' },
+                error: { bg: '#fee2e2', color: '#991b1b', border: '#fecaca', icon: '❌' },
+                warning: { bg: '#fef3c7', color: '#92400e', border: '#fde68a', icon: '⚠️' },
+                info: { bg: '#e0f2fe', color: '#075985', border: '#bae6fd', icon: 'ℹ️' }
+            };
+            const currentType = colors[type] || colors.info;
+            
+            const toast = document.createElement('div');
+            toast.style.cssText = `background:${currentType.bg}; color:${currentType.color}; border: 1px solid ${currentType.border}; padding:10px 16px; border-radius:10px; font-weight:bold; font-size:13px; box-shadow:0 10px 25px rgba(0,0,0,0.15); transition:all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-20px) scale(0.9); display:flex; align-items:center; backdrop-filter: blur(8px); white-space: nowrap;`;
+            toast.innerHTML = `<span style="margin-right:8px; font-size:16px;">${currentType.icon}</span><span>${msg}</span>`;
+            toastContainer.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.style.opacity = '1';
+                toast.style.transform = 'translateY(0) scale(1)';
+            });
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-10px) scale(0.9)';
+                setTimeout(() => toast.remove(), 400);
+            }, 2500);
+        }
+
+        function renderContent() {
+            let listHtml = '';
+            if (appState.customReplies.length === 0) {
+                listHtml = `<div style="text-align:center; color:#94a3b8; padding:30px 20px; font-size:14px;">空空如也，请在下方添加语料</div>`;
+            } else {
+                appState.customReplies.forEach((text, index) => {
+                    let hanziCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+                    let isOk = hanziCount >= 16;
+                    listHtml += `
+                        <div style="background:#f8fafc; border:1px solid ${isOk ? '#e2e8f0' : '#fca5a5'}; border-radius:10px; padding:12px; margin-bottom:12px; position:relative; display:flex; gap:12px; align-items:center; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+                            <div style="flex:1; font-size:13px; color:#334155; line-height:1.6;">${text}</div>
+                            <div style="display:flex; flex-direction:column; justify-content:center; align-items:flex-end; gap:6px;">
+                                <span style="font-size:11px; font-weight:bold; color:${isOk ? '#10b981' : '#ef4444'};">${hanziCount} 汉字</span>
+                                <button class="xy-del-reply-btn" data-index="${index}" style="background:#fee2e2; color:#ef4444; border:none; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold; transition:0.2s;" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter='none'">删除</button>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            return `
+                <div style="position:relative; background:white; width:90%; max-width:550px; border-radius:20px; box-shadow:0 25px 50px rgba(0,0,0,0.25); display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+                    <div style="padding:16px 24px; background:linear-gradient(135deg, #0ea5e9, #0284c7); display:flex; justify-content:space-between; align-items:center;">
+                        <div style="font-size:18px; font-weight:bold; color:white; display:flex; align-items:center; gap:8px;">⚙️ 自定义回复语料库</div>
+                        <button id="xy-close-reply-settings" style="background:none; border:none; font-size:20px; color:#e0f2fe; cursor:pointer; padding:0; transition:0.2s;" onmouseover="this.style.color='white'" onmouseout="this.style.color='#e0f2fe'">✖</button>
+                    </div>
+                    
+                    <div style="padding:16px 24px; background:#f0f9ff; border-bottom:1px solid #bae6fd; font-size:13px; color:#0369a1; line-height:1.6;">
+                        <strong>规则要求：</strong><br>
+                        1. 最多可保存 <strong>10</strong> 句语料，当前已存 <strong style="color:#0ea5e9;">${appState.customReplies.length}</strong> 句。<br>
+                        2. 为防被拦截，每句必须包含至少 <strong>16</strong> 个汉字。<br>
+                        3. 启用自定义功能后，每次回复将从这些句子中<strong style="color:#0ea5e9;">完全随机</strong>抽取。
+                    </div>
+
+                    <div id="xy-reply-list" style="flex:1; max-height:300px; overflow-y:auto; padding:20px 24px; background:white;">
+                        ${listHtml}
+                    </div>
+
+                    <div style="padding:20px 24px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; flex-direction:column; gap:12px;">
+                        <textarea id="xy-new-reply-text" placeholder="在此输入新的回复内容 (至少包含16个汉字)..." style="width:100%; height:90px; padding:12px; border:1px solid #cbd5e1; border-radius:10px; font-size:14px; resize:none; outline:none; transition:0.2s; box-shadow:inset 0 1px 2px rgba(0,0,0,0.05);" ${appState.customReplies.length >= 10 ? 'disabled' : ''}></textarea>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span id="xy-reply-counter" style="font-size:13px; color:#64748b; font-weight:500;">当前汉字: <span style="font-weight:bold; color:#ef4444; font-size:15px;">0</span> (需要 ≥ 16)</span>
+                            <button id="xy-add-reply-btn" style="background:${appState.customReplies.length >= 10 ? '#94a3b8' : 'linear-gradient(135deg, #0ea5e9, #0284c7)'}; color:white; border:none; padding:10px 20px; border-radius:10px; font-size:14px; font-weight:bold; cursor:${appState.customReplies.length >= 10 ? 'not-allowed' : 'pointer'}; box-shadow:0 4px 12px rgba(14,165,233,0.3); transition:0.2s;" ${appState.customReplies.length >= 10 ? 'disabled' : ''}>+ 添加入库</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function attachEvents() {
+            document.getElementById('xy-close-reply-settings').onclick = () => {
+                overlay.style.opacity = '0';
+                overlay.firstElementChild.style.transform = 'scale(0.95)';
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            const textarea = document.getElementById('xy-new-reply-text');
+            const counter = document.getElementById('xy-reply-counter');
+            const addBtn = document.getElementById('xy-add-reply-btn');
+
+            if (textarea) {
+                textarea.addEventListener('input', () => {
+                    const hanziCount = (textarea.value.match(/[\u4e00-\u9fa5]/g) || []).length;
+                    counter.innerHTML = `当前汉字: <span style="font-weight:bold; font-size:15px; color:${hanziCount >= 16 ? '#10b981' : '#ef4444'};">${hanziCount}</span> (需要 ≥ 16)`;
+                    if(hanziCount >= 16) {
+                        textarea.style.borderColor = '#10b981';
+                        textarea.style.boxShadow = '0 0 0 2px rgba(16,185,129,0.2)';
+                    } else {
+                        textarea.style.borderColor = '#cbd5e1';
+                        textarea.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.05)';
+                    }
+                });
+                
+                textarea.addEventListener('focus', () => {
+                    if((textarea.value.match(/[\u4e00-\u9fa5]/g) || []).length < 16) {
+                        textarea.style.borderColor = '#0ea5e9';
+                        textarea.style.boxShadow = '0 0 0 2px rgba(14,165,233,0.2)';
+                    }
+                });
+                textarea.addEventListener('blur', () => {
+                    if((textarea.value.match(/[\u4e00-\u9fa5]/g) || []).length < 16) {
+                        textarea.style.borderColor = '#cbd5e1';
+                        textarea.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.05)';
+                    }
+                });
+            }
+
+            if (addBtn) {
+                addBtn.onclick = () => {
+                    const text = textarea.value.trim();
+                    if (!text) return;
+                    const hanziCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+                    if (hanziCount < 16) {
+                        showModalToast('字数不足，需包含至少16个汉字！', 'error');
+                        return;
+                    }
+                    if (appState.customReplies.length >= 10) {
+                        showModalToast('已达到最大限制(10句)！', 'warning');
+                        return;
+                    }
+                    appState.customReplies.push(text);
+                    GM_setValue('xy_custom_replies', JSON.stringify(appState.customReplies));
+                    
+                    overlay.innerHTML = renderContent();
+                    attachEvents();
+                    showModalToast('语料添加成功！', 'success');
+                };
+            }
+
+            document.querySelectorAll('.xy-del-reply-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    const idx = parseInt(e.target.getAttribute('data-index'));
+                    appState.customReplies.splice(idx, 1);
+                    GM_setValue('xy_custom_replies', JSON.stringify(appState.customReplies));
+                    
+                    overlay.innerHTML = renderContent();
+                    attachEvents();
+                    showModalToast('语料已删除', 'info');
+                };
+            });
+        }
+
+        overlay.innerHTML = renderContent();
+        document.body.appendChild(overlay);
+        
+        requestAnimationFrame(() => {
+            overlay.style.opacity = '1';
+            overlay.firstElementChild.style.transform = 'scale(1)';
+        });
+        
+        attachEvents();
+    }
+
+
     function createUI() {
         if (document.getElementById('xy-super-console')) return;
         if (!document.body) { requestAnimationFrame(createUI); return; }
@@ -1398,7 +1743,6 @@
                 #xy-super-console ::-webkit-scrollbar { width: 4px; } 
                 #xy-super-console ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.4); border-radius: 4px; }
                 
-                /* 终极修复：防止在屏幕高度较小时，容器被 Flexbox 强制挤压，导致文本溢出、重叠和被遮挡的 Bug */
                 #xy-main-body > * { flex-shrink: 0 !important; }
                 
                 .xy-panel { background: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.6); border-radius: 16px; padding: 14px; margin-bottom: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); flex-shrink: 0; }
@@ -1435,13 +1779,11 @@
 
             <div id="xy-main-body" style="padding: 16px; overflow-y: auto; display: flex; flex-direction: column; flex: 1;">
                 
-                <!-- 📣 欣野云端通讯站 -->
                 <div class="xy-panel" style="padding: 0; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.4);">
                     <div id="xy-bc-toggle" style="background: linear-gradient(90deg, rgba(240,249,255,0.8), rgba(224,242,254,0.8)); padding: 10px 14px; font-size: 13px; font-weight: 700; color: #0369a1; display: flex; justify-content: space-between; cursor: pointer; user-select: none;">
                         <span>📣 欣野情报站 (系统公告)</span>
                         <span id="xy-bc-arrow" style="transition: transform 0.3s; font-size: 12px; color: #0284c7;">▼</span>
                     </div>
-                    <!-- 修复：去掉了外层元素的 padding，并适当加高了 max-height -->
                     <div id="xy-bc-content" style="font-size: 12px; color: #334155; line-height: 1.6; display: none; background: rgba(255,255,255,0.6); border-top: 1px solid rgba(56, 189, 248, 0.2); max-height: 160px; overflow-y: auto;">
                         <div style="padding: 12px 14px;">
                             <span style="color:#94a3b8; animation: pulse 1.5s infinite;">正在解析云端通讯...</span>
@@ -1507,13 +1849,14 @@
 
                 <div class="xy-panel" style="padding: 12px;">
                     <div style="font-weight:700; font-size:12px; color:#1e293b; display:flex; justify-content:space-between; margin-bottom: 8px;">
-                        <span>♻️ 定时重载与数据管理</span>
-                        <label style="font-size:11px; cursor:pointer; color:#64748b;"><input type="checkbox" id="toggle-auto-refresh" ${appState.autoRefresh ? 'checked' : ''}> 自动刷新</label>
+                        <span>♻️ 系统数据与界面控制</span>
+                        <div style="display:flex; gap: 8px;">
+                            <label style="font-size:11px; cursor:pointer; color:#64748b;"><input type="checkbox" id="toggle-refresh-panel" ${appState.showRefreshPanel ? 'checked' : ''}> ⏳ 重载视窗</label>
+                            <label style="font-size:11px; cursor:pointer; color:#64748b;"><input type="checkbox" id="toggle-terminal" ${appState.showTerminal ? 'checked' : ''}> 🖥️ 终端面板</label>
+                        </div>
                     </div>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <span style="font-size:11px; color:#64748b;">间隔(分):</span>
-                        <input type="number" id="input-refresh-interval" value="${appState.refreshInterval}" min="1" max="999" style="width:40px; padding:2px; border:1px solid #cbd5e1; border-radius:4px; font-size:11px; text-align:center; outline:none;">
-                        <div style="flex:1; display:flex; gap:6px; justify-content:flex-end;">
+                    <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end;">
+                        <div style="display:flex; gap:6px;">
                             <button class="xy-mini-btn" id="btn-clear-logs" style="font-size:11px; padding:4px 8px;">清空日志</button>
                             <button class="xy-mini-btn" id="btn-clear-progress" style="font-size:11px; padding:4px 8px; color:#dc2626;">重置时长</button>
                         </div>
@@ -1560,13 +1903,27 @@
                         <button class="xy-action-btn disc-btn" id="xy-btn-reply" style="background: #0ea5e9; flex:1;">💬 全局盲回</button>
                         <button class="xy-action-btn disc-btn" id="xy-btn-target-reply" style="background: linear-gradient(145deg, #0284c7, #0369a1); flex:1.5;">🎯 批量回复选中用户</button>
                     </div>
+                    
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding: 10px; background: rgba(240,249,255,0.6); border: 1px solid rgba(186,230,253,0.8); border-radius: 8px; margin-left: 4px; margin-right: 4px;">
+                        <label style="font-size:12px; font-weight:bold; color:#0369a1; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" id="xy-toggle-custom-reply" ${appState.useCustomReply ? 'checked' : ''} style="accent-color:#0284c7; width:14px; height:14px; cursor:pointer;"> 启用自定义语料
+                        </label>
+                        <button class="xy-mini-btn" id="xy-btn-edit-reply" style="color:#0284c7; border-color:#bae6fd; background:white; font-size:11px;">⚙️ 语料库设置</button>
+                    </div>
                 </div>
             </div>
 
-            <div style="background: #0f172a; margin-top: auto; padding: 12px; border-radius: 12px; box-shadow: inset 0 4px 10px rgba(0,0,0,0.5); flex-shrink: 0;">
+            <div style="margin-top: auto; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;">
+                <div id="xy-refresh-container" style="display: ${appState.showRefreshPanel ? 'block' : 'none'}; background: linear-gradient(145deg, #fffbeb, #fef3c7); padding: 12px; border-radius: 12px; border: 1px solid #fde68a; box-shadow: inset 0 2px 4px rgba(255,255,255,0.8);">
+                    <div style="font-size: 11px; color: #b45309; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;"><span>⏳</span> 动态重载调度器</div>
+                    <div id="xy-refresh-status" style="font-size: 13px; color: #92400e; font-weight: bold; font-family: monospace;">目前无重载任务</div>
+                </div>
+
+                <div id="xy-terminal-container" style="display: ${appState.showTerminal ? 'block' : 'none'}; background: #0f172a; padding: 12px; border-radius: 12px; box-shadow: inset 0 4px 10px rgba(0,0,0,0.5);">
                     <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;"><span style="color:#10b981; font-family:monospace;">~_</span> 终端日志</div>
                     <div id="xy-activity-log" style="height: 110px; overflow-y: auto; font-family: 'SF Mono', Consolas, monospace; font-size: 11px; display: flex; flex-direction: column; gap: 4px; color: #10b981;"></div>
                 </div>
+            </div>
 
             </div>
         `;
@@ -1582,22 +1939,18 @@
             logMsg('📡 全局雷达网持续扫描中...', 'silent', true);
         }
 
-        // --- 绑定 QQ 群号复制事件 ---
         const qqBadge = document.getElementById('xy-qq-group');
         if (qqBadge) {
             qqBadge.onclick = (e) => {
-                e.stopPropagation(); // 阻止触发面板拖拽
+                e.stopPropagation(); 
                 try {
                     const ta = document.createElement('textarea'); ta.value = '1095232169'; ta.style.position = 'fixed'; ta.style.opacity = '0';
                     document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
                     showToast('🎉 QQ群号 1095232169 已成功复制到剪贴板！', 'success');
-                } catch(err) {
-                    showToast('请手动复制 QQ群号: 1095232169', 'error');
-                }
+                } catch(err) { showToast('请手动复制 QQ群号: 1095232169', 'error'); }
             };
         }
         
-        // --- 绑定 欣野情报站 (公告) 事件 ---
         const bcToggle = document.getElementById('xy-bc-toggle');
         const bcContent = document.getElementById('xy-bc-content');
         const bcArrow = document.getElementById('xy-bc-arrow');
@@ -1609,34 +1962,61 @@
             };
         }
         
-        // --- 绑定 强制静音引擎快捷开关 ---
         const btnQuickMute = document.getElementById('xy-btn-quick-mute');
         if(btnQuickMute) {
             btnQuickMute.onclick = () => {
                 appState.hardwareMute = !appState.hardwareMute;
                 GM_setValue('xy_hw_mute', appState.hardwareMute);
                 syncHardwareMute(); 
-                
-                // 更新UI展示
                 btnQuickMute.innerHTML = appState.hardwareMute ? '🔇 强制静音: ON' : '🔊 强制静音: OFF';
                 btnQuickMute.style.background = appState.hardwareMute ? '#14b8a6' : '#94a3b8';
-                
-                // 即刻作用到 DOM 节点
-                document.querySelectorAll('video, audio').forEach(m => {
-                    m.muted = appState.hardwareMute;
-                });
-                
+                document.querySelectorAll('video, audio').forEach(m => { m.muted = appState.hardwareMute; });
                 logMsg(`🔕 底层音轨强制拦截引擎已${appState.hardwareMute ? '启动' : '关闭'}！`, appState.hardwareMute ? 'success' : 'warning', false);
             };
         }
 
-        // --- 刷课模块事件 ---
         const toggleAi = document.getElementById('toggle-ai-mode'); if(toggleAi) toggleAi.onchange = (e) => { appState.aiMode = e.target.checked; GM_setValue('xy_ai_mode', appState.aiMode); };
         const toggleVideo = document.getElementById('toggle-video-submit'); if(toggleVideo) toggleVideo.onchange = (e) => { appState.videoAutoSubmit = e.target.checked; GM_setValue('xy_video_submit', appState.videoAutoSubmit); };
         const toggleDoc = document.getElementById('toggle-doc-batch'); if(toggleDoc) toggleDoc.onchange = (e) => { appState.docBatchSubmit = e.target.checked; GM_setValue('xy_doc_batch', appState.docBatchSubmit); };
-        const toggleAutoRefresh = document.getElementById('toggle-auto-refresh'); if (toggleAutoRefresh) toggleAutoRefresh.onchange = (e) => { appState.autoRefresh = e.target.checked; GM_setValue('xy_auto_refresh', appState.autoRefresh); setupAutoRefresh(); };
-        const inputRefreshInterval = document.getElementById('input-refresh-interval'); if (inputRefreshInterval) inputRefreshInterval.onchange = (e) => { let val = parseInt(e.target.value); if (isNaN(val) || val <= 0) val = 30; appState.refreshInterval = val; GM_setValue('xy_refresh_interval', appState.refreshInterval); setupAutoRefresh(); };
         
+        // 刷新视窗显示开关事件
+        const toggleRefresh = document.getElementById('toggle-refresh-panel');
+        if (toggleRefresh) {
+            toggleRefresh.onchange = (e) => {
+                appState.showRefreshPanel = e.target.checked;
+                GM_setValue('xy_show_refresh_panel', appState.showRefreshPanel);
+                const refBox = document.getElementById('xy-refresh-container');
+                if (refBox) refBox.style.display = appState.showRefreshPanel ? 'block' : 'none';
+            };
+        }
+
+        // 终端显示开关事件
+        const toggleTerminal = document.getElementById('toggle-terminal');
+        if (toggleTerminal) {
+            toggleTerminal.onchange = (e) => {
+                appState.showTerminal = e.target.checked;
+                GM_setValue('xy_show_terminal', appState.showTerminal);
+                const termBox = document.getElementById('xy-terminal-container');
+                if (termBox) termBox.style.display = appState.showTerminal ? 'block' : 'none';
+            };
+        }
+
+        const toggleCustomReply = document.getElementById('xy-toggle-custom-reply');
+        if (toggleCustomReply) {
+            toggleCustomReply.onchange = (e) => {
+                appState.useCustomReply = e.target.checked;
+                GM_setValue('xy_use_custom_reply', appState.useCustomReply);
+                logMsg(e.target.checked ? '✅ 已启用自定义回复语料' : '⏸️ 已切换回默认回复', 'info', true);
+            };
+        }
+
+        const btnEditReply = document.getElementById('xy-btn-edit-reply');
+        if (btnEditReply) {
+            btnEditReply.onclick = () => {
+                openReplySettingsModal();
+            };
+        }
+
         document.getElementById('btn-manual-refresh').onclick = () => { logMsg('🔄 手动重载页面...', 'warning', false); setTimeout(() => window.location.reload(), 500); };
         document.getElementById('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
         document.getElementById('btn-clear-progress').onclick = () => { appState.recordCount = 0; appState.totalTime = 0; appState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
@@ -1649,14 +2029,8 @@
         document.getElementById('xy-btn-dashboard').onclick = openGlobalTaskDashboard;
         document.getElementById('xy-btn-dashboard-standby').onclick = openGlobalTaskDashboard;
 
-        // --- 讨论模块事件 ---
         const toggleDomScan = document.getElementById('xy-toggle-dom-scan');
-        if(toggleDomScan) {
-            toggleDomScan.onchange = (e) => { 
-                appState.enableDomScan = e.target.checked;
-                logMsg(e.target.checked ? '✅ 智能DOM提取已开启' : '⏸️ 智能DOM提取已暂停', 'info', true);
-            };
-        }
+        if(toggleDomScan) { toggleDomScan.onchange = (e) => { appState.enableDomScan = e.target.checked; logMsg(e.target.checked ? '✅ 智能DOM提取已开启' : '⏸️ 智能DOM提取已暂停', 'info', true); }; }
 
         document.getElementById('xy-btn-like').onclick = () => autoLikeAction(false);
         document.getElementById('xy-btn-target-like').onclick = () => autoLikeAction(true);
@@ -1664,17 +2038,13 @@
         document.getElementById('xy-btn-target-reply').onclick = () => autoReplyAction(true);
         document.getElementById('xy-btn-select-all').onclick = () => { 
             appState.selectedNames.clear();
-            for(let i = 0; i < Math.min(appState.targetNames.length, 15); i++) {
-                appState.selectedNames.add(appState.targetNames[i]);
-            }
+            for(let i = 0; i < Math.min(appState.targetNames.length, 15); i++) { appState.selectedNames.add(appState.targetNames[i]); }
             renderTargetList(document.getElementById('xy-name-search')?.value || '');
             showToast('已智能全选前15名 (安全限制上限)', 'success');
             logMsg('已全选（触发点赞安全人数限制：最多15人）', 'silent', true); 
         };
         document.getElementById('xy-btn-deselect-all').onclick = () => { 
-            appState.selectedNames.clear();
-            renderTargetList(document.getElementById('xy-name-search')?.value || '');
-            logMsg('已清空勾选', 'silent', true); 
+            appState.selectedNames.clear(); renderTargetList(document.getElementById('xy-name-search')?.value || ''); logMsg('已清空勾选', 'silent', true); 
         };
         document.getElementById('xy-btn-copy-names').onclick = () => {
             const names = Array.from(appState.selectedNames).join('\n');
@@ -1702,31 +2072,22 @@
         };
         
         const searchInput = document.getElementById('xy-name-search');
-        if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                renderTargetList(e.target.value);
-            });
-        }
+        if (searchInput) searchInput.addEventListener('input', (e) => { renderTargetList(e.target.value); });
 
         const listContainer = document.getElementById('xy-target-list');
         listContainer.addEventListener('change', (e) => {
             if(e.target.classList.contains('xy-target-checkbox')) {
                 if(e.target.checked) {
                     if (appState.selectedNames.size >= 15) {
-                        e.target.checked = false; // 防护：强制回弹
+                        e.target.checked = false;
                         showToast('为防风控，最多只允许勾选15个点赞目标！', 'warning');
-                    } else {
-                        appState.selectedNames.add(e.target.value);
-                    }
-                } else {
-                    appState.selectedNames.delete(e.target.value);
-                }
+                    } else { appState.selectedNames.add(e.target.value); }
+                } else { appState.selectedNames.delete(e.target.value); }
                 updateCheckedCount();
             }
         });
         renderTargetList();
 
-        // --- UI 拖拽与折叠 ---
         const handle = document.getElementById('xy-drag-handle'), minBtn = document.getElementById('xy-minimize'), body = document.getElementById('xy-main-body');
         let isMin = false; minBtn.onclick = () => { isMin = !isMin; body.style.display = isMin ? 'none' : 'flex'; minBtn.innerText = isMin ? '➕' : '➖'; };
 
@@ -1772,7 +2133,7 @@
         });
 
         syncHardwareMute();
-        fetchCloudIntelligence(); // 首次启动拉取最新系统公告
+        fetchCloudIntelligence(); 
     }
 
     // ==========================================
@@ -1995,7 +2356,6 @@
     function ensureUI() {
         if (!document.getElementById('xy-super-console')) { createUI(); appState.isTaskCompleted = false; }
         
-        // 触发底层雷达 (不阻塞主线程)
         runLowLevelScanner().then(() => {
             updateCourseUI(); 
             updateDiscUI(); 
