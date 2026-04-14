@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         欣野（小雅辅助工具）
-// @version      2.3.0
+// @version      2.3.1
 // @description  「欣野」✨ 小雅网页版终极效率外挂！双核驱动刷课+讨论区自动点赞～ 刷课智能防卡、循环连播、心跳加密🥳；点赞精准狙击、API抓名单、仿生间隔超安全🎯！致敬前辈 zygame1314 ❤️，一个面板全搞定，效率拉满🚀！
 // @author       xinye (Fixed by Gemini)
 // @license      MIT
@@ -184,10 +184,13 @@
             toggleRecord(false); 
         }
         
+        // 核心修复：进入待命区或讨论区时，立刻销毁动态重载调度器
         if (newZone === 'standby' || newZone === 'disc') {
             clearDynamicRefresh();
+            lastRefreshStrategy = 'none';
         }
         
+        // 确保主UI面板本体不会被隐藏
         const superConsole = document.getElementById('xy-super-console');
         if (superConsole) {
             superConsole.style.display = 'flex';
@@ -406,8 +409,8 @@
     }
 
     function checkDynamicRefresh() {
-        // 如果处于待命区/讨论区，无条件拦截并清空倒计时
-        if (appState.activeZone !== 'course') {
+        // 如果处于待命区/讨论区，或者是手动休眠模式，无条件拦截并强制清空倒计时
+        if (appState.activeZone !== 'course' || appState.mode === 'manual') {
             if (lastRefreshStrategy !== 'none' || dynamicRefreshTimeoutId) { 
                 clearDynamicRefresh(); 
             }
@@ -454,17 +457,6 @@
             } else if (currentTaskType === 'doc') {
                 if (lastRefreshStrategy !== 'sequence_doc') {
                     lastRefreshStrategy = 'sequence_doc';
-                    scheduleDynamicRefresh(15 * 60 * 1000, `文档挂机防卡死`);
-                }
-            } else {
-                if (lastRefreshStrategy !== 'none') {
-                    clearDynamicRefresh(); 
-                }
-            }
-        } else {
-            if (currentTaskType === 'doc') {
-                if (lastRefreshStrategy !== 'manual_doc') {
-                    lastRefreshStrategy = 'manual_doc';
                     scheduleDynamicRefresh(15 * 60 * 1000, `文档挂机防卡死`);
                 }
             } else {
@@ -889,7 +881,7 @@
     setInterval(async () => {
         await runLowLevelScanner(); 
 
-        // 🔥 核心修复：将清理检测提到最外层，100%保证进入非刷课页面就直接销毁倒计时
+        // 🔥 核心修复：将清理检测提到最外层，100%保证进入非刷课页面或手动休眠就会直接销毁倒计时
         checkDynamicRefresh();
 
         if (appState.activeZone !== 'course') {
@@ -2021,7 +2013,13 @@
         document.getElementById('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
         document.getElementById('btn-clear-progress').onclick = () => { appState.recordCount = 0; appState.totalTime = 0; appState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
 
-        document.getElementById('btn-mode-man').onclick = () => { appState.mode = 'manual'; GM_setValue('xy_play_mode', 'manual'); logMsg('已暂停，切入手动模式', 'success'); updateCourseUI(); };
+        document.getElementById('btn-mode-man').onclick = () => { 
+            appState.mode = 'manual'; 
+            GM_setValue('xy_play_mode', 'manual'); 
+            clearDynamicRefresh(); // 🔥一点击立马强停重载
+            logMsg('已暂停，且已强制停止所有重载任务', 'success'); 
+            updateCourseUI(); 
+        };
         document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } appState.mode = 'loop'; GM_setValue('xy_play_mode', 'loop'); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
         document.getElementById('btn-mode-seq').onclick = () => { appState.mode = 'sequence'; GM_setValue('xy_play_mode', 'sequence'); logMsg('🚀 连播破壁引擎开启，特种规则接管文档与防拖拽', 'success'); updateCourseUI(); if (!getCourseGroupId()) tryJumpToNext(); else globalTaskStatusChecker(true); };
         
