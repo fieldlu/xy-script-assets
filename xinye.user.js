@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         欣野（小雅辅助工具）
+// @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      2.3.3
-// @description  「欣野」✨ 小雅网页版终极效率外挂！双核驱动刷课+讨论区自动点赞～ 刷课智能防卡、循环连播、心跳加密🥳；点赞精准狙击、API抓名单、仿生间隔超安全🎯！致敬前辈 zygame1314 ❤️，一个面板全搞定，效率拉满🚀！
-// @author       xinye (Fixed by Gemini)
+// @version      2.4.0
+// @description  「小雅辅助工具」✨ 小雅网页版终极效率外挂！双核驱动刷课+讨论区自动点赞～ 刷课智能防卡、循环连播、心跳加密🥳；点赞精准狙击、API抓名单、仿生间隔超安全🎯！致敬前辈 zygame1314 ❤️，一个面板全搞定，效率拉满🚀！
+// @author       Gemini
 // @license      MIT
 // @match        https://*.ai-augmented.com/*
 // @run-at       document-start
@@ -12,12 +12,16 @@
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
 // @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/xinye.user.js
+// @downloadURL  https://gitee.com/fieldlu/xy-script-assets/raw/main/xinye.user.js
 // @icon         data:image/png;base64,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
 
 // ==/UserScript==
 
 (function () {
     'use strict';
+
+    // 彻底动态化：读取头部 @version，无任何写死的数字，以后发版只需改头部注释即可！
+    const SCRIPT_VERSION = typeof GM_info !== 'undefined' ? GM_info.script.version : '未知';
 
     const domain = window.location.hostname;
 
@@ -294,18 +298,18 @@
     // ==========================================
     function xyShowModal(title, message, onConfirm = null) {
         const modal = document.createElement('div');
-        modal.style.cssText = `position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 2147483647; opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); backdrop-filter: blur(8px); padding: 20px;`;
+        modal.style.cssText = `position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2147483647; opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); backdrop-filter: blur(10px); padding: 20px;`;
         const content = document.createElement('div');
         content.innerHTML = `
-            <div style="background: linear-gradient(145deg, rgba(255,255,255,0.98), rgba(249,250,251,0.98)); border-radius: 20px; min-width: 400px; max-width: 90%; padding: 28px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border: 1px solid rgba(255,255,255,0.8); transform: scale(0.95); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden;">
-                <div style="position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, #ef4444, #f87171); opacity: 0.8;"></div>
-                <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 16px;">
-                    <div style="width: 48px; height: 48px; border-radius: 16px; background: linear-gradient(145deg, #fee2e2, #fecaca); display: flex; align-items: center; justify-content: center; font-size: 24px;">⚠️</div>
-                    <h3 style="margin: 0; color: #991b1b; font-size: 20px; font-weight: 600;">${title}</h3>
+            <div style="background: linear-gradient(145deg, #ffffff, #f8fafc); border-radius: 24px; min-width: 420px; max-width: 90%; padding: 32px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.15); border: 1px solid rgba(255,255,255,0.8); transform: scale(0.95); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; left: 0; right: 0; height: 6px; background: linear-gradient(90deg, #ef4444, #f87171); opacity: 0.9;"></div>
+                <div style="margin-bottom: 24px; display: flex; align-items: center; gap: 16px;">
+                    <div style="width: 52px; height: 52px; border-radius: 16px; background: linear-gradient(145deg, #fee2e2, #fecaca); display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: inset 0 2px 4px rgba(255,255,255,0.5);">⚠️</div>
+                    <h3 style="margin: 0; color: #7f1d1d; font-size: 22px; font-weight: 700; letter-spacing: 0.5px;">${title}</h3>
                 </div>
-                <div style="color: #7f1d1d; line-height: 1.7; margin-bottom: 28px; font-size: 15px; background: rgba(254,226,226,0.5); padding: 20px; border-radius: 16px; border: 1px solid rgba(239,68,68,0.2);">${message}</div>
+                <div style="color: #991b1b; line-height: 1.8; margin-bottom: 32px; font-size: 16px; background: rgba(254,226,226,0.4); padding: 24px; border-radius: 16px; border: 1px solid rgba(239,68,68,0.15);">${message}</div>
                 <div style="display: flex; justify-content: flex-end; gap: 16px;">
-                    <button class="modal-confirm" style="padding: 10px 24px; border: none; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; background: linear-gradient(145deg, #ef4444, #dc2626); color: white; box-shadow: 0 4px 12px rgba(220,38,38,0.3); transition: 0.2s;">我知道了</button>
+                    <button class="modal-confirm" style="padding: 12px 28px; border: none; border-radius: 14px; font-size: 15px; font-weight: 700; cursor: pointer; background: linear-gradient(145deg, #ef4444, #dc2626); color: white; box-shadow: 0 6px 16px rgba(220,38,38,0.25); transition: all 0.2s;">我知道了</button>
                 </div>
             </div>`;
         modal.appendChild(content); document.body.appendChild(modal);
@@ -319,10 +323,10 @@
         const colors = { success: { bg: 'linear-gradient(145deg, #10b981, #059669)', icon: '🎉' }, warning: { bg: 'linear-gradient(145deg, #f59e0b, #d97706)', icon: '⚠️' }, error: { bg: 'linear-gradient(145deg, #ef4444, #dc2626)', icon: '❌' }, info: { bg: 'linear-gradient(145deg, #3b82f6, #2563eb)', icon: 'ℹ️' } };
         const currentType = colors[type] || colors.info;
         let container = document.getElementById('xy-toast-box');
-        if (!container) { container = document.createElement('div'); container.id = 'xy-toast-box'; container.style.cssText = `position:fixed; top:24px; left:50%; transform:translateX(-50%); z-index:9999999; display:flex; flex-direction:column; gap:12px; pointer-events:none;`; document.body.appendChild(container); }
+        if (!container) { container = document.createElement('div'); container.id = 'xy-toast-box'; container.style.cssText = `position:fixed; top:32px; left:50%; transform:translateX(-50%); z-index:9999999; display:flex; flex-direction:column; gap:16px; pointer-events:none;`; document.body.appendChild(container); }
         const toast = document.createElement('div');
-        toast.style.cssText = `background:${currentType.bg}; color:white; padding:14px 20px; border-radius:12px; font-weight:bold; font-size:14px; box-shadow:0 10px 25px rgba(0,0,0,0.2); transition:all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-30px) scale(0.9); backdrop-filter: blur(8px); display:flex; align-items:center; overflow:hidden; position:relative;`;
-        toast.innerHTML = `<span style="margin-right:10px; font-size:18px;">${currentType.icon}</span><span style="flex:1; z-index:1;">${msg}</span><div style="position:absolute; bottom:0; left:0; height:3px; background:rgba(255,255,255,0.4); width:100%; transform-origin:left; animation: xy-toast-progress 3s linear forwards;"></div>`;
+        toast.style.cssText = `background:${currentType.bg}; color:white; padding:16px 24px; border-radius:14px; font-weight:bold; font-size:15px; box-shadow:0 12px 30px rgba(0,0,0,0.25); transition:all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-30px) scale(0.9); backdrop-filter: blur(10px); display:flex; align-items:center; overflow:hidden; position:relative; letter-spacing: 0.5px;`;
+        toast.innerHTML = `<span style="margin-right:12px; font-size:20px;">${currentType.icon}</span><span style="flex:1; z-index:1; line-height: 1.4;">${msg}</span><div style="position:absolute; bottom:0; left:0; height:4px; background:rgba(255,255,255,0.4); width:100%; transform-origin:left; animation: xy-toast-progress 3s linear forwards;"></div>`;
         container.appendChild(toast);
         if(!document.getElementById('xy-toast-style')) { const style = document.createElement('style'); style.id = 'xy-toast-style'; style.innerHTML = `@keyframes xy-toast-progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }`; document.head.appendChild(style); }
         requestAnimationFrame(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0) scale(1)'; });
@@ -330,7 +334,7 @@
     }
 
     function logMsg(msg, type = 'info', isSilent = false) {
-        const colors = { success: '#10b981', warning: '#f59e0b', error: '#ef4444', info: '#38bdf8', silent: '#64748b' };
+        const colors = { success: '#10b981', warning: '#f59e0b', error: '#ef4444', info: '#38bdf8', silent: '#94a3b8' };
         const color = isSilent ? colors.silent : (colors[type] || colors.info);
         const time = new Date().toLocaleTimeString('zh-CN', {hour12: false});
         const logStr = `[${time}] ${msg}`;
@@ -339,7 +343,7 @@
         sessionStorage.setItem('xy_session_logs', JSON.stringify(sessionLogs));
         const logBox = document.getElementById('xy-activity-log');
         if (logBox) {
-            const el = document.createElement('div'); el.style.color = color; el.innerText = logStr; logBox.appendChild(el);
+            const el = document.createElement('div'); el.style.color = color; el.style.marginBottom = '4px'; el.style.lineHeight = '1.5'; el.innerText = logStr; logBox.appendChild(el);
             logBox.scrollTop = logBox.scrollHeight;
             if (logBox.children.length > 80) logBox.removeChild(logBox.firstChild);
         }
@@ -1370,14 +1374,14 @@
     }
 
     // ==========================================
-    // ☁️ 欣野云端情报站 (系统公告) 
+    // ☁️ 小雅辅助工具云端情报站 (系统公告) 
     // ==========================================
     function fetchCloudIntelligence() {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
         
         const timestamp = Date.now();
-        const url = `https://gitee.com/fieldlu/xy-script-assets/raw/main/notice.json?t=${timestamp}`;
+        const url = `https://gitee.com/fieldlu/xy-script-assets/raw/main/notice_new.json?t=${timestamp}`;
 
         try {
             if (typeof GM_xmlhttpRequest !== "undefined") {
@@ -1392,33 +1396,33 @@
                             try {
                                 const realData = JSON.parse(response.responseText);
                                 contentBox.innerHTML = `
-                                    <div style="padding: 12px 14px 16px 14px;">
-                                        <div style="font-weight:bold; color:#0f172a; margin-bottom:8px; font-size: 13px;">${realData.title || '系统公告'}</div>
-                                        <ul style="margin:0; padding-left:16px; color:#475569;">
-                                            ${(realData.items || []).map(item => `<li style="margin-bottom:6px;">${item}</li>`).join('')}
+                                    <div style="padding: 16px 20px;">
+                                        <div style="font-weight:bold; color:#0f172a; margin-bottom:12px; font-size: 14px;">${realData.title || '系统公告'}</div>
+                                        <ul style="margin:0; padding-left:18px; color:#475569; line-height: 1.6;">
+                                            ${(realData.items || []).map(item => `<li style="margin-bottom:8px;">${item}</li>`).join('')}
                                         </ul>
                                     </div>
                                 `;
-                            } catch (err) { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败 (数据格式异常)。</div>`; }
-                        } else { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败 (状态码: ${response.status})。</div>`; }
+                            } catch (err) { contentBox.innerHTML = `<div style="padding: 16px 20px; color:#ef4444;">获取云端情报失败 (数据格式异常)。</div>`; }
+                        } else { contentBox.innerHTML = `<div style="padding: 16px 20px; color:#ef4444;">获取云端情报失败 (状态码: ${response.status})。</div>`; }
                     },
-                    onerror: function(err) { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报网络异常，请检查网络连接。</div>`; },
-                    ontimeout: function() { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报超时，服务器可能正忙。</div>`; }
+                    onerror: function(err) { contentBox.innerHTML = `<div style="padding: 16px 20px; color:#ef4444;">获取云端情报网络异常，请检查网络连接。</div>`; },
+                    ontimeout: function() { contentBox.innerHTML = `<div style="padding: 16px 20px; color:#ef4444;">获取云端情报超时，服务器可能正忙。</div>`; }
                 });
             } else {
                 fetch(url, { cache: 'no-store' }).then(res => res.json()).then(realData => {
                      contentBox.innerHTML = `
-                        <div style="padding: 12px 14px 16px 14px;">
-                            <div style="font-weight:bold; color:#0f172a; margin-bottom:8px; font-size: 13px;">${realData.title || '系统公告'}</div>
-                            <ul style="margin:0; padding-left:16px; color:#475569;">
-                                ${(realData.items || []).map(item => `<li style="margin-bottom:6px;">${item}</li>`).join('')}
+                        <div style="padding: 16px 20px;">
+                            <div style="font-weight:bold; color:#0f172a; margin-bottom:12px; font-size: 14px;">${realData.title || '系统公告'}</div>
+                            <ul style="margin:0; padding-left:18px; color:#475569; line-height: 1.6;">
+                                ${(realData.items || []).map(item => `<li style="margin-bottom:8px;">${item}</li>`).join('')}
                             </ul>
                         </div>
                     `;
-                }).catch(e => { contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报失败，且当前环境不支持跨域请求。</div>`; });
+                }).catch(e => { contentBox.innerHTML = `<div style="padding: 16px 20px; color:#ef4444;">获取云端情报失败，且当前环境不支持跨域请求。</div>`; });
             }
         } catch (e) {
-            contentBox.innerHTML = `<div style="padding: 12px 14px; color:#ef4444;">获取云端情报时发生了不可预知的错误。</div>`;
+            contentBox.innerHTML = `<div style="padding: 16px 20px; color:#ef4444;">获取云端情报时发生了不可预知的错误。</div>`;
         }
     }
 
@@ -1433,32 +1437,32 @@
         if (statusBanner) {
             if (appState.mode === 'manual') { 
                 statusBanner.innerHTML = `<span style="color:#475569;">⏸️ 挂机休眠中</span>`; 
-                statusBanner.style.background = 'rgba(241, 245, 249, 0.6)'; 
-                statusBanner.style.borderColor = 'rgba(226,232,240,0.6)'; 
+                statusBanner.style.background = 'rgba(241, 245, 249, 0.8)'; 
+                statusBanner.style.borderColor = 'rgba(226,232,240,0.8)'; 
             } 
             else if (!getCourseGroupId()) {
                 if (appState.mode === 'sequence' && Date.now() < appState.jumpSleepUntil) {
                     let leftMin = Math.ceil((appState.jumpSleepUntil - Date.now()) / 60000);
                     statusBanner.innerHTML = `<span style="color:#b45309;">💤 寻路深度休眠 (约 ${leftMin} 分钟后重载探测)</span>`; 
-                    statusBanner.style.background = 'rgba(254, 243, 197, 0.6)'; 
-                    statusBanner.style.borderColor = 'rgba(253,230,138,0.6)'; 
+                    statusBanner.style.background = 'rgba(254, 243, 197, 0.8)'; 
+                    statusBanner.style.borderColor = 'rgba(253,230,138,0.8)'; 
                 } else {
                     statusBanner.innerHTML = `<span style="color:#4338ca;">🌐 雷达系统扫描中...</span>`; 
-                    statusBanner.style.background = 'rgba(224, 231, 255, 0.6)'; 
-                    statusBanner.style.borderColor = 'rgba(199,210,254,0.6)'; 
+                    statusBanner.style.background = 'rgba(224, 231, 255, 0.8)'; 
+                    statusBanner.style.borderColor = 'rgba(199,210,254,0.8)'; 
                 }
             } 
             else if (appState.isTaskCompleted) { 
                 statusBanner.innerHTML = appState.mode === 'loop' 
                     ? `<span style="color:#047857;">✅ 已达标 (持续安全循环中)</span>` 
                     : `<span style="color:#047857;">✅ 已达标 (即将自动跳转)</span>`; 
-                statusBanner.style.background = 'rgba(209, 250, 229, 0.6)'; 
-                statusBanner.style.borderColor = 'rgba(167,243,208,0.6)'; 
+                statusBanner.style.background = 'rgba(209, 250, 229, 0.8)'; 
+                statusBanner.style.borderColor = 'rgba(167,243,208,0.8)'; 
             } 
             else { 
                 statusBanner.innerHTML = `<span style="color:#b45309;">⏳ 引擎防封运作中...</span>`; 
-                statusBanner.style.background = 'rgba(254, 243, 197, 0.6)'; 
-                statusBanner.style.borderColor = 'rgba(253,230,138,0.6)'; 
+                statusBanner.style.background = 'rgba(254, 243, 197, 0.8)'; 
+                statusBanner.style.borderColor = 'rgba(253,230,138,0.8)'; 
             }
         }
         ['man', 'loop', 'seq'].forEach(m => { const btn = document.getElementById(`btn-mode-${m}`); if(btn) btn.className = `xy-mode-btn ${appState.mode === (m==='man'?'manual':m==='loop'?'loop':'sequence') ? 'active' : ''}`; });
@@ -1474,8 +1478,8 @@
         if (appState.activeZone !== 'disc') return;
         const statusEl = document.getElementById('xy-disc-status');
         if (statusEl) {
-            if (appState.discussionId) { statusEl.innerHTML = `<span style="color:#047857;">✅ 已锁定讨论区：${appState.discussionId.substring(0,8)}...</span>`; statusEl.style.background = 'rgba(209, 250, 229, 0.6)'; document.querySelectorAll('.xy-action-btn.disc-btn').forEach(b => b.style.opacity = '1'); } 
-            else { statusEl.innerHTML = `<span style="color:#b45309;">⚠️ 请在讨论区内刷新页面 (或随意点击评论) 触发网络包获取ID</span>`; statusEl.style.background = 'rgba(254, 243, 197, 0.6)'; }
+            if (appState.discussionId) { statusEl.innerHTML = `<span style="color:#047857;">✅ 已锁定讨论区：${appState.discussionId.substring(0,8)}...</span>`; statusEl.style.background = 'rgba(209, 250, 229, 0.8)'; document.querySelectorAll('.xy-action-btn.disc-btn').forEach(b => b.style.opacity = '1'); } 
+            else { statusEl.innerHTML = `<span style="color:#b45309;">⚠️ 请在讨论区内刷新页面 (或随意点击评论) 触发网络包获取ID</span>`; statusEl.style.background = 'rgba(254, 243, 197, 0.8)'; }
         }
     }
 
@@ -1490,7 +1494,7 @@
         const listDiv = document.getElementById('xy-target-list'); if (!listDiv) return;
         
         if (appState.targetNames.length === 0) { 
-            listDiv.innerHTML = '<div style="color:#94a3b8; font-size:12px; text-align:center; padding:16px 0; grid-column: 1 / -1;">✨ 正在等待或自动全量扫描中...</div>'; 
+            listDiv.innerHTML = '<div style="color:#94a3b8; font-size:13px; text-align:center; padding:24px 0; grid-column: 1 / -1; letter-spacing: 0.5px;">✨ 正在等待或自动全量扫描中...</div>'; 
             updateCheckedCount();
             return; 
         }
@@ -1503,24 +1507,24 @@
         }
     
         if (displayNames.length === 0) {
-            listDiv.innerHTML = '<div style="color:#94a3b8; font-size:12px; text-align:center; padding:16px 0; grid-column: 1 / -1;">无匹配的结果，尝试换个词？</div>';
+            listDiv.innerHTML = '<div style="color:#94a3b8; font-size:13px; text-align:center; padding:24px 0; grid-column: 1 / -1; letter-spacing: 0.5px;">无匹配的结果，尝试换个词？</div>';
             return;
         }
     
-        let html = `<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;">`;
+        let html = `<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;">`;
         displayNames.forEach((name) => { 
             let displayNameHtml = name;
             if (terms.length > 0) {
                 terms.forEach(term => {
                     const regex = new RegExp(`(${term})`, 'gi');
-                    displayNameHtml = displayNameHtml.replace(regex, `<span style="background-color: #fde047; color: #854d0e; font-weight: bold; border-radius: 2px; padding: 0 2px;">$1</span>`);
+                    displayNameHtml = displayNameHtml.replace(regex, `<span style="background-color: #fde047; color: #854d0e; font-weight: bold; border-radius: 4px; padding: 0 4px;">$1</span>`);
                 });
             }
             const isChecked = appState.selectedNames.has(name);
             html += `
-                <label class="xy-target-item" title="${name}" style="background: white; box-shadow: 0 1px 2px rgba(0,0,0,0.05); padding: 8px 10px; border-radius: 8px; display: flex; align-items: center; gap: 8px; cursor: pointer; border: 1px solid #e2e8f0; transition: all 0.2s;">
-                    <input type="checkbox" class="xy-target-checkbox" value="${name}" ${isChecked ? 'checked' : ''} style="accent-color: #4f46e5; flex-shrink: 0; width: 14px; height: 14px; cursor: pointer;">
-                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size: 13px; color: #334155; user-select: none;">${displayNameHtml}</span>
+                <label class="xy-target-item" title="${name}" style="background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.02); padding: 10px 12px; border-radius: 10px; display: flex; align-items: center; gap: 10px; cursor: pointer; border: 1px solid #e2e8f0; transition: all 0.2s;">
+                    <input type="checkbox" class="xy-target-checkbox" value="${name}" ${isChecked ? 'checked' : ''} style="accent-color: #4f46e5; flex-shrink: 0; width: 16px; height: 16px; cursor: pointer;">
+                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size: 14px; color: #334155; user-select: none;">${displayNameHtml}</span>
                 </label>
             `; 
         });
@@ -1538,7 +1542,7 @@
         
         overlay = document.createElement('div');
         overlay.id = 'xy-reply-settings-overlay';
-        overlay.style.cssText = `position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15, 23, 42, 0.6); z-index:2147483646; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(6px); opacity:0; transition:opacity 0.3s;`;
+        overlay.style.cssText = `position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15, 23, 42, 0.6); z-index:2147483646; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(8px); opacity:0; transition:opacity 0.3s;`;
         
         function showModalToast(msg, type = 'info') {
             const modalBody = overlay.firstElementChild;
@@ -1548,7 +1552,7 @@
             if (!toastContainer) {
                 toastContainer = document.createElement('div');
                 toastContainer.id = 'xy-modal-toast-container';
-                toastContainer.style.cssText = `position:absolute; top:24px; left:50%; transform:translateX(-50%); z-index:99999; display:flex; flex-direction:column; gap:8px; pointer-events:none;`;
+                toastContainer.style.cssText = `position:absolute; top:32px; left:50%; transform:translateX(-50%); z-index:99999; display:flex; flex-direction:column; gap:12px; pointer-events:none;`;
                 modalBody.appendChild(toastContainer);
             }
             
@@ -1561,8 +1565,8 @@
             const currentType = colors[type] || colors.info;
             
             const toast = document.createElement('div');
-            toast.style.cssText = `background:${currentType.bg}; color:${currentType.color}; border: 1px solid ${currentType.border}; padding:10px 16px; border-radius:10px; font-weight:bold; font-size:13px; box-shadow:0 10px 25px rgba(0,0,0,0.15); transition:all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-20px) scale(0.9); display:flex; align-items:center; backdrop-filter: blur(8px); white-space: nowrap;`;
-            toast.innerHTML = `<span style="margin-right:8px; font-size:16px;">${currentType.icon}</span><span>${msg}</span>`;
+            toast.style.cssText = `background:${currentType.bg}; color:${currentType.color}; border: 1px solid ${currentType.border}; padding:14px 20px; border-radius:12px; font-weight:bold; font-size:14px; box-shadow:0 12px 30px rgba(0,0,0,0.15); transition:all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-20px) scale(0.9); display:flex; align-items:center; backdrop-filter: blur(8px); white-space: nowrap; letter-spacing: 0.5px;`;
+            toast.innerHTML = `<span style="margin-right:10px; font-size:18px;">${currentType.icon}</span><span>${msg}</span>`;
             toastContainer.appendChild(toast);
             
             requestAnimationFrame(() => {
@@ -1580,17 +1584,17 @@
         function renderContent() {
             let listHtml = '';
             if (appState.customReplies.length === 0) {
-                listHtml = `<div style="text-align:center; color:#94a3b8; padding:30px 20px; font-size:14px;">空空如也，请在下方添加语料</div>`;
+                listHtml = `<div style="text-align:center; color:#94a3b8; padding:40px 20px; font-size:15px; letter-spacing: 0.5px;">空空如也，请在下方添加语料</div>`;
             } else {
                 appState.customReplies.forEach((text, index) => {
                     let hanziCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
                     let isOk = hanziCount >= 16;
                     listHtml += `
-                        <div style="background:#f8fafc; border:1px solid ${isOk ? '#e2e8f0' : '#fca5a5'}; border-radius:10px; padding:12px; margin-bottom:12px; position:relative; display:flex; gap:12px; align-items:center; box-shadow:0 1px 3px rgba(0,0,0,0.02);">
-                            <div style="flex:1; font-size:13px; color:#334155; line-height:1.6;">${text}</div>
-                            <div style="display:flex; flex-direction:column; justify-content:center; align-items:flex-end; gap:6px;">
-                                <span style="font-size:11px; font-weight:bold; color:${isOk ? '#10b981' : '#ef4444'};">${hanziCount} 汉字</span>
-                                <button class="xy-del-reply-btn" data-index="${index}" style="background:#fee2e2; color:#ef4444; border:none; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold; transition:0.2s;" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter='none'">删除</button>
+                        <div style="background:#f8fafc; border:1px solid ${isOk ? '#e2e8f0' : '#fca5a5'}; border-radius:12px; padding:16px; margin-bottom:16px; position:relative; display:flex; gap:16px; align-items:center; box-shadow:0 2px 6px rgba(0,0,0,0.02); transition: all 0.2s;">
+                            <div style="flex:1; font-size:14px; color:#334155; line-height:1.7;">${text}</div>
+                            <div style="display:flex; flex-direction:column; justify-content:center; align-items:flex-end; gap:8px;">
+                                <span style="font-size:12px; font-weight:bold; color:${isOk ? '#10b981' : '#ef4444'};">${hanziCount} 汉字</span>
+                                <button class="xy-del-reply-btn" data-index="${index}" style="background:#fee2e2; color:#ef4444; border:none; padding:6px 14px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:bold; transition:0.2s;" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter='none'">删除</button>
                             </div>
                         </div>
                     `;
@@ -1598,28 +1602,28 @@
             }
 
             return `
-                <div style="position:relative; background:white; width:90%; max-width:550px; border-radius:20px; box-shadow:0 25px 50px rgba(0,0,0,0.25); display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
-                    <div style="padding:16px 24px; background:linear-gradient(135deg, #0ea5e9, #0284c7); display:flex; justify-content:space-between; align-items:center;">
-                        <div style="font-size:18px; font-weight:bold; color:white; display:flex; align-items:center; gap:8px;">⚙️ 自定义回复语料库</div>
-                        <button id="xy-close-reply-settings" style="background:none; border:none; font-size:20px; color:#e0f2fe; cursor:pointer; padding:0; transition:0.2s;" onmouseover="this.style.color='white'" onmouseout="this.style.color='#e0f2fe'">✖</button>
+                <div style="position:relative; background:white; width:90%; max-width:600px; border-radius:24px; box-shadow:0 30px 60px rgba(0,0,0,0.25); display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+                    <div style="padding:20px 28px; background:linear-gradient(135deg, #0ea5e9, #0284c7); display:flex; justify-content:space-between; align-items:center;">
+                        <div style="font-size:20px; font-weight:bold; color:white; display:flex; align-items:center; gap:10px; letter-spacing: 0.5px;">⚙️ 自定义回复语料库</div>
+                        <button id="xy-close-reply-settings" style="background:none; border:none; font-size:24px; color:#e0f2fe; cursor:pointer; padding:0; transition:0.2s;" onmouseover="this.style.color='white'" onmouseout="this.style.color='#e0f2fe'">✖</button>
                     </div>
                     
-                    <div style="padding:16px 24px; background:#f0f9ff; border-bottom:1px solid #bae6fd; font-size:13px; color:#0369a1; line-height:1.6;">
+                    <div style="padding:20px 28px; background:#f0f9ff; border-bottom:1px solid #bae6fd; font-size:14px; color:#0369a1; line-height:1.7;">
                         <strong>规则要求：</strong><br>
-                        1. 最多可保存 <strong>10</strong> 句语料，当前已存 <strong style="color:#0ea5e9;">${appState.customReplies.length}</strong> 句。<br>
+                        1. 最多可保存 <strong>10</strong> 句语料，当前已存 <strong style="color:#0ea5e9; font-size:16px;">${appState.customReplies.length}</strong> 句。<br>
                         2. 为防被拦截，每句必须包含至少 <strong>16</strong> 个汉字。<br>
                         3. 启用自定义功能后，每次回复将从这些句子中<strong style="color:#0ea5e9;">完全随机</strong>抽取。
                     </div>
 
-                    <div id="xy-reply-list" style="flex:1; max-height:300px; overflow-y:auto; padding:20px 24px; background:white;">
+                    <div id="xy-reply-list" style="flex:1; max-height:350px; overflow-y:auto; padding:24px 28px; background:white;">
                         ${listHtml}
                     </div>
 
-                    <div style="padding:20px 24px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; flex-direction:column; gap:12px;">
-                        <textarea id="xy-new-reply-text" placeholder="在此输入新的回复内容 (至少包含16个汉字)..." style="width:100%; height:90px; padding:12px; border:1px solid #cbd5e1; border-radius:10px; font-size:14px; resize:none; outline:none; transition:0.2s; box-shadow:inset 0 1px 2px rgba(0,0,0,0.05);" ${appState.customReplies.length >= 10 ? 'disabled' : ''}></textarea>
+                    <div style="padding:24px 28px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; flex-direction:column; gap:16px;">
+                        <textarea id="xy-new-reply-text" placeholder="在此输入新的回复内容 (至少包含16个汉字)..." style="width:100%; height:100px; padding:16px; border:1px solid #cbd5e1; border-radius:12px; font-size:14px; line-height:1.6; resize:none; outline:none; transition:0.2s; box-shadow:inset 0 2px 4px rgba(0,0,0,0.05);" ${appState.customReplies.length >= 10 ? 'disabled' : ''}></textarea>
                         <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span id="xy-reply-counter" style="font-size:13px; color:#64748b; font-weight:500;">当前汉字: <span style="font-weight:bold; color:#ef4444; font-size:15px;">0</span> (需要 ≥ 16)</span>
-                            <button id="xy-add-reply-btn" style="background:${appState.customReplies.length >= 10 ? '#94a3b8' : 'linear-gradient(135deg, #0ea5e9, #0284c7)'}; color:white; border:none; padding:10px 20px; border-radius:10px; font-size:14px; font-weight:bold; cursor:${appState.customReplies.length >= 10 ? 'not-allowed' : 'pointer'}; box-shadow:0 4px 12px rgba(14,165,233,0.3); transition:0.2s;" ${appState.customReplies.length >= 10 ? 'disabled' : ''}>+ 添加入库</button>
+                            <span id="xy-reply-counter" style="font-size:14px; color:#64748b; font-weight:500;">当前汉字: <span style="font-weight:bold; color:#ef4444; font-size:16px;">0</span> (需要 ≥ 16)</span>
+                            <button id="xy-add-reply-btn" style="background:${appState.customReplies.length >= 10 ? '#94a3b8' : 'linear-gradient(135deg, #0ea5e9, #0284c7)'}; color:white; border:none; padding:12px 24px; border-radius:12px; font-size:15px; font-weight:bold; cursor:${appState.customReplies.length >= 10 ? 'not-allowed' : 'pointer'}; box-shadow:0 6px 16px rgba(14,165,233,0.3); transition:all 0.2s;" ${appState.customReplies.length >= 10 ? 'disabled' : ''}>+ 添加入库</button>
                         </div>
                     </div>
                 </div>
@@ -1640,26 +1644,26 @@
             if (textarea) {
                 textarea.addEventListener('input', () => {
                     const hanziCount = (textarea.value.match(/[\u4e00-\u9fa5]/g) || []).length;
-                    counter.innerHTML = `当前汉字: <span style="font-weight:bold; font-size:15px; color:${hanziCount >= 16 ? '#10b981' : '#ef4444'};">${hanziCount}</span> (需要 ≥ 16)`;
+                    counter.innerHTML = `当前汉字: <span style="font-weight:bold; font-size:16px; color:${hanziCount >= 16 ? '#10b981' : '#ef4444'};">${hanziCount}</span> (需要 ≥ 16)`;
                     if(hanziCount >= 16) {
                         textarea.style.borderColor = '#10b981';
-                        textarea.style.boxShadow = '0 0 0 2px rgba(16,185,129,0.2)';
+                        textarea.style.boxShadow = '0 0 0 3px rgba(16,185,129,0.2)';
                     } else {
                         textarea.style.borderColor = '#cbd5e1';
-                        textarea.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.05)';
+                        textarea.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.05)';
                     }
                 });
                 
                 textarea.addEventListener('focus', () => {
                     if((textarea.value.match(/[\u4e00-\u9fa5]/g) || []).length < 16) {
                         textarea.style.borderColor = '#0ea5e9';
-                        textarea.style.boxShadow = '0 0 0 2px rgba(14,165,233,0.2)';
+                        textarea.style.boxShadow = '0 0 0 3px rgba(14,165,233,0.2)';
                     }
                 });
                 textarea.addEventListener('blur', () => {
                     if((textarea.value.match(/[\u4e00-\u9fa5]/g) || []).length < 16) {
                         textarea.style.borderColor = '#cbd5e1';
-                        textarea.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.05)';
+                        textarea.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.05)';
                     }
                 });
             }
@@ -1716,126 +1720,132 @@
         if (!document.body) { requestAnimationFrame(createUI); return; }
 
         const wrapper = document.createElement('div'); wrapper.id = 'xy-super-console';
-        let pos = { x: window.innerWidth - 440, y: 50 }; 
+        let pos = { x: window.innerWidth - 460, y: 50 }; 
         try { const p = JSON.parse(GM_getValue('xy_ui_pos')); if(p && typeof p.x === 'number') pos = p; } catch(e){}
         
         wrapper.style.cssText = `
-            position: fixed; left: ${pos.x}px; top: ${pos.y}px; width: 420px; max-height: 95vh; 
-            background: rgba(255, 255, 255, 0.75); border-radius: 20px; 
-            border: 1px solid rgba(255,255,255,0.9); box-shadow: 0 10px 40px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,1); 
-            z-index: 2147483640; backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            overflow: hidden; transition: opacity 0.2s; display: flex; flex-direction: column;
+            position: fixed; left: ${pos.x}px; top: ${pos.y}px; width: 440px; max-height: 95vh; 
+            background: rgba(255, 255, 255, 0.85); border-radius: 24px; 
+            border: 1px solid rgba(255,255,255,0.9); box-shadow: 0 15px 50px rgba(0,0,0,0.1), inset 0 2px 0 rgba(255,255,255,1); 
+            z-index: 2147483640; backdrop-filter: blur(28px); -webkit-backdrop-filter: blur(28px);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; 
+            overflow: hidden; transition: opacity 0.3s; display: flex; flex-direction: column;
         `;
         
         wrapper.innerHTML = `
             <style>
                 #xy-super-console * { box-sizing: border-box; }
                 #xy-super-console button { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); border: none; font-family: inherit; } 
-                #xy-super-console button:active { transform: scale(0.96) !important; }
-                #xy-super-console ::-webkit-scrollbar { width: 4px; } 
-                #xy-super-console ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.4); border-radius: 4px; }
+                #xy-super-console button:active { transform: scale(0.95) !important; }
+                #xy-super-console ::-webkit-scrollbar { width: 6px; } 
+                #xy-super-console ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.5); border-radius: 6px; }
+                #xy-super-console ::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.8); }
                 
                 #xy-main-body > * { flex-shrink: 0 !important; }
                 
-                .xy-panel { background: rgba(255,255,255,0.4); border: 1px solid rgba(255,255,255,0.6); border-radius: 16px; padding: 14px; margin-bottom: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); flex-shrink: 0; }
-                .xy-panel-title { font-size: 13px; font-weight: 700; color: #334155; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+                .xy-panel { background: rgba(255,255,255,0.6); border: 1px solid rgba(255,255,255,0.8); border-radius: 20px; padding: 18px; margin-bottom: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); flex-shrink: 0; }
+                .xy-panel-title { font-size: 14px; font-weight: 700; color: #334155; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; letter-spacing: 0.5px; }
                 
-                .xy-mode-btn { padding: 10px 4px; border-radius: 10px; border: 1px solid rgba(226,232,240,0.6); background: rgba(255,255,255,0.6); color: #475569; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; }
-                .xy-mode-btn:hover { background: #f8fafc; }
-                .xy-mode-btn.active { background: #1e293b; color: #fff; border-color: transparent; box-shadow: 0 4px 12px rgba(30,41,59,0.2); }
+                .xy-mode-btn { padding: 12px 8px; border-radius: 12px; border: 1px solid rgba(226,232,240,0.8); background: rgba(255,255,255,0.8); color: #475569; font-size: 14px; font-weight: 600; cursor: pointer; text-align: center; letter-spacing: 0.5px; transition: all 0.2s; }
+                .xy-mode-btn:hover { background: #f8fafc; border-color: #cbd5e1; transform: translateY(-1px); }
+                .xy-mode-btn.active { background: #1e293b; color: #fff; border-color: transparent; box-shadow: 0 6px 16px rgba(30,41,59,0.25); transform: translateY(-1px); }
                 
-                .xy-action-btn { padding: 10px; border-radius: 10px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-                .xy-action-btn:hover { filter: brightness(1.05); transform: translateY(-1px); }
-                .xy-action-btn.active-guard { background: #10b981; }
-                .xy-action-btn.inactive-guard { background: #94a3b8; }
+                .xy-action-btn { padding: 12px; border-radius: 12px; color: white; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%; box-shadow: 0 4px 12px rgba(0,0,0,0.15); letter-spacing: 0.5px; }
+                .xy-action-btn:hover { filter: brightness(1.05); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.2); }
+                .xy-action-btn.active-guard { background: linear-gradient(135deg, #10b981, #059669); }
+                .xy-action-btn.inactive-guard { background: linear-gradient(135deg, #94a3b8, #64748b); }
                 
-                .xy-mini-btn { background: rgba(255,255,255,0.7); color: #475569; border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; border: 1px solid rgba(226,232,240,0.8); cursor:pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.02); transition: all 0.2s;}
-                .xy-mini-btn:hover { background: #ffffff; color: #0f172a; border-color: #cbd5e1; }
+                .xy-mini-btn { background: rgba(255,255,255,0.9); color: #475569; border-radius: 10px; padding: 8px 12px; font-size: 13px; font-weight: 600; border: 1px solid rgba(226,232,240,0.9); cursor:pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: all 0.2s;}
+                .xy-mini-btn:hover { background: #ffffff; color: #0f172a; border-color: #cbd5e1; transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
                 
-                .xy-stat-box { display: flex; justify-content: space-between; align-items: center; background: rgba(240, 253, 244, 0.6); border: 1px solid rgba(187, 247, 208, 0.5); padding: 12px 16px; border-radius: 12px; }
+                .xy-stat-box { display: flex; justify-content: space-between; align-items: center; background: linear-gradient(145deg, rgba(240, 253, 244, 0.8), rgba(220, 252, 231, 0.5)); border: 1px solid rgba(187, 247, 208, 0.6); padding: 16px 20px; border-radius: 16px; }
                 
-                .xy-input-box { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font-size: 13px; text-align: center; outline: none; background: rgba(255,255,255,0.8); transition: border 0.2s; }
-                .xy-input-box:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+                .xy-input-box { width: 100%; border: 1px solid #cbd5e1; border-radius: 12px; padding: 10px 14px; font-size: 14px; text-align: center; outline: none; background: rgba(255,255,255,0.9); transition: all 0.2s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); }
+                .xy-input-box:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.2); background: #ffffff; }
                 
-                .xy-target-item:hover { background: #f8fafc !important; border-color: #cbd5e1 !important; transform: translateY(-1px); }
+                .xy-target-item:hover { background: #f8fafc !important; border-color: #cbd5e1 !important; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.05) !important; }
             </style>
             
-            <div id="xy-drag-handle" style="padding: 12px 16px; background: rgba(248, 250, 252, 0.5); border-bottom: 1px solid rgba(226,232,240,0.6); cursor: grab; display: flex; justify-content: space-between; align-items: center; user-select: none;">
-                <div style="font-weight: 800; color: #0f172a; font-size: 15px; display:flex; align-items:center; gap:6px;">
-                     欣野 <span>🖐️</span>
-                     <span id="xy-qq-group" style="font-size: 11px; font-weight: 600; color: #4f46e5; background: #e0e7ff; border: 1px solid #c7d2fe; padding: 2px 6px; border-radius: 6px; cursor: pointer; transition: all 0.2s; margin-left: 4px;" title="点击复制QQ群号" onmouseover="this.style.background='#c7d2fe'" onmouseout="this.style.background='#e0e7ff'">QQ群: 1095232169</span>
+            <div id="xy-drag-handle" style="padding: 16px 20px 14px 20px; background: rgba(248, 250, 252, 0.7); border-bottom: 1px solid rgba(226,232,240,0.8); cursor: grab; display: flex; flex-direction: column; gap: 12px; user-select: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-weight: 800; color: #0f172a; font-size: 16px; display:flex; align-items:center; gap:10px; letter-spacing: 0.5px;">
+                         小雅辅助工具 <span style="font-size: 18px;">🖐️</span>
+                         <span style="font-size: 12px; font-weight: 700; color: #059669; background: #dcfce7; border: 1px solid #bbf7d0; padding: 2px 8px; border-radius: 8px;">v${SCRIPT_VERSION}</span>
+                    </div>
+                    <div id="xy-minimize" style="cursor: pointer; color: #64748b; padding: 6px; border-radius: 8px; font-size: 14px; transition: 0.2s;" onmouseover="this.style.background='rgba(0,0,0,0.05)'" onmouseout="this.style.background='transparent'">➖</div>
                 </div>
-                <div id="xy-zone-badge" style="font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 12px;"></div>
-                <div id="xy-minimize" style="cursor: pointer; color: #64748b; padding: 4px; border-radius: 6px;" onmouseover="this.style.background='rgba(0,0,0,0.05)'" onmouseout="this.style.background='transparent'">➖</div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div id="xy-zone-badge" style="font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 8px; letter-spacing: 0.5px;"></div>
+                    <span id="xy-qq-group" style="font-size: 12px; font-weight: 600; color: #4f46e5; background: #e0e7ff; border: 1px solid #c7d2fe; padding: 4px 10px; border-radius: 8px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(79,70,229,0.1);" title="点击复制QQ群号" onmouseover="this.style.background='#c7d2fe'; this.style.transform='translateY(-1px)';" onmouseout="this.style.background='#e0e7ff'; this.style.transform='none';">QQ群: 1095232169</span>
+                </div>
             </div>
 
-            <div id="xy-main-body" style="padding: 16px; overflow-y: auto; display: flex; flex-direction: column; flex: 1;">
+            <div id="xy-main-body" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; flex: 1; gap: 4px;">
                 
-                <div class="xy-panel" style="padding: 0; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.4);">
-                    <div id="xy-bc-toggle" style="background: linear-gradient(90deg, rgba(240,249,255,0.8), rgba(224,242,254,0.8)); padding: 10px 14px; font-size: 13px; font-weight: 700; color: #0369a1; display: flex; justify-content: space-between; cursor: pointer; user-select: none;">
-                        <span>📣 欣野情报站 (系统公告)</span>
+                <div class="xy-panel" style="padding: 0; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.5);">
+                    <div id="xy-bc-toggle" style="background: linear-gradient(90deg, rgba(240,249,255,0.9), rgba(224,242,254,0.9)); padding: 12px 18px; font-size: 14px; font-weight: 700; color: #0369a1; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; letter-spacing: 0.5px;">
+                        <span>📣 情报站 (系统公告)</span>
                         <span id="xy-bc-arrow" style="transition: transform 0.3s; font-size: 12px; color: #0284c7;">▼</span>
                     </div>
-                    <div id="xy-bc-content" style="font-size: 12px; color: #334155; line-height: 1.6; display: none; background: rgba(255,255,255,0.6); border-top: 1px solid rgba(56, 189, 248, 0.2); max-height: 160px; overflow-y: auto;">
-                        <div style="padding: 12px 14px;">
+                    <div id="xy-bc-content" style="font-size: 13px; color: #334155; line-height: 1.7; display: none; background: rgba(255,255,255,0.8); border-top: 1px solid rgba(56, 189, 248, 0.3); max-height: 200px; overflow-y: auto;">
+                        <div style="padding: 16px 20px;">
                             <span style="color:#94a3b8; animation: pulse 1.5s infinite;">正在解析云端通讯...</span>
                         </div>
                     </div>
                 </div>
 
-                <div id="xy-view-standby" style="display:none; flex-direction:column; align-items:center; justify-content:center; padding: 30px 10px; text-align:center; flex-shrink: 0;">
-                    <div style="font-size: 44px; margin-bottom: 12px;">🏝️</div>
-                    <div style="font-size: 16px; font-weight: bold; color: #334155; margin-bottom: 8px;">🟢 系统休眠隔离，确保无干扰</div>
-                    <div style="font-size: 13px; color: #64748b; line-height: 1.6; margin-bottom: 24px;">你当前位于 <span style="color:#ef4444; font-weight:bold;">作业/考试/其他区域</span><br>欣野已自动收起武器，专心做题吧！<br><br>如需激活自动化，请进入具体的<span style="color:#10b981; font-weight:bold;">视频/文档/讨论区</span>。</div>
-                    <button class="xy-action-btn" id="xy-btn-dashboard-standby" style="background: #6366f1; width: 80%;">🌍 打开全局雷达，一键寻路</button>
+                <div id="xy-view-standby" style="display:none; flex-direction:column; align-items:center; justify-content:center; padding: 40px 16px; text-align:center; flex-shrink: 0;">
+                    <div style="font-size: 52px; margin-bottom: 16px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));">🏝️</div>
+                    <div style="font-size: 18px; font-weight: bold; color: #334155; margin-bottom: 12px; letter-spacing: 0.5px;">🟢 系统休眠隔离，确保无干扰</div>
+                    <div style="font-size: 14px; color: #64748b; line-height: 1.8; margin-bottom: 32px;">你当前位于 <span style="color:#ef4444; font-weight:bold; background: #fee2e2; padding: 2px 6px; border-radius: 6px;">作业/考试/其他区域</span><br>已自动收起武器，专心做题吧！<br><br>如需激活自动化，请进入具体的<br><span style="color:#10b981; font-weight:bold; background: #dcfce7; padding: 2px 6px; border-radius: 6px;">视频 / 文档 / 讨论区</span>。</div>
+                    <button class="xy-action-btn" id="xy-btn-dashboard-standby" style="background: linear-gradient(135deg, #6366f1, #4f46e5); width: 85%; padding: 14px; font-size: 15px;">🌍 打开全局雷达，一键寻路</button>
                 </div>
 
                 <div id="xy-view-course" style="display:none; flex-shrink: 0;">
-                    <div id="xy-status-banner" style="text-align: center; padding: 10px; border-radius: 10px; border: 1px solid #e2e8f0; background: rgba(241, 245, 249, 0.6); font-size: 13px; margin-bottom: 14px; font-weight: 600;">初始化中...</div>
+                    <div id="xy-status-banner" style="text-align: center; padding: 14px; border-radius: 12px; border: 1px solid #e2e8f0; background: rgba(241, 245, 249, 0.8); font-size: 14px; margin-bottom: 16px; font-weight: 700; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">初始化中...</div>
                     
                     <div class="xy-panel">
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
                             <button class="xy-mode-btn" id="btn-mode-man">手动休眠</button>
                             <button class="xy-mode-btn" id="btn-mode-loop">安全循环</button>
                             <button class="xy-mode-btn" id="btn-mode-seq">雷达连播</button>
                         </div>
                     </div>
 
-                    <div class="xy-panel xy-stat-box" style="margin-bottom: 12px;">
+                    <div class="xy-panel xy-stat-box" style="margin-bottom: 16px;">
                         <div>
-                            <div style="font-size: 11px; color: #059669; font-weight:700; margin-bottom: 4px;">⏱️ 有效挂机时长</div>
-                            <div id="xy-rec-time" style="font-size: 24px; font-weight: 800; color: #047857; font-family: monospace; line-height: 1;">0m 00s</div>
+                            <div style="font-size: 12px; color: #059669; font-weight:700; margin-bottom: 6px; letter-spacing: 0.5px;">⏱️ 有效挂机时长</div>
+                            <div id="xy-rec-time" style="font-size: 28px; font-weight: 800; color: #047857; font-family: 'SF Mono', Consolas, monospace; line-height: 1; text-shadow: 0 2px 4px rgba(4,120,87,0.1);">0m 00s</div>
                         </div>
-                        <div style="text-align: right; font-size: 11px; color: #065f46; opacity: 0.8;">
-                            <div>实计: <span id="xy-real-time" style="font-weight:600;">0m 00s</span></div>
-                            <div style="margin-top:2px;">心跳: <span id="xy-rec-count" style="font-weight:bold;">0</span> 次</div>
+                        <div style="text-align: right; font-size: 12px; color: #065f46; opacity: 0.85; line-height: 1.6;">
+                            <div>实计: <span id="xy-real-time" style="font-weight:700; font-family: monospace; font-size: 13px;">0m 00s</span></div>
+                            <div style="margin-top:2px;">心跳: <span id="xy-rec-count" style="font-weight:800; font-family: monospace; font-size: 14px; color: #047857;">0</span> 次</div>
                         </div>
                     </div>
 
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
                         <button class="xy-action-btn" id="xy-btn-guard" title="底层拦截离开检测与弹窗">🛡️ 幽灵伪装</button>
-                        <button class="xy-action-btn" id="xy-btn-dashboard" style="background: #6366f1;">🌍 全局雷达</button>
-                        <button class="xy-action-btn" id="xy-btn-quick-mute" style="background: ${appState.hardwareMute ? '#14b8a6' : '#94a3b8'};">🔇 强制静音: ${appState.hardwareMute ? 'ON' : 'OFF'}</button>
-                        <button class="xy-action-btn" id="btn-manual-refresh" style="background: #3b82f6;">🔄 手动重载</button>
+                        <button class="xy-action-btn" id="xy-btn-dashboard" style="background: linear-gradient(135deg, #6366f1, #4f46e5);">🌍 全局雷达</button>
+                        <button class="xy-action-btn" id="xy-btn-quick-mute" style="background: ${appState.hardwareMute ? 'linear-gradient(135deg, #14b8a6, #0d9488)' : 'linear-gradient(135deg, #94a3b8, #64748b)'};">🔇 强制静音: ${appState.hardwareMute ? 'ON' : 'OFF'}</button>
+                        <button class="xy-action-btn" id="btn-manual-refresh" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">🔄 手动重载</button>
                     </div>
 
-                    <div class="xy-panel" style="padding: 12px;">
-                        <div style="font-weight:700; font-size:12px; color:#1e293b; display:flex; justify-content:space-between; margin-bottom: 8px;">
+                    <div class="xy-panel">
+                        <div style="font-weight:700; font-size:13px; color:#1e293b; display:flex; justify-content:space-between; align-items:center; margin-bottom: 14px; letter-spacing: 0.5px;">
                             <span>🤖 智能双引擎中枢</span>
                             <div style="display:flex; gap: 12px;">
-                                <label style="font-size:11px; cursor:pointer; color:#64748b;"><input type="checkbox" id="toggle-ai-mode" ${appState.aiMode ? 'checked' : ''}> 自动运行</label>
+                                <label style="font-size:12px; cursor:pointer; color:#64748b; font-weight: 600; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="toggle-ai-mode" ${appState.aiMode ? 'checked' : ''} style="width: 14px; height: 14px; accent-color: #3b82f6; cursor: pointer;"> 自动运行</label>
                             </div>
                         </div>
-                        <div style="display:flex; gap:8px;">
-                            <div id="xy-engine-video" style="flex:1; padding:10px; background:rgba(240,253,244,0.5); border:1px solid rgba(187,247,208,0.6); border-radius:10px;">
-                                <div style="font-size:12px; font-weight:bold; color:#166534; margin-bottom:6px;">📺 视频 (<span id="xy-video-status">待命</span>)</div>
-                                <label style="font-size:11px; color:#15803d; cursor:pointer;"><input type="checkbox" id="toggle-video-submit" ${appState.videoAutoSubmit ? 'checked' : ''}> 播完跳课</label>
+                        <div style="display:flex; gap:12px;">
+                            <div id="xy-engine-video" style="flex:1; padding:14px; background:linear-gradient(145deg, rgba(240,253,244,0.7), rgba(220,252,231,0.4)); border:1px solid rgba(187,247,208,0.8); border-radius:14px; transition: opacity 0.3s;">
+                                <div style="font-size:13px; font-weight:bold; color:#166534; margin-bottom:10px; letter-spacing: 0.5px;">📺 视频 (<span id="xy-video-status">待命</span>)</div>
+                                <label style="font-size:12px; color:#15803d; cursor:pointer; font-weight: 600; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="toggle-video-submit" ${appState.videoAutoSubmit ? 'checked' : ''} style="width: 14px; height: 14px; accent-color: #166534; cursor: pointer;"> 播完跳课</label>
                             </div>
-                            <div id="xy-engine-doc" style="flex:1; padding:10px; background:rgba(253,244,255,0.5); border:1px solid rgba(233,213,255,0.6); border-radius:10px;">
-                            <div style="font-size:12px; font-weight:bold; color:#6b21a8; margin-bottom:6px;">📄 文档 (<span id="xy-doc-status">待命</span>)</div>
-                            <div style="width:100%; height:4px; background:rgba(243,232,255,0.8); border-radius:2px; margin-bottom:6px;"><div id="xy-doc-progress" style="width:0%; height:100%; background:#9333ea; transition:width 0.5s;"></div></div>
-                            <label style="font-size:11px; color:#7e22ce; cursor:pointer;"><input type="checkbox" id="toggle-doc-batch" ${appState.docBatchSubmit ? 'checked' : ''}> 达标连交</label>
+                            <div id="xy-engine-doc" style="flex:1; padding:14px; background:linear-gradient(145deg, rgba(253,244,255,0.7), rgba(243,232,255,0.4)); border:1px solid rgba(233,213,255,0.8); border-radius:14px; transition: opacity 0.3s;">
+                            <div style="font-size:13px; font-weight:bold; color:#6b21a8; margin-bottom:8px; letter-spacing: 0.5px;">📄 文档 (<span id="xy-doc-status">待命</span>)</div>
+                            <div style="width:100%; height:6px; background:rgba(233,213,255,0.6); border-radius:3px; margin-bottom:10px; overflow: hidden;"><div id="xy-doc-progress" style="width:0%; height:100%; background:linear-gradient(90deg, #a855f7, #7e22ce); transition:width 0.5s ease-out; border-radius:3px;"></div></div>
+                            <label style="font-size:12px; color:#7e22ce; cursor:pointer; font-weight: 600; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="toggle-doc-batch" ${appState.docBatchSubmit ? 'checked' : ''} style="width: 14px; height: 14px; accent-color: #7e22ce; cursor: pointer;"> 达标连交</label>
                         </div>
                     </div>
                 </div>
@@ -1843,79 +1853,79 @@
             </div>
 
             <div id="xy-view-disc" style="display:none; flex-shrink: 0;">
-                <div id="xy-disc-status" style="padding: 10px; border-radius: 10px; background: rgba(248, 250, 252, 0.6); border: 1px solid #e2e8f0; font-size: 13px; font-weight: 600; margin-bottom: 14px; text-align: center;">初始化中...</div>
+                <div id="xy-disc-status" style="padding: 14px; border-radius: 12px; background: rgba(248, 250, 252, 0.8); border: 1px solid #e2e8f0; font-size: 14px; font-weight: 700; margin-bottom: 16px; text-align: center; letter-spacing: 0.5px; box-shadow: 0 2px 8px rgba(0,0,0,0.02);">初始化中...</div>
 
-                <div class="xy-panel" style="padding: 14px 10px;">
-                    <div class="xy-panel-title" style="padding: 0 4px;">
+                <div class="xy-panel">
+                    <div class="xy-panel-title">
                         <span>👥 互动点赞名单</span>
-                        <label style="cursor: pointer; font-size: 10px; color: #4f46e5; background: rgba(224,231,255,0.6); padding: 2px 8px; border-radius: 10px; border: 1px solid rgba(199,210,254,0.6);">
-                            <input type="checkbox" id="xy-toggle-dom-scan" ${appState.enableDomScan ? 'checked' : ''} style="accent-color: #4f46e5; vertical-align: middle; margin-right: 3px; width: 10px; height: 10px;">智能DOM提取
+                        <label style="cursor: pointer; font-size: 11px; color: #4f46e5; background: rgba(224,231,255,0.8); padding: 4px 10px; border-radius: 10px; border: 1px solid rgba(199,210,254,0.8); transition: 0.2s;">
+                            <input type="checkbox" id="xy-toggle-dom-scan" ${appState.enableDomScan ? 'checked' : ''} style="accent-color: #4f46e5; vertical-align: middle; margin-right: 4px; width: 12px; height: 12px;">智能DOM提取
                         </label>
                     </div>
                     
-                    <div style="display: flex; gap: 6px; margin-bottom: 10px; padding: 0 4px;">
-                        <button class="xy-mini-btn" id="xy-btn-fetch-users" style="background:linear-gradient(145deg,#3b82f6,#2563eb); color:white; border:none; flex:1;">🔄 手动刷新名单</button>
-                        <button class="xy-mini-btn" id="xy-btn-clear-names" style="flex:1;">清空全库</button>
+                    <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+                        <button class="xy-mini-btn" id="xy-btn-fetch-users" style="background:linear-gradient(145deg,#3b82f6,#2563eb); color:white; border:none; flex:1; padding: 10px;">🔄 手动刷新名单</button>
+                        <button class="xy-mini-btn" id="xy-btn-clear-names" style="flex:1; padding: 10px;">清空全库</button>
                     </div>
 
-                    <div style="margin-bottom: 10px; padding: 0 4px;">
-                        <input type="text" id="xy-name-search" class="xy-input-box" placeholder="🔍 检索人名 (支持空格/逗号组合多词)" style="width: 100%; text-align: left; padding-left: 12px; background: rgba(255,255,255,0.9);">
+                    <div style="margin-bottom: 14px;">
+                        <input type="text" id="xy-name-search" class="xy-input-box" placeholder="🔍 检索人名 (支持空格/逗号组合多词)" style="text-align: left; padding: 12px 16px;">
                     </div>
 
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; background: rgba(248,250,252,0.8); padding: 6px 12px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 0 4px 8px 4px;">
-                        <span style="font-size:11px; color:#64748b;">已选 <span id="xy-checked-count" style="font-weight:bold; color:#0f172a; font-size: 13px;">0</span> / <span id="xy-total-count">0</span> 人 <span style="color:#ef4444; margin-left:4px;">(最多15人)</span></span>
-                        <div style="display: flex; gap: 4px;">
-                            <span class="xy-mini-btn" id="xy-btn-copy-names" style="padding:2px 8px; font-size:11px; color:#4f46e5; border-color: rgba(199,210,254,1); background: #e0e7ff;" title="一键复制已勾选人名到剪贴板">📋 复制</span>
-                            <span class="xy-mini-btn" id="xy-btn-select-all" style="padding:2px 8px; font-size:11px;">全选</span>
-                            <span class="xy-mini-btn" id="xy-btn-deselect-all" style="padding:2px 8px; font-size:11px;">清空</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; background: rgba(248,250,252,0.9); padding: 10px 14px; border-radius: 10px; border: 1px solid #e2e8f0;">
+                        <span style="font-size:12px; color:#64748b; font-weight: 500;">已选 <span id="xy-checked-count" style="font-weight:800; color:#0f172a; font-size: 15px;">0</span> / <span id="xy-total-count" style="font-weight:600;">0</span> 人 <span style="color:#ef4444; margin-left:6px; font-size:11px;">(最多15人)</span></span>
+                        <div style="display: flex; gap: 6px;">
+                            <span class="xy-mini-btn" id="xy-btn-copy-names" style="padding:4px 10px; font-size:12px; color:#4f46e5; border-color: rgba(199,210,254,1); background: #e0e7ff;" title="一键复制已勾选人名到剪贴板">📋 复制</span>
+                            <span class="xy-mini-btn" id="xy-btn-select-all" style="padding:4px 10px; font-size:12px;">全选</span>
+                            <span class="xy-mini-btn" id="xy-btn-deselect-all" style="padding:4px 10px; font-size:12px;">清空</span>
                         </div>
                     </div>
 
-                    <div id="xy-target-list" style="max-height: 180px; overflow-y: auto; padding: 4px; margin-bottom: 12px; background: rgba(241,245,249,0.4); border-radius: 8px; border: 1px inset rgba(255,255,255,0.5);"></div>
+                    <div id="xy-target-list" style="max-height: 220px; overflow-y: auto; padding: 6px; margin-bottom: 16px; background: rgba(241,245,249,0.6); border-radius: 12px; border: 1px inset rgba(226,232,240,0.8);"></div>
 
-                    <div style="display:flex; gap:8px; padding: 0 4px;">
-                        <button class="xy-action-btn disc-btn" id="xy-btn-like" style="background: #64748b; flex:1;">👍 全局扫盘盲赞</button>
-                        <button class="xy-action-btn disc-btn" id="xy-btn-target-like" style="background: linear-gradient(145deg, #8b5cf6, #7c3aed); flex:1.5;">⚡ 批量点赞选中用户</button>
+                    <div style="display:flex; gap:10px; margin-bottom: 10px;">
+                        <button class="xy-action-btn disc-btn" id="xy-btn-like" style="background: linear-gradient(135deg, #64748b, #475569); flex:1;">👍 全局盲赞</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-target-like" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed); flex:1.5;">⚡ 批量点赞选中用户</button>
                     </div>
-                    <div style="display:flex; gap:8px; padding: 0 4px; margin-top: 8px;">
-                        <button class="xy-action-btn disc-btn" id="xy-btn-reply" style="background: #0ea5e9; flex:1;">💬 全局盲回</button>
-                        <button class="xy-action-btn disc-btn" id="xy-btn-target-reply" style="background: linear-gradient(145deg, #0284c7, #0369a1); flex:1.5;">🎯 批量回复选中用户</button>
+                    <div style="display:flex; gap:10px;">
+                        <button class="xy-action-btn disc-btn" id="xy-btn-reply" style="background: linear-gradient(135deg, #0ea5e9, #0284c7); flex:1;">💬 全局盲回</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-target-reply" style="background: linear-gradient(135deg, #0369a1, #075985); flex:1.5;">🎯 批量回复选中用户</button>
                     </div>
                     
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding: 10px; background: rgba(240,249,255,0.6); border: 1px solid rgba(186,230,253,0.8); border-radius: 8px; margin-left: 4px; margin-right: 4px;">
-                        <label style="font-size:12px; font-weight:bold; color:#0369a1; cursor:pointer; display:flex; align-items:center; gap:6px;">
-                            <input type="checkbox" id="xy-toggle-custom-reply" ${appState.useCustomReply ? 'checked' : ''} style="accent-color:#0284c7; width:14px; height:14px; cursor:pointer;"> 启用自定义语料
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; padding: 12px 16px; background: linear-gradient(145deg, rgba(240,249,255,0.8), rgba(224,242,254,0.5)); border: 1px solid rgba(186,230,253,0.9); border-radius: 12px;">
+                        <label style="font-size:13px; font-weight:700; color:#0369a1; cursor:pointer; display:flex; align-items:center; gap:8px; letter-spacing: 0.5px;">
+                            <input type="checkbox" id="xy-toggle-custom-reply" ${appState.useCustomReply ? 'checked' : ''} style="accent-color:#0284c7; width:16px; height:16px; cursor:pointer;"> 启用自定义语料
                         </label>
-                        <button class="xy-mini-btn" id="xy-btn-edit-reply" style="color:#0284c7; border-color:#bae6fd; background:white; font-size:11px;">⚙️ 语料库设置</button>
+                        <button class="xy-mini-btn" id="xy-btn-edit-reply" style="color:#0284c7; border-color:#bae6fd; background:white; font-size:12px; padding: 6px 12px; box-shadow: 0 2px 6px rgba(2,132,199,0.1);">⚙️ 语料库设置</button>
                     </div>
                 </div>
             </div>
 
-            <div class="xy-panel" style="padding: 12px; margin-top: 8px; border: 1px dashed rgba(148, 163, 184, 0.5);">
-                <div style="font-weight:700; font-size:12px; color:#1e293b; display:flex; justify-content:space-between; margin-bottom: 8px;">
+            <div class="xy-panel" style="border: 1px dashed rgba(148, 163, 184, 0.6); background: rgba(248,250,252,0.6);">
+                <div style="font-weight:700; font-size:13px; color:#1e293b; display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px; letter-spacing: 0.5px;">
                     <span>♻️ 系统数据与界面控制</span>
-                    <div style="display:flex; gap: 8px;">
-                        <label style="font-size:11px; cursor:pointer; color:#64748b;"><input type="checkbox" id="toggle-refresh-panel" ${appState.showRefreshPanel ? 'checked' : ''}> ⏳ 重载视窗</label>
-                        <label style="font-size:11px; cursor:pointer; color:#64748b;"><input type="checkbox" id="toggle-terminal" ${appState.showTerminal ? 'checked' : ''}> 🖥️ 终端面板</label>
+                    <div style="display:flex; gap: 12px;">
+                        <label style="font-size:12px; cursor:pointer; color:#64748b; font-weight: 600; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="toggle-refresh-panel" ${appState.showRefreshPanel ? 'checked' : ''} style="width:14px; height:14px; accent-color:#64748b; cursor:pointer;"> ⏳ 重载视窗</label>
+                        <label style="font-size:12px; cursor:pointer; color:#64748b; font-weight: 600; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="toggle-terminal" ${appState.showTerminal ? 'checked' : ''} style="width:14px; height:14px; accent-color:#64748b; cursor:pointer;"> 🖥️ 终端面板</label>
                     </div>
                 </div>
                 <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end;">
-                    <div style="display:flex; gap:6px;">
-                        <button class="xy-mini-btn" id="btn-clear-logs" style="font-size:11px; padding:4px 8px;">清空日志</button>
-                        <button class="xy-mini-btn" id="btn-clear-progress" style="font-size:11px; padding:4px 8px; color:#dc2626;">重置时长</button>
+                    <div style="display:flex; gap:10px;">
+                        <button class="xy-mini-btn" id="btn-clear-logs" style="font-size:12px; padding:6px 12px;">清空日志</button>
+                        <button class="xy-mini-btn" id="btn-clear-progress" style="font-size:12px; padding:6px 12px; color:#dc2626; border-color: rgba(239,68,68,0.2); background: rgba(254,226,226,0.5);">重置时长</button>
                     </div>
                 </div>
             </div>
 
-            <div style="margin-top: auto; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;">
-                <div id="xy-refresh-container" style="display: ${appState.showRefreshPanel ? 'block' : 'none'}; background: linear-gradient(145deg, #fffbeb, #fef3c7); padding: 12px; border-radius: 12px; border: 1px solid #fde68a; box-shadow: inset 0 2px 4px rgba(255,255,255,0.8);">
-                    <div style="font-size: 11px; color: #b45309; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;"><span>⏳</span> 动态重载调度器</div>
-                    <div id="xy-refresh-status" style="font-size: 13px; color: #92400e; font-weight: bold; font-family: monospace;">目前无重载任务</div>
+            <div style="margin-top: auto; display: flex; flex-direction: column; gap: 12px; flex-shrink: 0; margin-bottom: 8px;">
+                <div id="xy-refresh-container" style="display: ${appState.showRefreshPanel ? 'block' : 'none'}; background: linear-gradient(145deg, #fffbeb, #fef3c7); padding: 14px 18px; border-radius: 14px; border: 1px solid #fde68a; box-shadow: inset 0 2px 4px rgba(255,255,255,0.8), 0 4px 12px rgba(0,0,0,0.02);">
+                    <div style="font-size: 12px; color: #b45309; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; letter-spacing: 0.5px;"><span>⏳</span> 动态重载调度器</div>
+                    <div id="xy-refresh-status" style="font-size: 14px; color: #92400e; font-weight: bold; font-family: monospace; padding: 4px 0;">目前无重载任务</div>
                 </div>
 
-                <div id="xy-terminal-container" style="display: ${appState.showTerminal ? 'block' : 'none'}; background: #0f172a; padding: 12px; border-radius: 12px; box-shadow: inset 0 4px 10px rgba(0,0,0,0.5);">
-                    <div style="font-size: 11px; color: #64748b; font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;"><span style="color:#10b981; font-family:monospace;">~_</span> 终端日志</div>
-                    <div id="xy-activity-log" style="height: 110px; overflow-y: auto; font-family: 'SF Mono', Consolas, monospace; font-size: 11px; display: flex; flex-direction: column; gap: 4px; color: #10b981;"></div>
+                <div id="xy-terminal-container" style="display: ${appState.showTerminal ? 'block' : 'none'}; background: #0f172a; padding: 16px; border-radius: 14px; box-shadow: inset 0 4px 15px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.1);">
+                    <div style="font-size: 12px; color: #94a3b8; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; letter-spacing: 0.5px;"><span style="color:#10b981; font-family:monospace; font-size:14px;">~_</span> 终端日志</div>
+                    <div id="xy-activity-log" style="height: 130px; overflow-y: auto; font-family: 'SF Mono', Consolas, 'Courier New', monospace; font-size: 12px; display: flex; flex-direction: column; color: #10b981; padding-right: 4px;"></div>
                 </div>
             </div>
 
@@ -1925,11 +1935,11 @@
 
         const logBox = document.getElementById('xy-activity-log');
         if (logBox && sessionLogs.length > 0) {
-            logBox.innerHTML = ''; sessionLogs.forEach(log => { const el = document.createElement('div'); el.style.color = log.color === '#64748b' ? '#64748b' : (log.color === '#38bdf8' ? '#10b981' : log.color); el.innerText = log.text; logBox.appendChild(el); });
+            logBox.innerHTML = ''; sessionLogs.forEach(log => { const el = document.createElement('div'); el.style.color = log.color === '#64748b' ? '#94a3b8' : (log.color === '#38bdf8' ? '#10b981' : log.color); el.style.marginBottom = '4px'; el.style.lineHeight = '1.5'; el.innerText = log.text; logBox.appendChild(el); });
             logBox.scrollTop = logBox.scrollHeight;
         } else {
             logMsg('=============================', 'silent', true);
-            logMsg('欣野雷达 已就绪', 'info', false);
+            logMsg('雷达 已就绪', 'info', false);
             logMsg('📡 全局雷达网持续扫描中...', 'silent', true);
         }
 
@@ -1963,7 +1973,7 @@
                 GM_setValue('xy_hw_mute', appState.hardwareMute);
                 syncHardwareMute(); 
                 btnQuickMute.innerHTML = appState.hardwareMute ? '🔇 强制静音: ON' : '🔊 强制静音: OFF';
-                btnQuickMute.style.background = appState.hardwareMute ? '#14b8a6' : '#94a3b8';
+                btnQuickMute.style.background = appState.hardwareMute ? 'linear-gradient(135deg, #14b8a6, #0d9488)' : 'linear-gradient(135deg, #94a3b8, #64748b)';
                 document.querySelectorAll('video, audio').forEach(m => { m.muted = appState.hardwareMute; });
                 logMsg(`🔕 底层音轨强制拦截引擎已${appState.hardwareMute ? '启动' : '关闭'}！`, appState.hardwareMute ? 'success' : 'warning', false);
             };
@@ -2231,18 +2241,18 @@
 
     async function openGlobalTaskDashboard() {
         let overlay = document.getElementById('xy-dashboard-overlay');
-        if (!overlay) { overlay = document.createElement('div'); overlay.id = 'xy-dashboard-overlay'; overlay.style.cssText = `position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.6); z-index:2147483645; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(8px); opacity:0; transition:opacity 0.3s;`; document.body.appendChild(overlay); }
+        if (!overlay) { overlay = document.createElement('div'); overlay.id = 'xy-dashboard-overlay'; overlay.style.cssText = `position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.7); z-index:2147483645; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(12px); opacity:0; transition:opacity 0.3s;`; document.body.appendChild(overlay); }
         overlay.innerHTML = `
-            <div style="background:white; width:90%; max-width:900px; height:85vh; border-radius:20px; box-shadow:0 25px 50px rgba(0,0,0,0.25); display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
-                <div style="padding:20px 24px; background:linear-gradient(135deg, #4f46e5, #3b82f6); border-bottom:1px solid #6366f1; display:flex; justify-content:space-between; align-items:center; flex-shrink: 0;">
-                    <div style="font-size:20px; font-weight:bold; color:white; display:flex; align-items:center; gap:10px;">🌍 全局智能导航雷达</div>
-                    <button id="xy-close-dashboard" style="background:none; border:none; font-size:24px; color:#e0e7ff; cursor:pointer; padding:0; transition: 0.2s;" onmouseover="this.style.color='white'" onmouseout="this.style.color='#e0e7ff'">✖</button>
+            <div style="background:white; width:90%; max-width:960px; height:85vh; border-radius:24px; box-shadow:0 30px 60px rgba(0,0,0,0.3); display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+                <div style="padding:24px 32px; background:linear-gradient(135deg, #4f46e5, #3b82f6); border-bottom:1px solid #6366f1; display:flex; justify-content:space-between; align-items:center; flex-shrink: 0;">
+                    <div style="font-size:22px; font-weight:bold; color:white; display:flex; align-items:center; gap:12px; letter-spacing: 0.5px;">🌍 全局智能导航雷达</div>
+                    <button id="xy-close-dashboard" style="background:none; border:none; font-size:26px; color:#e0e7ff; cursor:pointer; padding:0; transition: 0.2s;" onmouseover="this.style.color='white'; this.style.transform='rotate(90deg)';" onmouseout="this.style.color='#e0e7ff'; this.style.transform='none';">✖</button>
                 </div>
-                <div id="xy-dashboard-content" style="flex:1; overflow-y:auto; padding:24px; background:#f8fafc;">
-                    <div style="text-align:center; padding:40px; color:#64748b; font-size:16px;"><span style="display:inline-block; animation:pulse 1s infinite;">📡 正在拉取 API 数据...</span></div>
+                <div id="xy-dashboard-content" style="flex:1; overflow-y:auto; padding:32px; background:#f8fafc;">
+                    <div style="text-align:center; padding:60px; color:#64748b; font-size:18px; letter-spacing: 0.5px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在拉取 API 数据...</span></div>
                 </div>
-                <div id="xy-dashboard-footer" style="display:none; padding:16px 24px; background:white; border-top:1px solid #e2e8f0; flex-shrink: 0; justify-content:center;">
-                    <button id="xy-batch-submit-btn" style="width:100%; max-width:600px; background:linear-gradient(135deg, #4f46e5, #3b82f6); color:white; border:none; padding:16px; border-radius:12px; font-size:16px; font-weight:bold; cursor:pointer; box-shadow:0 8px 16px rgba(79,70,229,0.3); transition:0.2s;">🚀 一键提交勾选任务</button>
+                <div id="xy-dashboard-footer" style="display:none; padding:20px 32px; background:white; border-top:1px solid #e2e8f0; flex-shrink: 0; justify-content:center; box-shadow: 0 -4px 20px rgba(0,0,0,0.02);">
+                    <button id="xy-batch-submit-btn" style="width:100%; max-width:700px; background:linear-gradient(135deg, #4f46e5, #3b82f6); color:white; border:none; padding:18px; border-radius:14px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow:0 8px 24px rgba(79,70,229,0.3); transition:all 0.2s; letter-spacing: 1px;" onmouseover="this.style.transform='translateY(-2px)';" onmouseout="this.style.transform='none';">🚀 一键提交勾选任务</button>
                 </div>
             </div>
         `;
@@ -2254,28 +2264,28 @@
     function renderGlobalDashboardContent(tasks) {
         const contentBox = document.getElementById('xy-dashboard-content'), footerBox = document.getElementById('xy-dashboard-footer');
         if (!contentBox) return;
-        if (!tasks || tasks.length === 0) { contentBox.innerHTML = `<div style="text-align:center; padding:80px; color:#94a3b8; font-size:20px;">🎉 全网已无未完成的任务！</div>`; if (footerBox) footerBox.style.display = 'none'; return; }
+        if (!tasks || tasks.length === 0) { contentBox.innerHTML = `<div style="text-align:center; padding:100px; color:#94a3b8; font-size:22px; letter-spacing: 0.5px;">🎉 全网已无未完成的任务！</div>`; if (footerBox) footerBox.style.display = 'none'; return; }
         if (footerBox) footerBox.style.display = 'flex';
 
         let html = `
-            <div style="background:linear-gradient(145deg, #fef3c7, #fde68a); padding:16px; border-radius:12px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; border:1px solid #fcd34d;">
+            <div style="background:linear-gradient(145deg, #fef3c7, #fde68a); padding:20px 24px; border-radius:16px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; border:1px solid #fcd34d; box-shadow: 0 4px 12px rgba(253,230,138,0.3);">
                 <div>
-                    <div style="font-weight:bold; color:#92400e; font-size:15px; margin-bottom:4px;">⚠️ 跨课高危自由模式</div>
-                    <div style="color:#b45309; font-size:12px;">允许跨课程批量强交【非视频类】作业（有查水表风险，切忌交空卷）</div>
+                    <div style="font-weight:bold; color:#92400e; font-size:16px; margin-bottom:6px; display:flex; align-items:center; gap:8px;">⚠️ 跨课高危自由模式</div>
+                    <div style="color:#b45309; font-size:13px; line-height: 1.6;">允许跨课程批量强交【非视频类】作业（有查水表风险，切忌交空卷）</div>
                 </div>
-                <label style="position:relative; display:inline-block; width:50px; height:26px;">
+                <label style="position:relative; display:inline-block; width:56px; height:30px;">
                     <input type="checkbox" id="xy-freedom-switch" style="opacity:0; width:0; height:0;" ${appState.isFreedomMode ? 'checked' : ''}>
-                    <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${appState.isFreedomMode?'#92400e':'#d1d5db'}; border-radius:34px; transition:.4s;">
-                        <span style="position:absolute; height:20px; width:20px; left:3px; bottom:3px; background:white; border-radius:50%; transition:.4s; transform:${appState.isFreedomMode?'translateX(24px)':'translateX(0)'};"></span>
+                    <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${appState.isFreedomMode?'#92400e':'#cbd5e1'}; border-radius:34px; transition:.4s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                        <span style="position:absolute; height:22px; width:22px; left:4px; bottom:4px; background:white; border-radius:50%; transition:.4s; transform:${appState.isFreedomMode?'translateX(26px)':'translateX(0)'}; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></span>
                     </span>
                 </label>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 0 4px;">
-            <label style="cursor: pointer; display: flex; align-items: center; gap: 8px; font-weight: bold; color: #334155; font-size: 15px; user-select: none;">
-                <input type="checkbox" id="xy-select-all" style="width: 18px; height: 18px; accent-color: #4f46e5; cursor: pointer;"> ✅ 全选可提交任务
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 0 8px;">
+            <label style="cursor: pointer; display: flex; align-items: center; gap: 10px; font-weight: 700; color: #334155; font-size: 16px; user-select: none; transition: 0.2s;" onmouseover="this.style.color='#0f172a'" onmouseout="this.style.color='#334155'">
+                <input type="checkbox" id="xy-select-all" style="width: 20px; height: 20px; accent-color: #4f46e5; cursor: pointer;"> ✅ 全选可提交任务
             </label>
         </div>
-        <div id="xy-global-task-container" style="display:flex; flex-direction:column; gap:20px;">
+        <div id="xy-global-task-container" style="display:flex; flex-direction:column; gap:24px;">
         `;
 
         const groupedTasks = tasks.reduce((acc, t) => { if(!acc[t.group_name]) acc[t.group_name] = []; acc[t.group_name].push(t); return acc; }, {});
@@ -2284,11 +2294,12 @@
         Object.entries(groupedTasks).forEach(([courseName, courseTasks]) => {
             courseTasks.sort((a,b) => new Date(a.end_time) - new Date(b.end_time));
             html += `
-                <div style="background:white; border-radius:16px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.03);">
-                    <div style="background:#f1f5f9; padding:12px 20px; font-weight:bold; color:#334155; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between;">
-                        <span>📚 ${courseName || '未知课程'}</span><span style="background:#e0e7ff; color:#4f46e5; padding:2px 8px; border-radius:10px; font-size:12px;">接口 ${courseTasks.length} 个</span>
+                <div style="background:white; border-radius:20px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 6px 16px rgba(0,0,0,0.04);">
+                    <div style="background:#f1f5f9; padding:16px 24px; font-weight:bold; color:#334155; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:16px; letter-spacing: 0.5px;">📚 ${courseName || '未知课程'}</span>
+                        <span style="background:#e0e7ff; color:#4f46e5; padding:4px 12px; border-radius:12px; font-size:13px; font-weight:700;">接口 ${courseTasks.length} 个</span>
                     </div>
-                    <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+                    <div style="padding:20px; display:flex; flex-direction:column; gap:16px;">
             `;
             courseTasks.forEach(task => {
                 window.xyGlobalTaskMap.set(task.task_id || task.id, task);
@@ -2308,24 +2319,24 @@
 
                 const currentNodeId = getNodeId();
                 const isCurrentNode = currentNodeId && task.node_id == currentNodeId;
-                const borderStyle = isCurrentNode ? 'border: 2px solid #3b82f6; box-shadow: 0 0 10px rgba(59,130,246,0.2);' : (enableCheck ? 'border: 1px solid #cbd5e1;' : 'border: 1px solid transparent;');
-                const currentMark = isCurrentNode ? `<span style="background:#3b82f6; color:white; padding:2px 6px; border-radius:4px; font-size:10px; margin-left:6px;">📍 当前位置</span>` : '';
+                const borderStyle = isCurrentNode ? 'border: 2px solid #3b82f6; box-shadow: 0 0 15px rgba(59,130,246,0.15);' : (enableCheck ? 'border: 1px solid #cbd5e1;' : 'border: 1px solid transparent;');
+                const currentMark = isCurrentNode ? `<span style="background:#3b82f6; color:white; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; margin-left:10px; box-shadow: 0 2px 4px rgba(59,130,246,0.3);">📍 当前位置</span>` : '';
                 const typeStr = {1:'👁️ 自主观看', 2:'✍️ 作业', 3:'📚 课堂练习', 4:'💯 测验', 5:'📋 问卷', 6:'💭 讨论'}[task.task_type] || '📌 未知';
 
                 html += `
-                    <div id="xy-global-task-card-${task.task_id || task.id}" style="background:#f8fafc; border-radius:8px; padding:12px; display:flex; align-items:center; gap:16px; transition: all 0.3s; ${borderStyle}">
-                        <input type="checkbox" class="xy-task-check" value="${task.task_id || task.id}" ${enableCheck?'':'disabled'} style="width:18px; height:18px; cursor:${enableCheck?'pointer':'not-allowed'}; accent-color:#4f46e5; flex-shrink: 0;">
+                    <div id="xy-global-task-card-${task.task_id || task.id}" style="background:#f8fafc; border-radius:12px; padding:16px; display:flex; align-items:center; gap:20px; transition: all 0.3s; ${borderStyle}">
+                        <input type="checkbox" class="xy-task-check" value="${task.task_id || task.id}" ${enableCheck?'':'disabled'} style="width:20px; height:20px; cursor:${enableCheck?'pointer':'not-allowed'}; accent-color:#4f46e5; flex-shrink: 0;">
                         <div style="flex:1;">
-                            <div style="font-size:14px; font-weight:bold; color:#1e293b; margin-bottom:4px; display:flex; align-items:center;">
+                            <div style="font-size:15px; font-weight:bold; color:#1e293b; margin-bottom:8px; display:flex; align-items:center; letter-spacing: 0.5px;">
                                 ${task.name || '未知任务'} ${currentMark}
                             </div>
-                            <div style="font-size:12px; color:#64748b; display:flex; gap:16px;">
-                                <span>${typeStr}</span>
+                            <div style="font-size:13px; color:#64748b; display:flex; gap:24px; font-weight: 500;">
+                                <span style="background: rgba(226,232,240,0.6); padding: 2px 8px; border-radius: 6px;">${typeStr}</span>
                                 <span>截止: ${new Date(task.end_time).toLocaleDateString()}</span>
                             </div>
                         </div>
                         <div>
-                            <span class="xy-task-status-indicator" style="background:${statusColorBg}; color:${statusColorText}; padding:4px 8px; border-radius:6px; font-size:12px; font-weight:bold; white-space:nowrap; transition:all 0.3s;">${statusTag}</span>
+                            <span class="xy-task-status-indicator" style="background:${statusColorBg}; color:${statusColorText}; padding:6px 12px; border-radius:8px; font-size:13px; font-weight:bold; white-space:nowrap; transition:all 0.3s;">${statusTag}</span>
                         </div>
                     </div>`;
             });
