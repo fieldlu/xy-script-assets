@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      2.4.0
-// @description  「小雅辅助工具」✨ 小雅网页版终极效率外挂！双核驱动刷课+讨论区自动点赞～ 刷课智能防卡、循环连播、心跳加密🥳；点赞精准狙击、API抓名单、仿生间隔超安全🎯！致敬前辈 zygame1314 ❤️，一个面板全搞定，效率拉满🚀！
+// @version      2.4.1
+// @description  专为小雅学习平台打造的超强辅助工具：1. 视频/文档全自动挂机与智能雷达连播；2. 讨论区网络流抓包及全自动批量点赞/自定义回复；3. 全局任务探测与一键秒交。为您提供沉浸式高效体验。4. 底层拦截防切屏防休眠与硬件级静音；
 // @author       Gemini
 // @license      MIT
 // @match        https://*.ai-augmented.com/*
