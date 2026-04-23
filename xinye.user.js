@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      2.4.1
+// @version      2.5.0
 // @description  专为小雅学习平台打造的超强辅助工具：1. 视频/文档全自动挂机与智能雷达连播；2. 讨论区网络流抓包及全自动批量点赞/自定义回复；3. 全局任务探测与一键秒交。为您提供沉浸式高效体验。4. 底层拦截防切屏防休眠与硬件级静音；
 // @author       Gemini
 // @license      MIT
@@ -124,6 +124,34 @@
         customReplies: []
     };
 
+    // ==========================================
+    // 🌟 全新外挂架构：计划调度中心状态
+    // ==========================================
+    const xyScheduleState = {
+        queue: JSON.parse(GM_getValue('xy_schedule_queue', '[]')),
+        isRunning: GM_getValue('xy_schedule_running', false),
+        currentIdx: parseInt(GM_getValue('xy_schedule_idx', 0)),
+        lastMode: GM_getValue('xy_schedule_last_mode', 'sequence')
+    };
+
+    // 数据向上迁移与格式兼容
+    xyScheduleState.queue.forEach(q => {
+        if (q.infinite !== undefined) {
+            if (q.infinite) q.strategy = 'infinite';
+            else if (q.duration === -1) q.strategy = 'infinite';
+            else q.strategy = 'duration';
+            delete q.infinite;
+        }
+        if (!q.strategy) q.strategy = 'until_done';
+    });
+
+    function saveScheduleState() {
+        GM_setValue('xy_schedule_queue', JSON.stringify(xyScheduleState.queue));
+        GM_setValue('xy_schedule_running', xyScheduleState.isRunning);
+        GM_setValue('xy_schedule_idx', xyScheduleState.currentIdx);
+        GM_setValue('xy_schedule_last_mode', xyScheduleState.lastMode);
+    }
+
     try { 
         appState.targetNames = JSON.parse(GM_getValue('xy_target_names', '[]')); 
     } catch(e) { 
@@ -164,14 +192,38 @@
         return cleanName(res);
     }
 
-    function flattenResources(arr) {
+    // 🌟终极修复：精确识别测验/作业，且对自主学习节点(视频/文档)进行严格的后缀名校验以剔除空文件夹！
+    function extractFilesFromResources(arr) {
         let res = [];
         if (!Array.isArray(arr)) return res;
         arr.forEach(item => {
-            res.push(item);
-            if (item.children) res = res.concat(flattenResources(item.children));
-            if (item.child_nodes) res = res.concat(flattenResources(item.child_nodes));
-            if (item.items) res = res.concat(flattenResources(item.items));
+            if (item.children) res = res.concat(extractFilesFromResources(item.children));
+            if (item.child_nodes) res = res.concat(extractFilesFromResources(item.child_nodes));
+            if (item.items) res = res.concat(extractFilesFromResources(item.items));
+
+            const type = item.task_type !== undefined ? item.task_type : item.type;
+            if (type === undefined || type === null) return;
+
+            const name = (item.name || item.title || '').toLowerCase();
+            
+            // 核心修正：如果是测验(4)、作业(2)、问卷(5)、练习(3) 等，直接保留，不需要后缀名！
+            if (type >= 2 && type <= 5) {
+                const cleanItem = Object.assign({}, item);
+                cleanItem.computed_task_type = type;
+                res.push(cleanItem);
+            } 
+            // 否则（如类型1 自主学习，或其它类型），必须严格校验后缀名防空文件夹！
+            else {
+                const isMedia = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
+                const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+                
+                // 唯有真正匹配到后缀的文件，才予以放行
+                if (isMedia || isDoc) {
+                    const cleanItem = Object.assign({}, item);
+                    cleanItem.computed_task_type = 1; // 媒体/文档文件必定是自主学习(类型1)
+                    res.push(cleanItem);
+                }
+            }
         });
         return res;
     }
@@ -248,9 +300,9 @@
                 } else {
                     const resources = await loadCourseResources(groupId);
                     if (resources) {
-                        const flatRes = flattenResources(resources);
+                        const flatRes = extractFilesFromResources(resources);
                         const currentRes = flatRes.find(r => r.node_id == nodeId || r.id == nodeId);
-                        if (currentRes) taskType = currentRes.task_type;
+                        if (currentRes) taskType = currentRes.computed_task_type;
                     }
                     if (!appState.isTaskCompleted && appState.activeZone === 'course') {
                         appState.isTaskCompleted = true;
@@ -292,10 +344,25 @@
         return appState.courseResourcesCache;
     }
 
+    // 获取特定任务的真实资源 ID (给计划调度和跳课共用)
+    async function getTaskResourceId(task) {
+        if (task.resource_id) return task.resource_id;
+        try {
+            const resources = await loadCourseResources(task.group_id);
+            if (resources) {
+                const flatRes = extractFilesFromResources(resources);
+                const rInfo = flatRes.find(r => r.node_id == task.node_id || r.id == task.node_id);
+                if (rInfo) return (rInfo.id || rInfo.resource_id);
+            }
+        } catch(e) {}
+        return task.id; // 最后退避使用自身 ID
+    }
+
     // ==========================================
     // 🛠️ 弹窗、日志与UI交互
     // ==========================================
     function xyShowModal(title, message, onConfirm = null) {
+        if (!document.body) return;
         const modal = document.createElement('div');
         modal.style.cssText = `position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2147483647; opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); backdrop-filter: blur(10px); padding: 20px;`;
         const content = document.createElement('div');
@@ -319,6 +386,12 @@
     }
 
     function showToast(msg, type = 'info') {
+        // 核心修复：如果网页 DOM 还没完全加载完毕，延迟 500ms 后再次尝试弹出，避免抛错卡死引擎
+        if (!document.body) {
+            setTimeout(() => showToast(msg, type), 500);
+            return;
+        }
+        
         const colors = { success: { bg: 'linear-gradient(145deg, #10b981, #059669)', icon: '🎉' }, warning: { bg: 'linear-gradient(145deg, #f59e0b, #d97706)', icon: '⚠️' }, error: { bg: 'linear-gradient(145deg, #ef4444, #dc2626)', icon: '❌' }, info: { bg: 'linear-gradient(145deg, #3b82f6, #2563eb)', icon: 'ℹ️' } };
         const currentType = colors[type] || colors.info;
         let container = document.getElementById('xy-toast-box');
@@ -339,7 +412,10 @@
         const logStr = `[${time}] ${msg}`;
         sessionLogs.push({ text: logStr, color: color });
         if (sessionLogs.length > 80) sessionLogs.shift();
-        sessionStorage.setItem('xy_session_logs', JSON.stringify(sessionLogs));
+        
+        // 核心防御：跨域或无痕模式下直接访问 sessionStorage 极易抛出安全异常导致崩溃，用 try-catch 包裹
+        try { sessionStorage.setItem('xy_session_logs', JSON.stringify(sessionLogs)); } catch (e) {}
+        
         const logBox = document.getElementById('xy-activity-log');
         if (logBox) {
             const el = document.createElement('div'); el.style.color = color; el.style.marginBottom = '4px'; el.style.lineHeight = '1.5'; el.innerText = logStr; logBox.appendChild(el);
@@ -386,7 +462,6 @@
         }, delayMs);
     }
 
-    // 🔥暴力且彻底地销毁调度器的方法
     function clearDynamicRefresh() {
         let cleared = false;
         if (dynamicRefreshTimeoutId) {
@@ -413,7 +488,7 @@
     }
 
     function checkDynamicRefresh() {
-        // 如果处于待命区/讨论区，或者是手动休眠模式，无条件拦截并强制清空倒计时
+        // 如果被计划调度中心接管（manual 模式），强停原生重载
         if (appState.activeZone !== 'course' || appState.mode === 'manual') {
             if (lastRefreshStrategy !== 'none' || dynamicRefreshTimeoutId) { 
                 clearDynamicRefresh(); 
@@ -637,7 +712,7 @@
             if (!taskId) {
                 const resources = await loadCourseResources(groupId);
                 if (resources) {
-                    const flatRes = flattenResources(resources);
+                    const flatRes = extractFilesFromResources(resources);
                     const currentRes = flatRes.find(r => r.node_id == nodeId || r.id == nodeId); 
                     if (currentRes) taskId = currentRes.task_id || currentRes.id;
                 }
@@ -669,7 +744,8 @@
 
     async function tryJumpToNext() {
         if (isJumpingLock) return; 
-        if (Date.now() < appState.jumpSleepUntil) return; // 休眠保护机制
+        if (Date.now() < appState.jumpSleepUntil) return; 
+        if (xyScheduleState.isRunning) return; // 🌟 核心拦截：如果超级计划调度在运行，禁止原生引擎私自跳课，完全交由计划器接管跳转！
 
         isJumpingLock = true;
         
@@ -700,26 +776,13 @@
             }
 
             if (targetTask) {
-                let resId = targetTask.resource_id;
-
-                if (!resId) {
-                    const resources = await loadCourseResources(targetTask.group_id);
-                    if (resources) {
-                        const flatRes = flattenResources(resources);
-                        const rInfo = flatRes.find(r => r.node_id == targetTask.node_id || r.id == targetTask.node_id);
-                        if (rInfo) {
-                            resId = rInfo.id || rInfo.resource_id;
-                        }
-                    }
-                }
-
-                if (!resId) resId = targetTask.id;
+                const resId = await getTaskResourceId(targetTask);
 
                 logMsg(`⏭️ 雷达锁定目标：${targetTask.name}，执行跨节点跳转！`, 'success', false);
 
                 const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
 
-                appState.jumpFailCount = 0; // 跳转成功，清空失败计数
+                appState.jumpFailCount = 0; 
                 setTimeout(() => { 
                     window.location.href = `/app/jx-web/${pathPrefix}/${targetTask.group_id}/resource/${resId}/${targetTask.node_id}`; 
                 }, 500);
@@ -885,26 +948,25 @@
     setInterval(async () => {
         await runLowLevelScanner(); 
 
-        // 🔥 核心修复：将清理检测提到最外层，100%保证进入非刷课页面或手动休眠就会直接销毁倒计时
         checkDynamicRefresh();
 
         if (appState.activeZone !== 'course') {
-            watchdogLastActiveTime = Date.now(); // 防死锁强刷：处于待命区/讨论区时，持续给看门狗喂时间戳
+            watchdogLastActiveTime = Date.now(); 
             return;
         }
         if (appState.guardActive) forceDismissPopups(document);
 
-        // 统一提取当前任务类型，用于全局调度和引擎判断
         appState.currentEngine = await getTaskTypeAccurate();
 
-        if (Date.now() - watchdogLastActiveTime > 180000) {
-            sessionStorage.setItem('xy_reload_reason', '180秒无响应，防死锁刷新');
+        // 放宽计划调度时的死锁判定（无限挂机需要较长时间不动作）
+        const timeoutLimit = xyScheduleState.isRunning ? 1800000 : 180000; // 计划模式下30分钟死锁强刷
+        if (Date.now() - watchdogLastActiveTime > timeoutLimit) {
+            sessionStorage.setItem('xy_reload_reason', '防死锁刷新');
             logMsg(`💀 发生死锁！执行强刷...`, 'error', false);
             setTimeout(() => window.location.reload(), 1000);
             return;
         }
 
-        // 如果正处于休眠探测状态，则跳过后续检查，直接放行循环
         if (appState.mode === 'sequence' && Date.now() < appState.jumpSleepUntil) {
             updateCourseUI();
             watchdogLastActiveTime = Date.now(); 
@@ -913,7 +975,7 @@
 
         const groupId = getCourseGroupId();
         if (groupId && appState.mode !== 'manual') {
-            const taskType = appState.currentEngine; // 直接复用
+            const taskType = appState.currentEngine; 
 
             const vEngine = document.getElementById('xy-engine-video'), dEngine = document.getElementById('xy-engine-doc');
             if(vEngine) vEngine.style.opacity = taskType === 'video' ? '1' : '0.4';
@@ -1050,7 +1112,7 @@
                 watchdogLastActiveTime = Date.now();
             }
         } else {
-            watchdogLastActiveTime = Date.now();
+            watchdogLastActiveTime = Date.now(); // 保证计划模式下能持续喂狗
         }
     }, 1000);
 
@@ -1269,7 +1331,6 @@
         ];
         
         if (appState.useCustomReply && appState.customReplies && appState.customReplies.length > 0) {
-            // 过滤符合条件的句子（≥16汉字）
             const validCustoms = appState.customReplies.filter(text => (text.match(/[\u4e00-\u9fa5]/g) || []).length >= 16);
             if (validCustoms.length > 0) {
                 return validCustoms[Math.floor(Math.random() * validCustoms.length)];
@@ -1426,7 +1487,7 @@
     }
 
     // ==========================================
-    // 🎨 UI 界面渲染与控制
+    // 🎨 核心UI 界面渲染与控制
     // ==========================================
     function formatTime(s) { const h = Math.floor(s/3600), m = Math.floor((s%3600)/60).toString().padStart(2,'0'), sec = (s%60).toString().padStart(2,'0'); return h > 0 ? `${h}h ${m}m ${sec}s` : `${m}m ${sec}s`; }
 
@@ -1434,7 +1495,12 @@
         if (appState.activeZone !== 'course') return;
         const statusBanner = document.getElementById('xy-status-banner');
         if (statusBanner) {
-            if (appState.mode === 'manual') { 
+            if (xyScheduleState.isRunning) {
+                statusBanner.innerHTML = `<span style="color:#854d0e;">📅 计划调度中 (外挂托管)</span>`; 
+                statusBanner.style.background = 'rgba(254, 240, 138, 0.8)'; 
+                statusBanner.style.borderColor = 'rgba(253,224,71,0.8)'; 
+            }
+            else if (appState.mode === 'manual') { 
                 statusBanner.innerHTML = `<span style="color:#475569;">⏸️ 挂机休眠中</span>`; 
                 statusBanner.style.background = 'rgba(241, 245, 249, 0.8)'; 
                 statusBanner.style.borderColor = 'rgba(226,232,240,0.8)'; 
@@ -1473,6 +1539,7 @@
         if(btnGuard) { if(appState.guardActive) { btnGuard.innerHTML = '🛡️ 防休眠 ON'; btnGuard.className = 'xy-action-btn active-guard'; } else { btnGuard.innerHTML = '⚠️ 防休眠 OFF'; btnGuard.className = 'xy-action-btn inactive-guard'; } }
     }
 
+    // （保留所有其它辅助UI函数，如 renderTargetList, updateDiscUI, openReplySettingsModal 等）
     function updateDiscUI() {
         if (appState.activeZone !== 'disc') return;
         const statusEl = document.getElementById('xy-disc-status');
@@ -1533,185 +1600,760 @@
     }
 
     // ==========================================
-    // 🌟 自定义回复设置模态框
+    // 🌟 全局任务大屏 (雷达) 附带全量已完成提取逻辑
     // ==========================================
-    function openReplySettingsModal() {
-        let overlay = document.getElementById('xy-reply-settings-overlay');
-        if (overlay) return;
-        
-        overlay = document.createElement('div');
-        overlay.id = 'xy-reply-settings-overlay';
-        overlay.style.cssText = `position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(15, 23, 42, 0.6); z-index:2147483646; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(8px); opacity:0; transition:opacity 0.3s;`;
-        
-        function showModalToast(msg, type = 'info') {
-            const modalBody = overlay.firstElementChild;
-            if (!modalBody) return;
+    async function fetchGlobalTasks() {
+        let allTasks = [];
+        try { 
+            const token = await getAuthToken(); 
             
-            let toastContainer = document.getElementById('xy-modal-toast-container');
-            if (!toastContainer) {
-                toastContainer = document.createElement('div');
-                toastContainer.id = 'xy-modal-toast-container';
-                toastContainer.style.cssText = `position:absolute; top:32px; left:50%; transform:translateX(-50%); z-index:99999; display:flex; flex-direction:column; gap:12px; pointer-events:none;`;
-                modalBody.appendChild(toastContainer);
+            // 1. 获取全网未完成任务（主雷达）
+            const res1 = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { method: "GET", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" } }); 
+            const data1 = await res1.json(); 
+            let unfinishedTasks = [];
+            if (data1.success && data1.data) {
+                unfinishedTasks = data1.data;
+                allTasks = JSON.parse(JSON.stringify(unfinishedTasks));
+            }
+
+            // 2. 缓存全局课程ID字典，实现在待命区也能调出全部课程的已完成任务
+            let courseMap = {};
+            try { courseMap = JSON.parse(GM_getValue('xy_course_map', '{}')); } catch(e) {}
+
+            unfinishedTasks.forEach(t => {
+                if (t.group_id && t.group_name) courseMap[t.group_id] = t.group_name;
+            });
+
+            // 记录当前进入的课程（即使用户看的是全完成的课，也能永久缓存进全局图鉴）
+            const currentGroupId = getCourseGroupId();
+            if (currentGroupId) {
+                let courseTitle = '未知课程';
+                const navElement = document.querySelector('.el-breadcrumb__inner');
+                if (navElement && navElement.textContent) {
+                    courseTitle = navElement.textContent.trim();
+                } else {
+                    const titleEl = document.querySelector('.course-name') || document.querySelector('.course-title');
+                    if (titleEl && titleEl.textContent) courseTitle = titleEl.textContent.trim();
+                    else courseTitle = document.title || '当前课程';
+                }
+                courseMap[currentGroupId] = courseTitle;
+            }
+            GM_setValue('xy_course_map', JSON.stringify(courseMap));
+
+            // 3. 并发拉取已知所有课程的【全量资源目录】
+            const groupIds = Object.keys(courseMap);
+            if (groupIds.length > 0) {
+                const fetchPromises = groupIds.map(async (gId) => {
+                    try {
+                        const r = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${gId}`, { headers: { "authorization": `Bearer ${token}` } });
+                        const d = await r.json();
+                        return { gId, gName: courseMap[gId], data: d };
+                    } catch (e) { return null; }
+                });
+
+                const results = await Promise.all(fetchPromises);
+                
+                results.forEach(res => {
+                    if (res && res.data && res.data.success && res.data.data) {
+                        const flatRes = extractFilesFromResources(res.data.data);
+                        flatRes.forEach(r => {
+                            // 在【全量资源】中找，如果在【未完成雷达】中不存在，说明它必定是【已完成】的！
+                            const existItem = allTasks.find(t => t.node_id == (r.node_id || r.id) && t.group_id == res.gId);
+                            if (!existItem) {
+                                allTasks.push({
+                                    task_id: r.task_id || r.id,
+                                    id: r.task_id || r.id,
+                                    node_id: r.node_id || r.id,
+                                    group_id: res.gId,
+                                    resource_id: r.resource_id || r.id,
+                                    name: r.name || r.title || '未知任务',
+                                    task_type: r.computed_task_type || 1, // 精确填入计算出的类型
+                                    finish: 2, // 强行贴上已完成标签
+                                    start_time: r.start_time || new Date().toISOString(),
+                                    end_time: r.end_time || "2099-12-31T00:00:00.000Z",
+                                    group_name: res.gName
+                                });
+                            } else {
+                                // 校准现存任务的组名
+                                existItem.group_name = res.gName;
+                                existItem.task_type = r.computed_task_type || existItem.task_type;
+                            }
+                        });
+                    }
+                });
+            }
+        } catch (error) {} 
+        return allTasks;
+    }
+
+    async function batchSubmitGlobalTasks(taskObjs) {
+        try {
+            const token = await getAuthToken(); let successCount = 0;
+            let submitBtn = document.getElementById('xy-batch-submit-btn');
+            const total = taskObjs.length;
+
+            for (let i = 0; i < taskObjs.length; i++) {
+                submitBtn = document.getElementById('xy-batch-submit-btn');
+                const task = taskObjs[i];
+                if (submitBtn) {
+                    submitBtn.innerText = `⏳ 正在提交任务... (${i+1}/${total})`;
+                    submitBtn.disabled = true;
+                }
+                const taskCard = document.getElementById(`xy-global-task-card-${task.task_id || task.id}`);
+                let statusIndicator = null;
+                
+                if (taskCard) {
+                    taskCard.style.opacity = '0.8';
+                    taskCard.style.transform = 'scale(0.98)';
+                    statusIndicator = taskCard.querySelector('.xy-task-status-indicator');
+                    if (statusIndicator) {
+                        statusIndicator.innerHTML = '🔄 提交请求中...';
+                        statusIndicator.style.background = '#fef08a';
+                        statusIndicator.style.color = '#854d0e';
+                    }
+                }
+
+                try {
+                    const response = await fetch(`https://${domain}/api/jx-iresource/resource/finishActivity`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify({ "group_id": task.group_id, "node_id": task.node_id, "task_id": task.task_id || task.id }) });
+                    const data = await response.json(); 
+                    if (data.success) { 
+                        logMsg(`✅ 任务提交成功：${task.name}`, 'success', true); 
+                        successCount++; 
+                        if (statusIndicator) {
+                            statusIndicator.innerHTML = '✓ 验证通过';
+                            statusIndicator.style.background = '#dcfce7';
+                            statusIndicator.style.color = '#166534';
+                        }
+                        const checkbox = taskCard ? taskCard.querySelector('.xy-task-check') : null;
+                        if (checkbox) { checkbox.disabled = true; checkbox.checked = false; }
+                        if (taskCard) taskCard.style.borderColor = '#dcfce7';
+                    } else {
+                        if (statusIndicator) {
+                            statusIndicator.innerHTML = '❌ 验证失败';
+                            statusIndicator.style.background = '#fee2e2';
+                            statusIndicator.style.color = '#991b1b';
+                        }
+                        if (taskCard) taskCard.style.borderColor = '#fee2e2';
+                    }
+                } catch (err) {
+                    if (statusIndicator) {
+                        statusIndicator.innerHTML = '⚠️ 网络异常';
+                        statusIndicator.style.background = '#fef2f2';
+                        statusIndicator.style.color = '#b91c1c';
+                    }
+                }
+                
+                if (taskCard) {
+                    taskCard.style.opacity = '1';
+                    taskCard.style.transform = 'scale(1)';
+                }
+                
+                await sleep(400); 
+
+                submitBtn = document.getElementById('xy-batch-submit-btn');
+                if (submitBtn) submitBtn.innerText = `🔄 正在同步雷达数据... (${i+1}/${total})`;
+                
+                const latestTasks = await fetchGlobalTasks(); 
+                renderGlobalDashboardContent(latestTasks); 
+                
+                await sleep(200); 
             }
             
-            const colors = {
-                success: { bg: '#dcfce7', color: '#166534', border: '#bbf7d0', icon: '✅' },
-                error: { bg: '#fee2e2', color: '#991b1b', border: '#fecaca', icon: '❌' },
-                warning: { bg: '#fef3c7', color: '#92400e', border: '#fde68a', icon: '⚠️' },
-                info: { bg: '#e0f2fe', color: '#075985', border: '#bae6fd', icon: 'ℹ️' }
-            };
-            const currentType = colors[type] || colors.info;
-            
-            const toast = document.createElement('div');
-            toast.style.cssText = `background:${currentType.bg}; color:${currentType.color}; border: 1px solid ${currentType.border}; padding:14px 20px; border-radius:12px; font-weight:bold; font-size:14px; box-shadow:0 12px 30px rgba(0,0,0,0.15); transition:all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-20px) scale(0.9); display:flex; align-items:center; backdrop-filter: blur(8px); white-space: nowrap; letter-spacing: 0.5px;`;
-            toast.innerHTML = `<span style="margin-right:10px; font-size:18px;">${currentType.icon}</span><span>${msg}</span>`;
-            toastContainer.appendChild(toast);
-            
-            requestAnimationFrame(() => {
-                toast.style.opacity = '1';
-                toast.style.transform = 'translateY(0) scale(1)';
+            const finalSubmitBtn = document.getElementById('xy-batch-submit-btn');
+            if (finalSubmitBtn) {
+                finalSubmitBtn.innerText = '🚀 一键提交勾选任务';
+                finalSubmitBtn.disabled = false;
+            }
+
+            if (successCount > 0) { 
+                showToast(`🎉 成功完成 ${successCount} 个学习任务！`, 'success'); 
+            }
+
+        } catch(e) {}
+    }
+
+    async function openGlobalTaskDashboard() {
+        let overlay = document.getElementById('xy-dashboard-overlay');
+        if (!overlay) { overlay = document.createElement('div'); overlay.id = 'xy-dashboard-overlay'; overlay.style.cssText = `position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.7); z-index:2147483645; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(12px); opacity:0; transition:opacity 0.3s;`; document.body.appendChild(overlay); }
+        overlay.innerHTML = `
+            <div style="background:white; width:90%; max-width:960px; height:85vh; border-radius:24px; box-shadow:0 30px 60px rgba(0,0,0,0.3); display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+                <div style="padding:24px 32px; background:linear-gradient(135deg, #4f46e5, #3b82f6); border-bottom:1px solid #6366f1; display:flex; justify-content:space-between; align-items:center; flex-shrink: 0;">
+                    <div style="font-size:22px; font-weight:bold; color:white; display:flex; align-items:center; gap:12px; letter-spacing: 0.5px;">🌍 全局智能导航雷达</div>
+                    <button id="xy-close-dashboard" style="background:none; border:none; font-size:26px; color:#e0e7ff; cursor:pointer; padding:0; transition: 0.2s;" onmouseover="this.style.color='white'; this.style.transform='rotate(90deg)';" onmouseout="this.style.color='#e0e7ff'; this.style.transform='none';">✖</button>
+                </div>
+                <div id="xy-dashboard-content" style="flex:1; overflow-y:auto; padding:32px; background:#f8fafc;">
+                    <div style="text-align:center; padding:60px; color:#64748b; font-size:18px; letter-spacing: 0.5px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描全局雷达与所有课程的已完成任务...</span></div>
+                </div>
+                <div id="xy-dashboard-footer" style="display:none; padding:20px 32px; background:white; border-top:1px solid #e2e8f0; flex-shrink: 0; justify-content:center; box-shadow: 0 -4px 20px rgba(0,0,0,0.02);">
+                    <button id="xy-batch-submit-btn" style="width:100%; max-width:700px; background:linear-gradient(135deg, #4f46e5, #3b82f6); color:white; border:none; padding:18px; border-radius:14px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow:0 8px 24px rgba(79,70,229,0.3); transition:all 0.2s; letter-spacing: 1px;" onmouseover="this.style.transform='translateY(-2px)';" onmouseout="this.style.transform='none';">🚀 一键提交勾选任务</button>
+                </div>
+            </div>
+        `;
+        requestAnimationFrame(() => { overlay.style.opacity = '1'; overlay.firstElementChild.style.transform = 'scale(1)'; });
+        document.getElementById('xy-close-dashboard').onclick = () => { overlay.style.opacity = '0'; overlay.firstElementChild.style.transform = 'scale(0.95)'; setTimeout(() => overlay.remove(), 300); };
+        const tasks = await fetchGlobalTasks(); renderGlobalDashboardContent(tasks);
+    }
+
+    function renderGlobalDashboardContent(tasks) {
+        const contentBox = document.getElementById('xy-dashboard-content'), footerBox = document.getElementById('xy-dashboard-footer');
+        if (!contentBox) return;
+        if (!tasks || tasks.length === 0) { contentBox.innerHTML = `<div style="text-align:center; padding:100px; color:#94a3b8; font-size:22px; letter-spacing: 0.5px;">🎉 全网已无任务数据！</div>`; if (footerBox) footerBox.style.display = 'none'; return; }
+        if (footerBox) footerBox.style.display = 'flex';
+
+        let html = `
+            <div style="background:linear-gradient(145deg, #fef3c7, #fde68a); padding:20px 24px; border-radius:16px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; border:1px solid #fcd34d; box-shadow: 0 4px 12px rgba(253,230,138,0.3);">
+                <div>
+                    <div style="font-weight:bold; color:#92400e; font-size:16px; margin-bottom:6px; display:flex; align-items:center; gap:8px;">⚠️ 跨课高危自由模式</div>
+                    <div style="color:#b45309; font-size:13px; line-height: 1.6;">允许跨课程批量强交【非视频类】作业（有查水表风险，切忌交空卷）</div>
+                </div>
+                <label style="position:relative; display:inline-block; width:56px; height:30px;">
+                    <input type="checkbox" id="xy-freedom-switch" style="opacity:0; width:0; height:0;" ${appState.isFreedomMode ? 'checked' : ''}>
+                    <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${appState.isFreedomMode?'#92400e':'#cbd5e1'}; border-radius:34px; transition:.4s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
+                        <span style="position:absolute; height:22px; width:22px; left:4px; bottom:4px; background:white; border-radius:50%; transition:.4s; transform:${appState.isFreedomMode?'translateX(26px)':'translateX(0)'}; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></span>
+                    </span>
+                </label>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 0 8px;">
+            <label style="cursor: pointer; display: flex; align-items: center; gap: 10px; font-weight: 700; color: #334155; font-size: 16px; user-select: none; transition: 0.2s;" onmouseover="this.style.color='#0f172a'" onmouseout="this.style.color='#334155'">
+                <input type="checkbox" id="xy-select-all" style="width: 20px; height: 20px; accent-color: #4f46e5; cursor: pointer;"> ✅ 全选可提交任务
+            </label>
+        </div>
+        <div id="xy-global-task-container" style="display:flex; flex-direction:column; gap:24px;">
+        `;
+
+        const groupedTasks = tasks.reduce((acc, t) => { if(!acc[t.group_name]) acc[t.group_name] = []; acc[t.group_name].push(t); return acc; }, {});
+        window.xyGlobalTaskMap = new Map();
+
+        Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
+            // 让未完成的任务优先排在上面，已完成的排在底下
+            courseTasks.sort((a,b) => {
+                if (a.finish !== b.finish) return a.finish - b.finish; 
+                return new Date(a.end_time) - new Date(b.end_time);
             });
             
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translateY(-10px) scale(0.9)';
-                setTimeout(() => toast.remove(), 400);
-            }, 2500);
+            const safeId = 'xy-global-group-' + groupIdx;
+            
+            html += `
+                <div style="background:white; border-radius:20px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 6px 16px rgba(0,0,0,0.04); margin-bottom: 16px;">
+                    <div class="xy-global-group-header" data-target="${safeId}" style="background:#f1f5f9; padding:16px 24px; font-weight:bold; color:#334155; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none; transition:background 0.2s;">
+                        <span style="font-size:16px; letter-spacing: 0.5px;">📚 ${courseName || '未知课程'}</span>
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <span style="background:#e0e7ff; color:#4f46e5; padding:4px 12px; border-radius:12px; font-size:13px; font-weight:700;">${courseTasks.length} 个任务</span>
+                            <span class="xy-global-group-arrow" style="transition: transform 0.2s; color:#94a3b8; font-size: 12px;">▼</span>
+                        </div>
+                    </div>
+                    <div id="${safeId}" class="xy-global-group-content" style="padding:20px; display:flex; flex-direction:column; gap:16px;">
+            `;
+            courseTasks.forEach(task => {
+                window.xyGlobalTaskMap.set(task.task_id || task.id, task);
+                const now = new Date();
+                const endTime = new Date(task.end_time);
+                const startTime = new Date(task.start_time);
+                
+                const isCompleted = task.finish === 2;
+                const isAutoable = task.task_type === 1;
+                const enableCheck = (!isCompleted) && (isAutoable || appState.isFreedomMode);
+                
+                let statusTag = ''; let statusColorBg = ''; let statusColorText = '';
+                if (isCompleted) { statusTag = '✓ 已完成'; statusColorBg = '#dcfce7'; statusColorText = '#166534'; } 
+                else if (endTime < now) { statusTag = '⚠️ 已截止'; statusColorBg = '#fee2e2'; statusColorText = '#991b1b'; } 
+                else if (startTime > now) { statusTag = '🔒 未开始'; statusColorBg = '#f1f5f9'; statusColorText = '#475569'; } 
+                else { statusTag = '⏳ 进行中'; statusColorBg = '#eff6ff'; statusColorText = '#1e40af'; }
+
+                const currentNodeId = getNodeId();
+                const isCurrentNode = currentNodeId && task.node_id == currentNodeId;
+                const borderStyle = isCurrentNode ? 'border: 2px solid #3b82f6; box-shadow: 0 0 15px rgba(59,130,246,0.15);' : (enableCheck ? 'border: 1px solid #cbd5e1;' : 'border: 1px solid transparent;');
+                const currentMark = isCurrentNode ? `<span style="background:#3b82f6; color:white; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; margin-left:10px; box-shadow: 0 2px 4px rgba(59,130,246,0.3);">📍 当前位置</span>` : '';
+                const typeStr = {1:'👁️ 自主观看', 2:'✍️ 作业', 3:'📚 课堂练习', 4:'💯 测验', 5:'📋 问卷', 6:'💭 讨论'}[task.task_type] || '📌 未知';
+
+                html += `
+                    <div id="xy-global-task-card-${task.task_id || task.id}" style="background:#f8fafc; border-radius:12px; padding:16px; display:flex; align-items:center; gap:20px; transition: all 0.3s; ${borderStyle}">
+                        <input type="checkbox" class="xy-task-check" value="${task.task_id || task.id}" ${enableCheck?'':'disabled'} style="width:20px; height:20px; cursor:${enableCheck?'pointer':'not-allowed'}; accent-color:#4f46e5; flex-shrink: 0;">
+                        <div style="flex:1;">
+                            <div style="font-size:15px; font-weight:bold; color:#1e293b; margin-bottom:8px; display:flex; align-items:center; letter-spacing: 0.5px;">
+                                ${task.name || '未知任务'} ${currentMark}
+                            </div>
+                            <div style="font-size:13px; color:#64748b; display:flex; gap:24px; font-weight: 500;">
+                                <span style="background: rgba(226,232,240,0.6); padding: 2px 8px; border-radius: 6px;">${typeStr}</span>
+                                <span>截止: ${new Date(task.end_time).toLocaleDateString()}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="xy-task-status-indicator" style="background:${statusColorBg}; color:${statusColorText}; padding:6px 12px; border-radius:8px; font-size:13px; font-weight:bold; white-space:nowrap; transition:all 0.3s;">${statusTag}</span>
+                        </div>
+                    </div>`;
+            });
+            html += `</div></div>`;
+        });
+        html += `</div>`; contentBox.innerHTML = html;
+
+        // 全局大屏折叠事件绑定
+        document.querySelectorAll('.xy-global-group-header').forEach(header => {
+            header.onclick = () => {
+                const targetId = header.getAttribute('data-target');
+                const content = document.getElementById(targetId);
+                const arrow = header.querySelector('.xy-global-group-arrow');
+                if (content.style.display === 'none') {
+                    content.style.display = 'flex';
+                    arrow.style.transform = 'rotate(0deg)';
+                    header.style.background = '#f1f5f9';
+                } else {
+                    content.style.display = 'none';
+                    arrow.style.transform = 'rotate(-90deg)';
+                    header.style.background = '#f8fafc';
+                }
+            };
+        });
+
+        const selectAllCb = document.getElementById('xy-select-all'), taskCheckboxes = document.querySelectorAll('.xy-task-check:not([disabled])');
+        if (selectAllCb) selectAllCb.onchange = (e) => { taskCheckboxes.forEach(cb => { cb.checked = e.target.checked; }); };
+        taskCheckboxes.forEach(cb => { cb.onchange = () => { if (!cb.checked && selectAllCb) selectAllCb.checked = false; else if (selectAllCb) selectAllCb.checked = Array.from(taskCheckboxes).every(c => c.checked); }; });
+        const fSwitch = document.getElementById('xy-freedom-switch');
+        if (fSwitch) fSwitch.onchange = (e) => {
+            if (e.target.checked) { xyShowModal("⚠️ 越级警告", "强行解除非视频节点的锁极易导致数据异常，请确保你清楚后果！", () => { appState.isFreedomMode = true; renderGlobalDashboardContent(tasks); }); e.target.checked = false; } 
+            else { appState.isFreedomMode = false; renderGlobalDashboardContent(tasks); }
+        };
+        const submitBtn = document.getElementById('xy-batch-submit-btn');
+        if (submitBtn) submitBtn.onclick = () => {
+            const checkedNodes = Array.from(document.querySelectorAll('.xy-task-check:checked')).map(cb => cb.value);
+            if (checkedNodes.length === 0) { showToast('未勾选任何提交目标', 'warning'); return; }
+            submitBtn.innerText = '⏳ 正在批量提交任务...'; submitBtn.disabled = true;
+            batchSubmitGlobalTasks(checkedNodes.map(id => window.xyGlobalTaskMap.get(id)).filter(Boolean));
+        };
+    }
+
+    // ==========================================
+    // 📅 新增核心组件：极简外挂计划调度中心
+    // ==========================================
+    async function openScheduleDashboard() {
+        let overlay = document.getElementById('xy-schedule-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'xy-schedule-overlay';
+            overlay.style.cssText = `position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.8); z-index:2147483648; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(15px); opacity:0; transition:all 0.3s;`;
+            document.body.appendChild(overlay);
         }
 
-        function renderContent() {
-            let listHtml = '';
-            if (appState.customReplies.length === 0) {
-                listHtml = `<div style="text-align:center; color:#94a3b8; padding:40px 20px; font-size:15px; letter-spacing: 0.5px;">空空如也，请在下方添加语料</div>`;
-            } else {
-                appState.customReplies.forEach((text, index) => {
-                    let hanziCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
-                    let isOk = hanziCount >= 16;
-                    listHtml += `
-                        <div style="background:#f8fafc; border:1px solid ${isOk ? '#e2e8f0' : '#fca5a5'}; border-radius:12px; padding:16px; margin-bottom:16px; position:relative; display:flex; gap:16px; align-items:center; box-shadow:0 2px 6px rgba(0,0,0,0.02); transition: all 0.2s;">
-                            <div style="flex:1; font-size:14px; color:#334155; line-height:1.7;">${text}</div>
-                            <div style="display:flex; flex-direction:column; justify-content:center; align-items:flex-end; gap:8px;">
-                                <span style="font-size:12px; font-weight:bold; color:${isOk ? '#10b981' : '#ef4444'};">${hanziCount} 汉字</span>
-                                <button class="xy-del-reply-btn" data-index="${index}" style="background:#fee2e2; color:#ef4444; border:none; padding:6px 14px; border-radius:8px; cursor:pointer; font-size:13px; font-weight:bold; transition:0.2s;" onmouseover="this.style.filter='brightness(0.95)'" onmouseout="this.style.filter='none'">删除</button>
+        const renderQueueList = () => {
+            const container = document.getElementById('xy-sch-queue-list');
+            if (!container) return;
+            
+            if (xyScheduleState.queue.length === 0) {
+                container.innerHTML = `<div style="text-align:center; color:#94a3b8; margin-top:80px; font-size:15px; letter-spacing:0.5px;">队列空空如也<br><span style="font-size:12px; opacity:0.8;">请从左侧任务库添加纯净的视频或文档任务</span></div>`;
+                return;
+            }
+
+            let html = '';
+            xyScheduleState.queue.forEach((item, index) => {
+                const isActive = (xyScheduleState.isRunning && index === xyScheduleState.currentIdx);
+                const isCompleted = item.status === 'completed';
+                
+                let statusBg = isCompleted ? '#dcfce7' : (isActive ? '#eff6ff' : 'white');
+                let statusBorder = isCompleted ? '#86efac' : (isActive ? '#60a5fa' : '#e2e8f0');
+                
+                let indicator = isCompleted ? '✅ 已完成' : (isActive ? '▶️ 执行中' : '⏳ 等待中');
+                let indicatorColor = isCompleted ? '#166534' : (isActive ? '#1d4ed8' : '#64748b');
+
+                let minStr = item.strategy === 'infinite' ? '∞' : (item.strategy === 'until_done' ? '达标' : item.duration);
+                let unit = (item.strategy === 'until_done' || item.strategy === 'infinite') ? '' : '分';
+                let elapMin = Math.floor((item.elapsedSec || 0) / 60);
+                
+                let contentHtml = `
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <select class="xy-sch-strategy" data-uuid="${item.uuid}" style="padding:4px 8px; border-radius:6px; border:1px solid #cbd5e1; font-size:13px; outline:none; background:white;" ${isActive||isCompleted ? 'disabled' : ''}>
+                            <option value="until_done" ${item.strategy==='until_done'?'selected':''}>🎯 达标即跳(连播)</option>
+                            <option value="duration" ${item.strategy==='duration'?'selected':''}>🕒 刷固定时长</option>
+                            <option value="infinite" ${item.strategy==='infinite'?'selected':''}>♾️ 无限挂机</option>
+                        </select>
+                        <input type="number" class="xy-sch-min-input" data-uuid="${item.uuid}" value="${item.duration || 30}" style="width:50px; padding:4px; text-align:center; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; display:${item.strategy==='duration'?'block':'none'};" ${isActive||isCompleted ? 'disabled' : ''}>
+                        <span class="xy-sch-min-unit" data-uuid="${item.uuid}" style="font-size:13px; color:#64748b; display:${item.strategy==='duration'?'block':'none'};">分</span>
+                    </div>
+                `;
+                indicator += ` <span style="font-weight:normal; opacity:0.8;">(驻留: ${elapMin}/${minStr}${unit})</span>`;
+
+                html += `
+                    <div class="xy-sch-item-row" style="background:${statusBg}; border:1px solid ${statusBorder}; border-radius:12px; padding:16px; margin-bottom:12px; position:relative; transition:0.2s; box-shadow:0 2px 8px rgba(0,0,0,0.02);">
+                        <div style="font-size:14px; font-weight:bold; color:#1e293b; margin-bottom:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.name}</div>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            ${contentHtml}
+                            <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+                                <span class="xy-sch-indicator-text" style="font-size:12px; font-weight:bold; color:${indicatorColor};">${indicator}</span>
+                                ${!isActive && !isCompleted ? `<span class="xy-sch-del" data-uuid="${item.uuid}" style="font-size:12px; color:#ef4444; cursor:pointer; text-decoration:underline;">移除</span>` : ''}
                             </div>
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+
+            document.querySelectorAll('.xy-sch-del').forEach(el => {
+                el.onclick = (e) => {
+                    const id = e.target.getAttribute('data-uuid');
+                    xyScheduleState.queue = xyScheduleState.queue.filter(q => q.uuid !== id);
+                    saveScheduleState();
+                    renderQueueList();
+                };
+            });
+
+            document.querySelectorAll('.xy-sch-strategy').forEach(el => {
+                el.onchange = (e) => {
+                    const id = e.target.getAttribute('data-uuid');
+                    const task = xyScheduleState.queue.find(q => q.uuid === id);
+                    if (task) {
+                        task.strategy = e.target.value;
+                        saveScheduleState();
+                        renderQueueList(); // 重新渲染以控制时间输入框的显隐
+                    }
+                };
+            });
+
+            document.querySelectorAll('.xy-sch-min-input').forEach(el => {
+                el.onchange = (e) => {
+                    const id = e.target.getAttribute('data-uuid');
+                    const task = xyScheduleState.queue.find(q => q.uuid === id);
+                    if (task) {
+                        task.duration = Math.max(1, parseInt(e.target.value) || 30);
+                        saveScheduleState();
+                    }
+                };
+            });
+        };
+
+        window.xyRenderScheduleQueue = renderQueueList;
+        window.xyUpdateScheduleProgress = (currentTask) => {
+            const strategyEl = document.querySelector(`.xy-sch-strategy[data-uuid="${currentTask.uuid}"]`);
+            if (strategyEl) {
+                const infoSpan = strategyEl.closest('.xy-sch-item-row').querySelector('.xy-sch-indicator-text');
+                if (infoSpan) {
+                    let minStr = currentTask.strategy === 'infinite' ? '∞' : (currentTask.strategy === 'until_done' ? '达标' : currentTask.duration);
+                    let unit = (currentTask.strategy === 'until_done' || currentTask.strategy === 'infinite') ? '' : '分';
+                    let elapMin = Math.floor((currentTask.elapsedSec || 0) / 60);
+                    infoSpan.innerHTML = `<span style="color:#1d4ed8;">▶️ 执行中</span> <span style="font-weight:normal; opacity:0.8;">(驻留: ${elapMin}/${minStr}${unit})</span>`;
+                }
+            }
+        };
+
+        const renderLibraryList = (tasks) => {
+            const container = document.getElementById('xy-sch-lib-list');
+            if (!container) return;
+            if (!tasks || tasks.length === 0) { container.innerHTML = `<div style="text-align:center; padding:40px; color:#94a3b8;">暂无可用任务</div>`; return; }
+
+            if (!window.xyGlobalTaskMap) window.xyGlobalTaskMap = new Map();
+
+            const groupedTasks = tasks.reduce((acc, t) => { if(!acc[t.group_name]) acc[t.group_name] = []; acc[t.group_name].push(t); return acc; }, {});
+            let html = '';
+            
+            Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
+                courseTasks.sort((a,b) => {
+                    if (a.finish !== b.finish) return a.finish - b.finish; 
+                    return new Date(a.end_time) - new Date(b.end_time);
+                });
+
+                // 引入丝滑折叠标题栏
+                html += `
+                    <div class="xy-sch-group-header" data-idx="${groupIdx}" style="font-weight:bold; color:#1e293b; padding:12px 16px; background:#f1f5f9; border-radius:10px; margin: 16px 0 8px 0; font-size:14px; position:sticky; top:0; z-index:2; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border:1px solid #e2e8f0; transition:background 0.2s;">
+                        <span>📚 ${courseName || '未知课程'} <span style="font-size:12px; color:#64748b; font-weight:normal; margin-left:6px;">(${courseTasks.length}个节点)</span></span>
+                        <span class="xy-sch-group-arrow" style="transition: transform 0.2s; font-size:12px; color:#94a3b8;">▼</span>
+                    </div>
+                    <div class="xy-sch-group-content" id="xy-sch-group-${groupIdx}" style="display:flex; flex-direction:column; gap:8px;">
+                `;
+
+                courseTasks.forEach(task => {
+                    window.xyGlobalTaskMap.set(task.task_id || task.id, task);
+                    const isCompleted = task.finish === 2;
+                    
+                    const name = (task.name || '').toLowerCase();
+                    const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
+                    const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+                    
+                    // 彻底移除讨论区支持，仅支持精确识别到后缀名的媒体和文档
+                    const isSupported = isVideo || isDoc;
+
+                    let typeStr = '';
+                    if (isVideo) typeStr = '📺 视频';
+                    else if (isDoc) typeStr = '📄 文档';
+                    else if (task.task_type == 2) typeStr = '✍️ 作业';
+                    else if (task.task_type == 3) typeStr = '📚 练习';
+                    else if (task.task_type == 4) typeStr = '💯 测验';
+                    else if (task.task_type == 5) typeStr = '📋 问卷';
+                    else typeStr = '📁 目录/不支持';
+
+                    const statusUI = isCompleted 
+                        ? `<span style="color:#10b981; font-weight:bold; background:#dcfce7; padding:2px 6px; border-radius:6px;">✅ 已完成(可刷)</span>` 
+                        : `<span style="color:#f59e0b; font-weight:bold; background:#fef3c7; padding:2px 6px; border-radius:6px;">⏳ 待完成</span>`;
+
+                    html += `
+                        <div style="background:white; border:1px solid ${isCompleted ? '#bbf7d0' : '#e2e8f0'}; border-radius:10px; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; opacity: ${isSupported ? 1 : 0.5}; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                            <div style="flex:1; overflow:hidden;">
+                                <div style="font-size:14px; font-weight:600; color:#334155; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${task.name}">${task.name}</div>
+                                <div style="display:flex; gap:12px; font-size:12px; align-items:center;">
+                                    <span style="color:#64748b;">${typeStr}</span>
+                                    ${statusUI}
+                                </div>
+                            </div>
+                            <button class="xy-sch-add-btn" data-tid="${task.task_id || task.id}" ${isSupported?'':'disabled'} style="background:${isSupported ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#cbd5e1'}; color:white; border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:${isSupported?'pointer':'not-allowed'}; transform: translateY(0); transition:0.2s;" ${isSupported?'onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'translateY(0)\'"':''}>+ 添加</button>
                         </div>
                     `;
                 });
-            }
+                
+                html += `</div>`; // 结束折叠内容区
+            });
+            container.innerHTML = html;
 
-            return `
-                <div style="position:relative; background:white; width:90%; max-width:600px; border-radius:24px; box-shadow:0 30px 60px rgba(0,0,0,0.25); display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
-                    <div style="padding:20px 28px; background:linear-gradient(135deg, #0ea5e9, #0284c7); display:flex; justify-content:space-between; align-items:center;">
-                        <div style="font-size:20px; font-weight:bold; color:white; display:flex; align-items:center; gap:10px; letter-spacing: 0.5px;">⚙️ 自定义回复语料库</div>
-                        <button id="xy-close-reply-settings" style="background:none; border:none; font-size:24px; color:#e0f2fe; cursor:pointer; padding:0; transition:0.2s;" onmouseover="this.style.color='white'" onmouseout="this.style.color='#e0f2fe'">✖</button>
+            // 绑定计划中心丝滑折叠事件
+            document.querySelectorAll('.xy-sch-group-header').forEach(header => {
+                header.onclick = () => {
+                    const idx = header.getAttribute('data-idx');
+                    const content = document.getElementById(`xy-sch-group-${idx}`);
+                    const arrow = header.querySelector('.xy-sch-group-arrow');
+                    if (content.style.display === 'none') {
+                        content.style.display = 'flex';
+                        arrow.style.transform = 'rotate(0deg)';
+                        header.style.background = '#f1f5f9';
+                    } else {
+                        content.style.display = 'none';
+                        arrow.style.transform = 'rotate(-90deg)';
+                        header.style.background = '#f8fafc';
+                    }
+                };
+            });
+
+            document.querySelectorAll('.xy-sch-add-btn').forEach(btn => {
+                btn.onclick = async (e) => {
+                    const tid = e.target.getAttribute('data-tid');
+                    const task = window.xyGlobalTaskMap.get(tid);
+                    if (task) {
+                        const originalText = e.target.innerText;
+                        e.target.innerText = '提取中...';
+                        e.target.disabled = true;
+                        
+                        const resId = await getTaskResourceId(task);
+                        
+                        xyScheduleState.queue.push({
+                            uuid: crypto.randomUUID(),
+                            taskId: tid,
+                            nodeId: task.node_id,
+                            groupId: task.group_id,
+                            resourceId: resId,
+                            name: task.name,
+                            type: 1, // 这里只会有视频文档进队列，统一为1
+                            strategy: task.finish === 2 ? 'duration' : 'until_done', // 智能默认：已完成的默认刷时长，未完成的默认达标连播
+                            duration: 30,
+                            elapsedSec: 0,
+                            status: 'pending'
+                        });
+                        saveScheduleState();
+                        renderQueueList();
+                        
+                        e.target.innerText = originalText;
+                        e.target.disabled = false;
+                        showToast(`已添加：${task.name.substring(0,8)}...`, 'success');
+                    }
+                };
+            });
+        };
+
+        overlay.innerHTML = `
+            <div style="background:white; width:90%; max-width:1100px; height:85vh; border-radius:24px; box-shadow:0 40px 80px rgba(0,0,0,0.4); display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+                <div style="padding:24px 32px; background:linear-gradient(135deg, #f59e0b, #d97706); border-bottom:1px solid #b45309; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
+                    <div style="font-size:22px; font-weight:bold; color:white; display:flex; align-items:center; gap:12px; letter-spacing:0.5px;">📅 超级计划调度中心 <span style="font-size:12px; background:rgba(255,255,255,0.2); padding:4px 10px; border-radius:12px; border:1px solid rgba(255,255,255,0.3);">自定义挂机时长 • 无限循环刷总时</span></div>
+                    <button id="xy-close-schedule" style="background:none; border:none; font-size:26px; color:#fef3c7; cursor:pointer; padding:0; transition:0.2s;" onmouseover="this.style.color='white'; this.style.transform='rotate(90deg)';" onmouseout="this.style.color='#fef3c7'; this.style.transform='none';">✖</button>
+                </div>
+                
+                <div style="flex:1; display:flex; overflow:hidden; background:#f8fafc;">
+                    <!-- 左侧任务库 -->
+                    <div style="width:50%; border-right:1px solid #e2e8f0; display:flex; flex-direction:column;">
+                        <div style="padding:16px 24px; background:white; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; font-size:16px; display:flex; justify-content:space-between; align-items:center;">
+                            <span>📚 全网任务提取池</span>
+                            <span style="font-size:12px; font-weight:normal; color:#10b981; background:#dcfce7; padding:2px 6px; border-radius:6px; border:1px solid #bbf7d0;">点击课程标题可折叠面板</span>
+                        </div>
+                        <div id="xy-sch-lib-list" style="flex:1; overflow-y:auto; padding:16px 24px;">
+                            <div style="text-align:center; padding:60px; color:#64748b; font-size:16px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描全局雷达与所有课程记录...</span></div>
+                        </div>
                     </div>
                     
-                    <div style="padding:20px 28px; background:#f0f9ff; border-bottom:1px solid #bae6fd; font-size:14px; color:#0369a1; line-height:1.7;">
-                        <strong>规则要求：</strong><br>
-                        1. 最多可保存 <strong>10</strong> 句语料，当前已存 <strong style="color:#0ea5e9; font-size:16px;">${appState.customReplies.length}</strong> 句。<br>
-                        2. 为防被拦截，每句必须包含至少 <strong>16</strong> 个汉字。<br>
-                        3. 启用自定义功能后，每次回复将从这些句子中<strong style="color:#0ea5e9;">完全随机</strong>抽取。
-                    </div>
-
-                    <div id="xy-reply-list" style="flex:1; max-height:350px; overflow-y:auto; padding:24px 28px; background:white;">
-                        ${listHtml}
-                    </div>
-
-                    <div style="padding:24px 28px; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; flex-direction:column; gap:16px;">
-                        <textarea id="xy-new-reply-text" placeholder="在此输入新的回复内容 (至少包含16个汉字)..." style="width:100%; height:100px; padding:16px; border:1px solid #cbd5e1; border-radius:12px; font-size:14px; line-height:1.6; resize:none; outline:none; transition:0.2s; box-shadow:inset 0 2px 4px rgba(0,0,0,0.05);" ${appState.customReplies.length >= 10 ? 'disabled' : ''}></textarea>
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <span id="xy-reply-counter" style="font-size:14px; color:#64748b; font-weight:500;">当前汉字: <span style="font-weight:bold; color:#ef4444; font-size:16px;">0</span> (需要 ≥ 16)</span>
-                            <button id="xy-add-reply-btn" style="background:${appState.customReplies.length >= 10 ? '#94a3b8' : 'linear-gradient(135deg, #0ea5e9, #0284c7)'}; color:white; border:none; padding:12px 24px; border-radius:12px; font-size:15px; font-weight:bold; cursor:${appState.customReplies.length >= 10 ? 'not-allowed' : 'pointer'}; box-shadow:0 6px 16px rgba(14,165,233,0.3); transition:all 0.2s;" ${appState.customReplies.length >= 10 ? 'disabled' : ''}>+ 添加入库</button>
+                    <!-- 右侧执行队列 -->
+                    <div style="width:50%; display:flex; flex-direction:column; background:#f1f5f9;">
+                        <div style="padding:16px 24px; background:white; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-weight:bold; color:#0f172a; font-size:16px;">⏱️ 待执行队列</span>
+                            <span id="xy-sch-clear-btn" style="font-size:13px; color:#ef4444; cursor:pointer; font-weight:bold;">🗑️ 清空队列</span>
+                        </div>
+                        <div id="xy-sch-queue-list" style="flex:1; overflow-y:auto; padding:16px 24px;"></div>
+                        
+                        <!-- 控制台 -->
+                        <div style="padding:20px 24px; background:white; border-top:1px solid #e2e8f0; display:flex; gap:16px; box-shadow: 0 -4px 20px rgba(0,0,0,0.02);">
+                            <button id="xy-sch-start-btn" style="flex:2; background:linear-gradient(135deg, #10b981, #059669); color:white; border:none; padding:16px; border-radius:14px; font-size:16px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(16,185,129,0.3); transition:0.2s;" ${xyScheduleState.isRunning ? 'disabled' : ''}>${xyScheduleState.isRunning ? '🚀 调度引擎已在运行...' : '🚀 启动计划调度'}</button>
+                            <button id="xy-sch-stop-btn" style="flex:1; background:linear-gradient(135deg, #ef4444, #dc2626); color:white; border:none; padding:16px; border-radius:14px; font-size:16px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(239,68,68,0.3); transition:0.2s;" ${!xyScheduleState.isRunning ? 'disabled' : ''}>🛑 强停交还主控</button>
                         </div>
                     </div>
                 </div>
-            `;
-        }
+            </div>
+        `;
 
-        function attachEvents() {
-            document.getElementById('xy-close-reply-settings').onclick = () => {
-                overlay.style.opacity = '0';
-                overlay.firstElementChild.style.transform = 'scale(0.95)';
-                setTimeout(() => overlay.remove(), 300);
-            };
+        requestAnimationFrame(() => { overlay.style.opacity = '1'; overlay.firstElementChild.style.transform = 'scale(1)'; });
+        
+        document.getElementById('xy-close-schedule').onclick = () => { 
+            overlay.style.opacity = '0'; 
+            overlay.firstElementChild.style.transform = 'scale(0.95)'; 
+            setTimeout(() => overlay.remove(), 400); 
+        };
 
-            const textarea = document.getElementById('xy-new-reply-text');
-            const counter = document.getElementById('xy-reply-counter');
-            const addBtn = document.getElementById('xy-add-reply-btn');
+        const tasks = await fetchGlobalTasks();
+        renderLibraryList(tasks);
+        renderQueueList();
 
-            if (textarea) {
-                textarea.addEventListener('input', () => {
-                    const hanziCount = (textarea.value.match(/[\u4e00-\u9fa5]/g) || []).length;
-                    counter.innerHTML = `当前汉字: <span style="font-weight:bold; font-size:16px; color:${hanziCount >= 16 ? '#10b981' : '#ef4444'};">${hanziCount}</span> (需要 ≥ 16)`;
-                    if(hanziCount >= 16) {
-                        textarea.style.borderColor = '#10b981';
-                        textarea.style.boxShadow = '0 0 0 3px rgba(16,185,129,0.2)';
-                    } else {
-                        textarea.style.borderColor = '#cbd5e1';
-                        textarea.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.05)';
-                    }
-                });
-                
-                textarea.addEventListener('focus', () => {
-                    if((textarea.value.match(/[\u4e00-\u9fa5]/g) || []).length < 16) {
-                        textarea.style.borderColor = '#0ea5e9';
-                        textarea.style.boxShadow = '0 0 0 3px rgba(14,165,233,0.2)';
-                    }
-                });
-                textarea.addEventListener('blur', () => {
-                    if((textarea.value.match(/[\u4e00-\u9fa5]/g) || []).length < 16) {
-                        textarea.style.borderColor = '#cbd5e1';
-                        textarea.style.boxShadow = 'inset 0 2px 4px rgba(0,0,0,0.05)';
-                    }
-                });
+        document.getElementById('xy-sch-clear-btn').onclick = () => {
+            if(xyScheduleState.isRunning) { showToast('请先停止调度再清空队列', 'warning'); return; }
+            xyScheduleState.queue = [];
+            xyScheduleState.currentIdx = 0;
+            saveScheduleState();
+            renderQueueList();
+            showToast('队列已清空', 'success');
+        };
+
+        const startBtn = document.getElementById('xy-sch-start-btn');
+        const stopBtn = document.getElementById('xy-sch-stop-btn');
+
+        startBtn.onclick = () => {
+            if (xyScheduleState.queue.length === 0) { showToast('队列为空，请先添加任务', 'warning'); return; }
+            
+            const allDone = xyScheduleState.queue.every(q => q.status === 'completed');
+            if (allDone) {
+                xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; q.actionDone = false; });
+                xyScheduleState.currentIdx = 0;
             }
 
-            if (addBtn) {
-                addBtn.onclick = () => {
-                    const text = textarea.value.trim();
-                    if (!text) return;
-                    const hanziCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
-                    if (hanziCount < 16) {
-                        showModalToast('字数不足，需包含至少16个汉字！', 'error');
-                        return;
-                    }
-                    if (appState.customReplies.length >= 10) {
-                        showModalToast('已达到最大限制(10句)！', 'warning');
-                        return;
-                    }
-                    appState.customReplies.push(text);
-                    GM_setValue('xy_custom_replies', JSON.stringify(appState.customReplies));
-                    
-                    overlay.innerHTML = renderContent();
-                    attachEvents();
-                    showModalToast('语料添加成功！', 'success');
-                };
-            }
+            xyScheduleState.lastMode = appState.mode;
+            appState.mode = 'manual'; 
+            GM_setValue('xy_play_mode', 'manual');
+            updateCourseUI();
 
-            document.querySelectorAll('.xy-del-reply-btn').forEach(btn => {
-                btn.onclick = (e) => {
-                    const idx = parseInt(e.target.getAttribute('data-index'));
-                    appState.customReplies.splice(idx, 1);
-                    GM_setValue('xy_custom_replies', JSON.stringify(appState.customReplies));
-                    
-                    overlay.innerHTML = renderContent();
-                    attachEvents();
-                    showModalToast('语料已删除', 'info');
-                };
-            });
-        }
+            xyScheduleState.isRunning = true;
+            saveScheduleState();
+            
+            startBtn.disabled = true; startBtn.innerText = '🚀 调度引擎已在运行...';
+            stopBtn.disabled = false;
+            
+            renderQueueList();
+            logMsg('📅 计划调度中心已接管引擎最高权限，准备跳跃！', 'success');
+        };
 
-        overlay.innerHTML = renderContent();
-        document.body.appendChild(overlay);
-        
-        requestAnimationFrame(() => {
-            overlay.style.opacity = '1';
-            overlay.firstElementChild.style.transform = 'scale(1)';
-        });
-        
-        attachEvents();
+        stopBtn.onclick = () => {
+            xyScheduleState.isRunning = false;
+            
+            appState.mode = xyScheduleState.lastMode || 'sequence';
+            GM_setValue('xy_play_mode', appState.mode);
+            updateCourseUI();
+
+            saveScheduleState();
+            
+            startBtn.disabled = false; startBtn.innerText = '🚀 启动计划调度';
+            stopBtn.disabled = true;
+
+            renderQueueList();
+            logMsg('🛑 计划调度已强停，控制权已交还原生主引擎！', 'warning');
+        };
     }
+
+    // ==========================================
+    // ⚙️ 计划调度器专属外挂 Timer
+    // ==========================================
+    // 独立于双频引擎的调度专属1秒轮询
+    setInterval(async () => {
+        if (!xyScheduleState.isRunning || xyScheduleState.queue.length === 0) return;
+
+        const currentTask = xyScheduleState.queue[xyScheduleState.currentIdx];
+        
+        if (!currentTask) {
+            logMsg('✅ 所有计划调度任务已圆满完成！已自动切换为手动休眠。', 'success', false);
+            xyScheduleState.isRunning = false;
+            
+            // 用户特别诉求：跑完后进入彻底手动暂停
+            appState.mode = 'manual'; 
+            GM_setValue('xy_play_mode', 'manual');
+            updateCourseUI();
+            
+            saveScheduleState();
+            
+            const startBtn = document.getElementById('xy-sch-start-btn');
+            if(startBtn) { startBtn.disabled = false; startBtn.innerText = '🚀 重新启动计划'; }
+            const stopBtn = document.getElementById('xy-sch-stop-btn');
+            if(stopBtn) { stopBtn.disabled = true; }
+            
+            if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+            return;
+        }
+
+        if (currentTask.status === 'completed') {
+            xyScheduleState.currentIdx++;
+            saveScheduleState();
+            if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+            return;
+        }
+
+        const currentGroupId = getCourseGroupId();
+        const currentNodeId = getNodeId();
+        const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
+
+        // 判断是否在目标节点
+        if (currentGroupId != currentTask.groupId || currentNodeId != currentTask.nodeId) {
+            if (!appState.isJumping) {
+                appState.isJumping = true;
+                currentTask.status = 'running';
+                saveScheduleState();
+                
+                logMsg(`🚀 计划调度：跨空间跳跃前往【${currentTask.name.substring(0,10)}】...`, 'info', false);
+                
+                setTimeout(() => {
+                    window.location.href = `/app/jx-web/${pathPrefix}/${currentTask.groupId}/resource/${currentTask.resourceId}/${currentTask.nodeId}`;
+                }, 1500);
+            }
+            return;
+        }
+
+        // --- 已在目标页面，接管主引擎，智能调度时长与提交 ---
+        
+        // 核心妙招：根据策略，强行改写主引擎的模式，让它为调度器打工！
+        const desiredMode = currentTask.strategy === 'until_done' ? 'sequence' : 'loop';
+        if (appState.mode !== desiredMode) {
+            appState.mode = desiredMode;
+            GM_setValue('xy_play_mode', desiredMode);
+            updateCourseUI();
+        }
+        
+        currentTask.elapsedSec = (currentTask.elapsedSec || 0) + 1;
+        
+        // 刷新本地防死锁狗，保证调度不被原生框架干掉
+        watchdogLastActiveTime = Date.now();
+
+        if (currentTask.elapsedSec % 5 === 0) saveScheduleState(); // 5秒存一次进度
+
+        // 更新调度中心界面UI时间 (如果打开着)
+        if (window.xyUpdateScheduleProgress) window.xyUpdateScheduleProgress(currentTask);
+
+        let isDone = false;
+        
+        if (currentTask.strategy === 'until_done') {
+            // 只要底层的雷达/提交器判定完成了，且给它至少留了 5 秒的初始缓冲期，我们就认为这关过了
+            if (appState.isTaskCompleted && currentTask.elapsedSec > 5) {
+                isDone = true;
+            }
+        } else if (currentTask.strategy === 'duration') {
+            // 固定时长策略，时间到了就行
+            if (currentTask.elapsedSec >= currentTask.duration * 60) {
+                isDone = true;
+            }
+        }
+        // infinite 永远不会变成 isDone
+
+        if (isDone) {
+            logMsg(`✅ 计划调度：任务【${currentTask.name.substring(0,8)}...】已达标！即将进行下一项。`, 'success', false);
+            currentTask.status = 'completed';
+            saveScheduleState();
+            if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+        }
+        
+    }, 1000);
 
 
     function createUI() {
@@ -1797,7 +2439,10 @@
                     <div style="font-size: 52px; margin-bottom: 16px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));">🏝️</div>
                     <div style="font-size: 18px; font-weight: bold; color: #334155; margin-bottom: 12px; letter-spacing: 0.5px;">🟢 系统休眠隔离，确保无干扰</div>
                     <div style="font-size: 14px; color: #64748b; line-height: 1.8; margin-bottom: 32px;">你当前位于 <span style="color:#ef4444; font-weight:bold; background: #fee2e2; padding: 2px 6px; border-radius: 6px;">作业/考试/其他区域</span><br>已自动收起武器，专心做题吧！<br><br>如需激活自动化，请进入具体的<br><span style="color:#10b981; font-weight:bold; background: #dcfce7; padding: 2px 6px; border-radius: 6px;">视频 / 文档 / 讨论区</span>。</div>
-                    <button class="xy-action-btn" id="xy-btn-dashboard-standby" style="background: linear-gradient(135deg, #6366f1, #4f46e5); width: 85%; padding: 14px; font-size: 15px;">🌍 打开全局雷达，一键寻路</button>
+                    <div style="display:flex; gap:12px; width:90%; margin: 0 auto;">
+                        <button class="xy-action-btn" id="xy-btn-dashboard-standby" style="background: linear-gradient(135deg, #6366f1, #4f46e5); flex:1; padding: 14px; font-size: 14px;">🌍 全局雷达</button>
+                        <button class="xy-action-btn" id="xy-btn-schedule-standby" style="background: linear-gradient(135deg, #f59e0b, #d97706); flex:1; padding: 14px; font-size: 14px;">📅 计划调度</button>
+                    </div>
                 </div>
 
                 <div id="xy-view-course" style="display:none; flex-shrink: 0;">
@@ -1825,8 +2470,9 @@
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
                         <button class="xy-action-btn" id="xy-btn-guard" title="底层拦截离开检测与弹窗">🛡️ 幽灵伪装</button>
                         <button class="xy-action-btn" id="xy-btn-dashboard" style="background: linear-gradient(135deg, #6366f1, #4f46e5);">🌍 全局雷达</button>
-                        <button class="xy-action-btn" id="xy-btn-quick-mute" style="background: ${appState.hardwareMute ? 'linear-gradient(135deg, #14b8a6, #0d9488)' : 'linear-gradient(135deg, #94a3b8, #64748b)'};">🔇 强制静音: ${appState.hardwareMute ? 'ON' : 'OFF'}</button>
+                        <button class="xy-action-btn" id="xy-btn-schedule" style="background: linear-gradient(135deg, #f59e0b, #d97706);" title="独立配置任务、无限刷时长">📅 计划调度</button>
                         <button class="xy-action-btn" id="btn-manual-refresh" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">🔄 手动重载</button>
+                        <button class="xy-action-btn" id="xy-btn-quick-mute" style="background: ${appState.hardwareMute ? 'linear-gradient(135deg, #14b8a6, #0d9488)' : 'linear-gradient(135deg, #94a3b8, #64748b)'}; grid-column: 1 / -1;">🔇 强制静音: ${appState.hardwareMute ? 'ON' : 'OFF'}</button>
                     </div>
 
                     <div class="xy-panel">
@@ -1982,7 +2628,6 @@
         const toggleVideo = document.getElementById('toggle-video-submit'); if(toggleVideo) toggleVideo.onchange = (e) => { appState.videoAutoSubmit = e.target.checked; GM_setValue('xy_video_submit', appState.videoAutoSubmit); };
         const toggleDoc = document.getElementById('toggle-doc-batch'); if(toggleDoc) toggleDoc.onchange = (e) => { appState.docBatchSubmit = e.target.checked; GM_setValue('xy_doc_batch', appState.docBatchSubmit); };
         
-        // 刷新视窗显示开关事件
         const toggleRefresh = document.getElementById('toggle-refresh-panel');
         if (toggleRefresh) {
             toggleRefresh.onchange = (e) => {
@@ -1993,7 +2638,6 @@
             };
         }
 
-        // 终端显示开关事件
         const toggleTerminal = document.getElementById('toggle-terminal');
         if (toggleTerminal) {
             toggleTerminal.onchange = (e) => {
@@ -2004,39 +2648,28 @@
             };
         }
 
-        const toggleCustomReply = document.getElementById('xy-toggle-custom-reply');
-        if (toggleCustomReply) {
-            toggleCustomReply.onchange = (e) => {
-                appState.useCustomReply = e.target.checked;
-                GM_setValue('xy_use_custom_reply', appState.useCustomReply);
-                logMsg(e.target.checked ? '✅ 已启用自定义回复语料' : '⏸️ 已切换回默认回复', 'info', true);
-            };
-        }
-
-        const btnEditReply = document.getElementById('xy-btn-edit-reply');
-        if (btnEditReply) {
-            btnEditReply.onclick = () => {
-                openReplySettingsModal();
-            };
-        }
-
         document.getElementById('btn-manual-refresh').onclick = () => { logMsg('🔄 手动重载页面...', 'warning', false); setTimeout(() => window.location.reload(), 500); };
         document.getElementById('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
         document.getElementById('btn-clear-progress').onclick = () => { appState.recordCount = 0; appState.totalTime = 0; appState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
 
         document.getElementById('btn-mode-man').onclick = () => { 
+            if (xyScheduleState.isRunning) { document.getElementById('xy-sch-stop-btn')?.click(); } // 联动关闭调度
             appState.mode = 'manual'; 
             GM_setValue('xy_play_mode', 'manual'); 
-            clearDynamicRefresh(); // 🔥一点击立马强停重载
+            clearDynamicRefresh(); 
             logMsg('已暂停，且已强制停止所有重载任务', 'success'); 
             updateCourseUI(); 
         };
-        document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } appState.mode = 'loop'; GM_setValue('xy_play_mode', 'loop'); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
-        document.getElementById('btn-mode-seq').onclick = () => { appState.mode = 'sequence'; GM_setValue('xy_play_mode', 'sequence'); logMsg('🚀 连播破壁引擎开启，特种规则接管文档与防拖拽', 'success'); updateCourseUI(); if (!getCourseGroupId()) tryJumpToNext(); else globalTaskStatusChecker(true); };
+        document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { document.getElementById('xy-sch-stop-btn')?.click(); } appState.mode = 'loop'; GM_setValue('xy_play_mode', 'loop'); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
+        document.getElementById('btn-mode-seq').onclick = () => { if (xyScheduleState.isRunning) { document.getElementById('xy-sch-stop-btn')?.click(); } appState.mode = 'sequence'; GM_setValue('xy_play_mode', 'sequence'); logMsg('🚀 连播破壁引擎开启，特种规则接管文档与防拖拽', 'success'); updateCourseUI(); if (!getCourseGroupId()) tryJumpToNext(); else globalTaskStatusChecker(true); };
         
         document.getElementById('xy-btn-guard').onclick = () => { appState.guardActive = !appState.guardActive; GM_setValue('xy_guard_active', appState.guardActive); updateCourseUI(); };
         document.getElementById('xy-btn-dashboard').onclick = openGlobalTaskDashboard;
         document.getElementById('xy-btn-dashboard-standby').onclick = openGlobalTaskDashboard;
+        document.getElementById('xy-btn-schedule').onclick = openScheduleDashboard; // 绑定调度中心事件
+        
+        const scheduleStandbyBtn = document.getElementById('xy-btn-schedule-standby');
+        if (scheduleStandbyBtn) scheduleStandbyBtn.onclick = openScheduleDashboard;
 
         const toggleDomScan = document.getElementById('xy-toggle-dom-scan');
         if(toggleDomScan) { toggleDomScan.onchange = (e) => { appState.enableDomScan = e.target.checked; logMsg(e.target.checked ? '✅ 智能DOM提取已开启' : '⏸️ 智能DOM提取已暂停', 'info', true); }; }
@@ -2084,18 +2717,20 @@
         if (searchInput) searchInput.addEventListener('input', (e) => { renderTargetList(e.target.value); });
 
         const listContainer = document.getElementById('xy-target-list');
-        listContainer.addEventListener('change', (e) => {
-            if(e.target.classList.contains('xy-target-checkbox')) {
-                if(e.target.checked) {
-                    if (appState.selectedNames.size >= 15) {
-                        e.target.checked = false;
-                        showToast('为防风控，最多只允许勾选15个点赞目标！', 'warning');
-                    } else { appState.selectedNames.add(e.target.value); }
-                } else { appState.selectedNames.delete(e.target.value); }
-                updateCheckedCount();
-            }
-        });
-        renderTargetList();
+        if (listContainer) {
+            listContainer.addEventListener('change', (e) => {
+                if(e.target.classList.contains('xy-target-checkbox')) {
+                    if(e.target.checked) {
+                        if (appState.selectedNames.size >= 15) {
+                            e.target.checked = false;
+                            showToast('为防风控，最多只允许勾选15个点赞目标！', 'warning');
+                        } else { appState.selectedNames.add(e.target.value); }
+                    } else { appState.selectedNames.delete(e.target.value); }
+                    updateCheckedCount();
+                }
+            });
+            renderTargetList();
+        }
 
         const handle = document.getElementById('xy-drag-handle'), minBtn = document.getElementById('xy-minimize'), body = document.getElementById('xy-main-body');
         let isMin = false; minBtn.onclick = () => { isMin = !isMin; body.style.display = isMin ? 'none' : 'flex'; minBtn.innerText = isMin ? '➕' : '➖'; };
@@ -2143,221 +2778,6 @@
 
         syncHardwareMute();
         fetchCloudIntelligence(); 
-    }
-
-    // ==========================================
-    // 🌟 全局任务大屏 (雷达)
-    // ==========================================
-    async function fetchGlobalTasks() {
-        try { const token = await getAuthToken(); const response = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { method: "GET", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" } }); const data = await response.json(); return data.success ? data.data : []; } catch (error) { return []; }
-    }
-
-    async function batchSubmitGlobalTasks(taskObjs) {
-        try {
-            const token = await getAuthToken(); let successCount = 0;
-            let submitBtn = document.getElementById('xy-batch-submit-btn');
-            const total = taskObjs.length;
-
-            for (let i = 0; i < taskObjs.length; i++) {
-                submitBtn = document.getElementById('xy-batch-submit-btn');
-                const task = taskObjs[i];
-                if (submitBtn) {
-                    submitBtn.innerText = `⏳ 正在提交任务... (${i+1}/${total})`;
-                    submitBtn.disabled = true;
-                }
-                const taskCard = document.getElementById(`xy-global-task-card-${task.task_id || task.id}`);
-                let statusIndicator = null;
-                
-                if (taskCard) {
-                    taskCard.style.opacity = '0.8';
-                    taskCard.style.transform = 'scale(0.98)';
-                    statusIndicator = taskCard.querySelector('.xy-task-status-indicator');
-                    if (statusIndicator) {
-                        statusIndicator.innerHTML = '🔄 提交请求中...';
-                        statusIndicator.style.background = '#fef08a';
-                        statusIndicator.style.color = '#854d0e';
-                    }
-                }
-
-                try {
-                    const response = await fetch(`https://${domain}/api/jx-iresource/resource/finishActivity`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify({ "group_id": task.group_id, "node_id": task.node_id, "task_id": task.task_id || task.id }) });
-                    const data = await response.json(); 
-                    if (data.success) { 
-                        logMsg(`✅ 任务提交成功：${task.name}`, 'success', true); 
-                        successCount++; 
-                        if (statusIndicator) {
-                            statusIndicator.innerHTML = '✓ 验证通过';
-                            statusIndicator.style.background = '#dcfce7';
-                            statusIndicator.style.color = '#166534';
-                        }
-                        const checkbox = taskCard ? taskCard.querySelector('.xy-task-check') : null;
-                        if (checkbox) { checkbox.disabled = true; checkbox.checked = false; }
-                        if (taskCard) taskCard.style.borderColor = '#dcfce7';
-                    } else {
-                        if (statusIndicator) {
-                            statusIndicator.innerHTML = '❌ 验证失败';
-                            statusIndicator.style.background = '#fee2e2';
-                            statusIndicator.style.color = '#991b1b';
-                        }
-                        if (taskCard) taskCard.style.borderColor = '#fee2e2';
-                    }
-                } catch (err) {
-                    if (statusIndicator) {
-                        statusIndicator.innerHTML = '⚠️ 网络异常';
-                        statusIndicator.style.background = '#fef2f2';
-                        statusIndicator.style.color = '#b91c1c';
-                    }
-                }
-                
-                if (taskCard) {
-                    taskCard.style.opacity = '1';
-                    taskCard.style.transform = 'scale(1)';
-                }
-                
-                await sleep(400); 
-
-                submitBtn = document.getElementById('xy-batch-submit-btn');
-                if (submitBtn) submitBtn.innerText = `🔄 正在同步雷达数据... (${i+1}/${total})`;
-                
-                const latestTasks = await fetchGlobalTasks(); 
-                renderGlobalDashboardContent(latestTasks); 
-                
-                await sleep(200); 
-            }
-            
-            const finalSubmitBtn = document.getElementById('xy-batch-submit-btn');
-            if (finalSubmitBtn) {
-                finalSubmitBtn.innerText = '🚀 一键提交勾选任务';
-                finalSubmitBtn.disabled = false;
-            }
-
-            if (successCount > 0) { 
-                showToast(`🎉 成功完成 ${successCount} 个学习任务！`, 'success'); 
-            }
-
-        } catch(e) {}
-    }
-
-    async function openGlobalTaskDashboard() {
-        let overlay = document.getElementById('xy-dashboard-overlay');
-        if (!overlay) { overlay = document.createElement('div'); overlay.id = 'xy-dashboard-overlay'; overlay.style.cssText = `position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(15,23,42,0.7); z-index:2147483645; display:flex; justify-content:center; align-items:center; backdrop-filter:blur(12px); opacity:0; transition:opacity 0.3s;`; document.body.appendChild(overlay); }
-        overlay.innerHTML = `
-            <div style="background:white; width:90%; max-width:960px; height:85vh; border-radius:24px; box-shadow:0 30px 60px rgba(0,0,0,0.3); display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
-                <div style="padding:24px 32px; background:linear-gradient(135deg, #4f46e5, #3b82f6); border-bottom:1px solid #6366f1; display:flex; justify-content:space-between; align-items:center; flex-shrink: 0;">
-                    <div style="font-size:22px; font-weight:bold; color:white; display:flex; align-items:center; gap:12px; letter-spacing: 0.5px;">🌍 全局智能导航雷达</div>
-                    <button id="xy-close-dashboard" style="background:none; border:none; font-size:26px; color:#e0e7ff; cursor:pointer; padding:0; transition: 0.2s;" onmouseover="this.style.color='white'; this.style.transform='rotate(90deg)';" onmouseout="this.style.color='#e0e7ff'; this.style.transform='none';">✖</button>
-                </div>
-                <div id="xy-dashboard-content" style="flex:1; overflow-y:auto; padding:32px; background:#f8fafc;">
-                    <div style="text-align:center; padding:60px; color:#64748b; font-size:18px; letter-spacing: 0.5px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在拉取 API 数据...</span></div>
-                </div>
-                <div id="xy-dashboard-footer" style="display:none; padding:20px 32px; background:white; border-top:1px solid #e2e8f0; flex-shrink: 0; justify-content:center; box-shadow: 0 -4px 20px rgba(0,0,0,0.02);">
-                    <button id="xy-batch-submit-btn" style="width:100%; max-width:700px; background:linear-gradient(135deg, #4f46e5, #3b82f6); color:white; border:none; padding:18px; border-radius:14px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow:0 8px 24px rgba(79,70,229,0.3); transition:all 0.2s; letter-spacing: 1px;" onmouseover="this.style.transform='translateY(-2px)';" onmouseout="this.style.transform='none';">🚀 一键提交勾选任务</button>
-                </div>
-            </div>
-        `;
-        requestAnimationFrame(() => { overlay.style.opacity = '1'; overlay.firstElementChild.style.transform = 'scale(1)'; });
-        document.getElementById('xy-close-dashboard').onclick = () => { overlay.style.opacity = '0'; overlay.firstElementChild.style.transform = 'scale(0.95)'; setTimeout(() => overlay.remove(), 300); };
-        const tasks = await fetchGlobalTasks(); renderGlobalDashboardContent(tasks);
-    }
-
-    function renderGlobalDashboardContent(tasks) {
-        const contentBox = document.getElementById('xy-dashboard-content'), footerBox = document.getElementById('xy-dashboard-footer');
-        if (!contentBox) return;
-        if (!tasks || tasks.length === 0) { contentBox.innerHTML = `<div style="text-align:center; padding:100px; color:#94a3b8; font-size:22px; letter-spacing: 0.5px;">🎉 全网已无未完成的任务！</div>`; if (footerBox) footerBox.style.display = 'none'; return; }
-        if (footerBox) footerBox.style.display = 'flex';
-
-        let html = `
-            <div style="background:linear-gradient(145deg, #fef3c7, #fde68a); padding:20px 24px; border-radius:16px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; border:1px solid #fcd34d; box-shadow: 0 4px 12px rgba(253,230,138,0.3);">
-                <div>
-                    <div style="font-weight:bold; color:#92400e; font-size:16px; margin-bottom:6px; display:flex; align-items:center; gap:8px;">⚠️ 跨课高危自由模式</div>
-                    <div style="color:#b45309; font-size:13px; line-height: 1.6;">允许跨课程批量强交【非视频类】作业（有查水表风险，切忌交空卷）</div>
-                </div>
-                <label style="position:relative; display:inline-block; width:56px; height:30px;">
-                    <input type="checkbox" id="xy-freedom-switch" style="opacity:0; width:0; height:0;" ${appState.isFreedomMode ? 'checked' : ''}>
-                    <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${appState.isFreedomMode?'#92400e':'#cbd5e1'}; border-radius:34px; transition:.4s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
-                        <span style="position:absolute; height:22px; width:22px; left:4px; bottom:4px; background:white; border-radius:50%; transition:.4s; transform:${appState.isFreedomMode?'translateX(26px)':'translateX(0)'}; box-shadow: 0 2px 4px rgba(0,0,0,0.2);"></span>
-                    </span>
-                </label>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 0 8px;">
-            <label style="cursor: pointer; display: flex; align-items: center; gap: 10px; font-weight: 700; color: #334155; font-size: 16px; user-select: none; transition: 0.2s;" onmouseover="this.style.color='#0f172a'" onmouseout="this.style.color='#334155'">
-                <input type="checkbox" id="xy-select-all" style="width: 20px; height: 20px; accent-color: #4f46e5; cursor: pointer;"> ✅ 全选可提交任务
-            </label>
-        </div>
-        <div id="xy-global-task-container" style="display:flex; flex-direction:column; gap:24px;">
-        `;
-
-        const groupedTasks = tasks.reduce((acc, t) => { if(!acc[t.group_name]) acc[t.group_name] = []; acc[t.group_name].push(t); return acc; }, {});
-        window.xyGlobalTaskMap = new Map();
-
-        Object.entries(groupedTasks).forEach(([courseName, courseTasks]) => {
-            courseTasks.sort((a,b) => new Date(a.end_time) - new Date(b.end_time));
-            html += `
-                <div style="background:white; border-radius:20px; border:1px solid #e2e8f0; overflow:hidden; box-shadow:0 6px 16px rgba(0,0,0,0.04);">
-                    <div style="background:#f1f5f9; padding:16px 24px; font-weight:bold; color:#334155; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
-                        <span style="font-size:16px; letter-spacing: 0.5px;">📚 ${courseName || '未知课程'}</span>
-                        <span style="background:#e0e7ff; color:#4f46e5; padding:4px 12px; border-radius:12px; font-size:13px; font-weight:700;">接口 ${courseTasks.length} 个</span>
-                    </div>
-                    <div style="padding:20px; display:flex; flex-direction:column; gap:16px;">
-            `;
-            courseTasks.forEach(task => {
-                window.xyGlobalTaskMap.set(task.task_id || task.id, task);
-                const now = new Date();
-                const endTime = new Date(task.end_time);
-                const startTime = new Date(task.start_time);
-                
-                const isCompleted = task.finish === 2;
-                const isAutoable = task.task_type === 1;
-                const enableCheck = (!isCompleted) && (isAutoable || appState.isFreedomMode);
-                
-                let statusTag = ''; let statusColorBg = ''; let statusColorText = '';
-                if (isCompleted) { statusTag = '✓ 已完成'; statusColorBg = '#dcfce7'; statusColorText = '#166534'; } 
-                else if (endTime < now) { statusTag = '⚠️ 已截止'; statusColorBg = '#fee2e2'; statusColorText = '#991b1b'; } 
-                else if (startTime > now) { statusTag = '🔒 未开始'; statusColorBg = '#f1f5f9'; statusColorText = '#475569'; } 
-                else { statusTag = '⏳ 进行中'; statusColorBg = '#eff6ff'; statusColorText = '#1e40af'; }
-
-                const currentNodeId = getNodeId();
-                const isCurrentNode = currentNodeId && task.node_id == currentNodeId;
-                const borderStyle = isCurrentNode ? 'border: 2px solid #3b82f6; box-shadow: 0 0 15px rgba(59,130,246,0.15);' : (enableCheck ? 'border: 1px solid #cbd5e1;' : 'border: 1px solid transparent;');
-                const currentMark = isCurrentNode ? `<span style="background:#3b82f6; color:white; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; margin-left:10px; box-shadow: 0 2px 4px rgba(59,130,246,0.3);">📍 当前位置</span>` : '';
-                const typeStr = {1:'👁️ 自主观看', 2:'✍️ 作业', 3:'📚 课堂练习', 4:'💯 测验', 5:'📋 问卷', 6:'💭 讨论'}[task.task_type] || '📌 未知';
-
-                html += `
-                    <div id="xy-global-task-card-${task.task_id || task.id}" style="background:#f8fafc; border-radius:12px; padding:16px; display:flex; align-items:center; gap:20px; transition: all 0.3s; ${borderStyle}">
-                        <input type="checkbox" class="xy-task-check" value="${task.task_id || task.id}" ${enableCheck?'':'disabled'} style="width:20px; height:20px; cursor:${enableCheck?'pointer':'not-allowed'}; accent-color:#4f46e5; flex-shrink: 0;">
-                        <div style="flex:1;">
-                            <div style="font-size:15px; font-weight:bold; color:#1e293b; margin-bottom:8px; display:flex; align-items:center; letter-spacing: 0.5px;">
-                                ${task.name || '未知任务'} ${currentMark}
-                            </div>
-                            <div style="font-size:13px; color:#64748b; display:flex; gap:24px; font-weight: 500;">
-                                <span style="background: rgba(226,232,240,0.6); padding: 2px 8px; border-radius: 6px;">${typeStr}</span>
-                                <span>截止: ${new Date(task.end_time).toLocaleDateString()}</span>
-                            </div>
-                        </div>
-                        <div>
-                            <span class="xy-task-status-indicator" style="background:${statusColorBg}; color:${statusColorText}; padding:6px 12px; border-radius:8px; font-size:13px; font-weight:bold; white-space:nowrap; transition:all 0.3s;">${statusTag}</span>
-                        </div>
-                    </div>`;
-            });
-            html += `</div></div>`;
-        });
-        html += `</div>`; contentBox.innerHTML = html;
-
-        const selectAllCb = document.getElementById('xy-select-all'), taskCheckboxes = document.querySelectorAll('.xy-task-check:not([disabled])');
-        if (selectAllCb) selectAllCb.onchange = (e) => { taskCheckboxes.forEach(cb => { cb.checked = e.target.checked; }); };
-        taskCheckboxes.forEach(cb => { cb.onchange = () => { if (!cb.checked && selectAllCb) selectAllCb.checked = false; else if (selectAllCb) selectAllCb.checked = Array.from(taskCheckboxes).every(c => c.checked); }; });
-        const fSwitch = document.getElementById('xy-freedom-switch');
-        if (fSwitch) fSwitch.onchange = (e) => {
-            if (e.target.checked) { xyShowModal("⚠️ 越级警告", "强行解除非视频节点的锁极易导致数据异常，请确保你清楚后果！", () => { appState.isFreedomMode = true; renderGlobalDashboardContent(tasks); }); e.target.checked = false; } 
-            else { appState.isFreedomMode = false; renderGlobalDashboardContent(tasks); }
-        };
-        const submitBtn = document.getElementById('xy-batch-submit-btn');
-        if (submitBtn) submitBtn.onclick = () => {
-            const checkedNodes = Array.from(document.querySelectorAll('.xy-task-check:checked')).map(cb => cb.value);
-            if (checkedNodes.length === 0) { showToast('未勾选任何提交目标', 'warning'); return; }
-            submitBtn.innerText = '⏳ 正在批量提交任务...'; submitBtn.disabled = true;
-            batchSubmitGlobalTasks(checkedNodes.map(id => window.xyGlobalTaskMap.get(id)).filter(Boolean));
-        };
     }
 
     // ==========================================
