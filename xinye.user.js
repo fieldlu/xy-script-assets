@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.0.0
+// @version      3.0.1
 // @description  专为小雅学习平台打造的超强辅助工具：1. 视频/文档全自动挂机与智能雷达连播；2. 讨论区网络流抓包及全自动批量点赞/自定义回复；3. 全局任务探测与一键秒交。为您提供沉浸式高效体验。4. 底层拦截防切屏防休眠与硬件级静音；
 // @author       Gemini
 // @license      MIT
@@ -1665,12 +1665,12 @@
                                     node_id: r.node_id || r.id,
                                     group_id: res.gId,
                                     resource_id: r.resource_id || r.id,
-                                    name: r.name || r.title || '未知任务',
+                                    name: r.name || r.title || '未知任务', // 恢复原名称，不再拼接
                                     task_type: r.computed_task_type || 1, // 精确填入计算出的类型
                                     finish: 2, // 强行贴上已完成标签
                                     start_time: r.start_time || new Date().toISOString(),
                                     end_time: r.end_time || "2099-12-31T00:00:00.000Z",
-                                    group_name: res.gName
+                                    group_name: res.gName || "未知课程" // 只要能识别课程名称，就放回对应的原课程组中
                                 });
                             } else {
                                 // 校准现存任务的组名
@@ -2041,9 +2041,21 @@
 
             const groupedTasks = tasks.reduce((acc, t) => { if(!acc[t.group_name]) acc[t.group_name] = []; acc[t.group_name].push(t); return acc; }, {});
             let html = '';
+            let hasAnyValidTask = false;
             
             Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
-                courseTasks.sort((a,b) => {
+                // 核心过滤：在计划调度中心的任务提取池中，只保留视频和文档
+                let validTasks = courseTasks.filter(task => {
+                    const name = (task.name || '').toLowerCase();
+                    const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
+                    const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+                    return isVideo || isDoc;
+                });
+
+                if (validTasks.length === 0) return; // 如果过滤后该课程为空，直接跳过不显示该课程栏
+                hasAnyValidTask = true;
+
+                validTasks.sort((a,b) => {
                     if (a.finish !== b.finish) return a.finish - b.finish; 
                     return new Date(a.end_time) - new Date(b.end_time);
                 });
@@ -2051,38 +2063,27 @@
                 // 引入丝滑折叠标题栏
                 html += `
                     <div class="xy-sch-group-header" data-idx="${groupIdx}" style="font-weight:bold; color:#1e293b; padding:12px 16px; background:#f1f5f9; border-radius:10px; margin: 16px 0 8px 0; font-size:14px; position:sticky; top:0; z-index:2; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border:1px solid #e2e8f0; transition:background 0.2s;">
-                        <span>📚 ${courseName || '未知课程'} <span style="font-size:12px; color:#64748b; font-weight:normal; margin-left:6px;">(${courseTasks.length}个节点)</span></span>
+                        <span>📚 ${courseName || '未知课程'} <span style="font-size:12px; color:#64748b; font-weight:normal; margin-left:6px;">(${validTasks.length}个节点)</span></span>
                         <span class="xy-sch-group-arrow" style="transition: transform 0.2s; font-size:12px; color:#94a3b8;">▼</span>
                     </div>
                     <div class="xy-sch-group-content" id="xy-sch-group-${groupIdx}" style="display:flex; flex-direction:column; gap:8px;">
                 `;
 
-                courseTasks.forEach(task => {
+                validTasks.forEach(task => {
                     window.xyGlobalTaskMap.set(task.task_id || task.id, task);
                     const isCompleted = task.finish === 2;
                     
                     const name = (task.name || '').toLowerCase();
                     const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
-                    const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
                     
-                    // 彻底移除讨论区支持，仅支持精确识别到后缀名的媒体和文档
-                    const isSupported = isVideo || isDoc;
-
-                    let typeStr = '';
-                    if (isVideo) typeStr = '📺 视频';
-                    else if (isDoc) typeStr = '📄 文档';
-                    else if (task.task_type == 2) typeStr = '✍️ 作业';
-                    else if (task.task_type == 3) typeStr = '📚 练习';
-                    else if (task.task_type == 4) typeStr = '💯 测验';
-                    else if (task.task_type == 5) typeStr = '📋 问卷';
-                    else typeStr = '📁 目录/不支持';
+                    let typeStr = isVideo ? '📺 视频' : '📄 文档';
 
                     const statusUI = isCompleted 
                         ? `<span style="color:#10b981; font-weight:bold; background:#dcfce7; padding:2px 6px; border-radius:6px;">✅ 已完成(可刷)</span>` 
                         : `<span style="color:#f59e0b; font-weight:bold; background:#fef3c7; padding:2px 6px; border-radius:6px;">⏳ 待完成</span>`;
 
                     html += `
-                        <div style="background:white; border:1px solid ${isCompleted ? '#bbf7d0' : '#e2e8f0'}; border-radius:10px; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; opacity: ${isSupported ? 1 : 0.5}; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                        <div style="background:white; border:1px solid ${isCompleted ? '#bbf7d0' : '#e2e8f0'}; border-radius:10px; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
                             <div style="flex:1; overflow:hidden;">
                                 <div style="font-size:14px; font-weight:600; color:#334155; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${task.name}">${task.name}</div>
                                 <div style="display:flex; gap:12px; font-size:12px; align-items:center;">
@@ -2090,13 +2091,18 @@
                                     ${statusUI}
                                 </div>
                             </div>
-                            <button class="xy-sch-add-btn" data-tid="${task.task_id || task.id}" ${isSupported?'':'disabled'} style="background:${isSupported ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#cbd5e1'}; color:white; border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:${isSupported?'pointer':'not-allowed'}; transform: translateY(0); transition:0.2s;" ${isSupported?'onmouseover="this.style.transform=\'translateY(-2px)\'" onmouseout="this.style.transform=\'translateY(0)\'"':''}>+ 添加</button>
+                            <button class="xy-sch-add-btn" data-tid="${task.task_id || task.id}" style="background:linear-gradient(135deg, #3b82f6, #2563eb); color:white; border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:pointer; transform: translateY(0); transition:0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">+ 添加</button>
                         </div>
                     `;
                 });
                 
                 html += `</div>`; // 结束折叠内容区
             });
+            
+            if (!hasAnyValidTask) {
+                html = `<div style="text-align:center; padding:40px; color:#94a3b8;">当前全网未发现可挂机的视频或文档任务</div>`;
+            }
+            
             container.innerHTML = html;
 
             // 绑定计划中心丝滑折叠事件
@@ -2162,9 +2168,14 @@
                 <div style="flex:1; display:flex; overflow:hidden; background:#f8fafc;">
                     <!-- 左侧任务库 -->
                     <div style="width:50%; border-right:1px solid #e2e8f0; display:flex; flex-direction:column;">
-                        <div style="padding:16px 24px; background:white; border-bottom:1px solid #e2e8f0; font-weight:bold; color:#0f172a; font-size:16px; display:flex; justify-content:space-between; align-items:center;">
-                            <span>📚 全网任务提取池</span>
-                            <span style="font-size:12px; font-weight:normal; color:#10b981; background:#dcfce7; padding:2px 6px; border-radius:6px; border:1px solid #bbf7d0;">点击课程标题可折叠面板</span>
+                        <div style="padding:16px 24px; background:white; border-bottom:1px solid #e2e8f0; display:flex; flex-direction:column; gap:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <span style="font-weight:bold; color:#0f172a; font-size:16px;">📚 全网任务提取池</span>
+                                <span style="font-size:12px; font-weight:normal; color:#10b981; background:#dcfce7; padding:2px 6px; border-radius:6px; border:1px solid #bbf7d0;">点击课程标题可折叠面板</span>
+                            </div>
+                            <div style="font-size:12px; font-weight:normal; color:#b45309; background:#fffbeb; padding:8px 12px; border-radius:6px; border:1px solid #fde68a;">
+                                💡 提醒：如果没有获取到已刷到的课程，就点击那个课进去，之后会在课菜单里可以看到。
+                            </div>
                         </div>
                         <div id="xy-sch-lib-list" style="flex:1; overflow-y:auto; padding:16px 24px;">
                             <div style="text-align:center; padding:60px; color:#64748b; font-size:16px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描全局雷达与所有课程记录...</span></div>
