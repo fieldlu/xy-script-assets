@@ -6,7 +6,6 @@
 // @author       FieldLu
 // @license      MIT
 // @match        *://wsdx.whut.edu.cn/*
-// @icon         🎓
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_deleteValue
