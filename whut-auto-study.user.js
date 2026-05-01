@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 学习助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.0.0
+// @version      1.0.1
 // @description  辅助学习工具：自动播放、记录进度、断点续播
 // @author       FieldLu
 // @license      MIT
@@ -14,7 +14,20 @@
 // ==/UserScript==
 
 (function () {
-  'use strict';
+'use strict';
+
+
+// ==================== 云端题库配置 ====================
+const CLOUD = {
+    rawBase: 'https://gitee.com/fieldlu/party-member-treasury/raw/master/qbank',
+    apiBase: 'https://gitee.com/api/v5/repos/fieldlu/party-member-treasury/contents',
+    workerBase: 'https://whut-qbank-worker.tianye0126.workers.dev',
+    autoAnswerEnabled: true
+};
+let cloudIndex = null;
+let autoAnswerTimer = null;
+
+
 
   const SCRIPT_VERSION = typeof GM_info !== 'undefined' ? GM_info.script.version : '1.0.0';
 
@@ -642,4 +655,811 @@
 
   if (document.readyState === 'complete') init();
   else window.addEventListener('load', init);
+
+
+// ==================== 题库模块 ====================
+
+
+    // ==========================================
+    // ☁️ 云端题库配置
+    // ==========================================
+    
+    // ==========================================
+    // 1. 本地数据库模块
+    // ==========================================
+    const DB_KEY = 'whut_qbank_db_v1';
+
+    function getDB() {
+        try { return JSON.parse(GM_getValue(DB_KEY, '[]')); } catch (e) { return []; }
+    }
+
+    function saveToDB(newQuestions) {
+        let db = getDB();
+        let addedCount = 0;
+        let existingIds = new Set(db.map(q => q.content));
+
+        for (let raw of newQuestions) {
+            let q = normalizeQuestion(raw);
+            if (!q || !q.content) continue;
+            if (!existingIds.has(q.content)) {
+                db.push(q);
+                existingIds.add(q.content);
+                addedCount++;
+            }
+        }
+
+        if (addedCount > 0) {
+            GM_setValue(DB_KEY, JSON.stringify(db));
+            updateStats(db.length);
+        }
+        return addedCount;
+    }
+
+    function clearDB() {
+        if(confirm("确定清空本地题库吗？清空后无法恢复！（云端题库不受影响）")) {
+            GM_deleteValue(DB_KEY);
+            updateStats(0);
+            qlog("本地数据库已清空。");
+        }
+    }
+
+    // ==========================================
+    // 2. 数据清洗与规范化
+    // ==========================================
+    function normalizeQuestion(raw) {
+        let q = raw.dataJson || raw;
+        let typeStr = q.type || raw.type || raw.realType || '';
+        let content = q.content || raw.content || '';
+        let answer = q.answer || raw.answer || '';
+        let options = q.options || raw.options || [];
+
+        if (!content) return null;
+
+        let realType = "未知题型";
+        if (typeStr.includes('SINGLE')) realType = "单选题";
+        else if (typeStr.includes('MULTIPLE')) realType = "多选题";
+        else if (typeStr.includes('JUDGMENT')) realType = "判断题";
+        else if (typeStr.includes('BLANKFILL')) realType = "填空题";
+        else if (raw.realType) realType = raw.realType;
+
+        content = content.replace(/<[^>]+>/g, '').trim();
+        content = content.replace(/\[BlankArea\d*\]/gi, '______');
+
+        let normOptions = [];
+        if (Array.isArray(options)) {
+            normOptions = options.map(opt => ({
+                alias: opt.alisa || opt.alias || '',
+                text: (opt.text || '').replace(/<[^>]+>/g, '').trim()
+            }));
+        }
+
+        if (realType === "判断题") {
+            if (answer === 'Y' || answer === 'true') answer = "正确";
+            else if (answer === 'N' || answer === 'false') answer = "错误";
+        } else if (realType === "填空题" && raw.blanks && Array.isArray(raw.blanks)) {
+            answer = raw.blanks.map(b => b.value).join(" ; ");
+        }
+
+        return { type: realType, content, options: normOptions, answer };
+    }
+
+    function extractQuestionsFromData(obj) {
+        let questions = [];
+        let cache = new Set();
+
+        function search(item) {
+            if (!item || typeof item !== 'object' || cache.has(item)) return;
+            cache.add(item);
+            if ((item.type || item.realType) && item.content) {
+                if(item.type && ['SINGLE', 'MULTIPLE', 'JUDGMENT', 'BLANKFILL', 'ESSAY'].some(t => item.type.includes(t) || (item.realType && item.realType.includes(t)))){
+                    questions.push(item);
+                }
+            }
+            for (let key in item) {
+                if (Object.prototype.hasOwnProperty.call(item, key)) search(item[key]);
+            }
+        }
+        search(obj);
+        return questions;
+    }
+
+    // ==========================================
+    // ☁️ 云端题库引擎 (GM_xmlhttpRequest 跨域)
+    // ==========================================
+    function gmGet(url) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({ method:'GET', url, timeout:10000,
+                onload: r => { try { resolve(JSON.parse(r.responseText)); } catch(e) { resolve(null); } },
+                onerror: () => resolve(null), ontimeout: () => resolve(null) });
+        });
+    }
+    function gmPost(url, data) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({ method:'POST', url, data:JSON.stringify(data),
+                headers:{'Content-Type':'application/json'}, timeout:10000,
+                onload: r => { try { resolve(JSON.parse(r.responseText)); } catch(e) { resolve(null); } },
+                onerror: () => resolve(null), ontimeout: () => resolve(null) });
+        });
+    }
+
+    // 从 Gitee API 读取文件（绕过 Raw CDN 重定向）
+    async function gmGetGiteeFile(filePath) {
+        try {
+            const apiRes = await new Promise((resolve) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${CLOUD.apiBase}/${filePath}`,
+                    timeout: 10000,
+                    onload: r => {
+                        try { resolve(JSON.parse(r.responseText)); } catch(e) { resolve(null); }
+                    },
+                    onerror: () => resolve(null),
+                    ontimeout: () => resolve(null)
+                });
+            });
+            if (apiRes && apiRes.content) {
+                return JSON.parse(atob(apiRes.content));
+            }
+            return null;
+        } catch(e) { return null; }
+    }
+
+    // 查询云端题库索引
+    async function fetchCloudIndex(forceRefresh = false) {
+        if (cloudIndex && !forceRefresh) return cloudIndex;
+        try {
+            const data = await gmGet(`${CLOUD.workerBase}/index`);
+            if (data) { cloudIndex = data; qlog(`☁️ 云端索引: ${cloudIndex.courses?.length||0}门课`,'ok'); return cloudIndex; }
+            qlog('⚠️ 云端索引加载失败','err'); return { courses:[], count:{} };
+        } catch(e) { qlog('⚠️ 云端索引异常','err'); return { courses:[], count:{} }; }
+    }
+
+    // 从云端查询单个答案
+    async function queryCloudAnswer(course, questionContent) {
+        const nq = questionContent.replace(/<[^>]+>/g,'').trim();
+        const qk = extractKeywords(nq);
+        if (!qk.length) return null;
+        try {
+            const bank = await gmGet(`${CLOUD.workerBase}/course/${encodeURIComponent(course)}`);
+            if (!bank || !Array.isArray(bank)) return null;
+            return bank.find(q => {
+                let dbc = (q.content||'').replace(/<[^>]+>/g,'').trim();
+                let dbk = extractKeywords(dbc);
+                return dbk.length > 0 && qk.filter(k=>dbk.includes(k)).length >= Math.min(qk.length,3);
+            }) || null;
+        } catch(e) { return null; }
+    }
+
+    // 从云端批量查询答案
+    async function queryCloudBatch(course, questions) {
+        try {
+            const bank = await gmGet(`${CLOUD.workerBase}/course/${encodeURIComponent(course)}`);
+            if (!bank || !Array.isArray(bank)) return [];
+            return questions.map(q => {
+                const nq = (q.content||'').replace(/<[^>]+>/g,'').trim();
+                const qk = extractKeywords(nq);
+                if (!qk.length) return null;
+                const found = bank.find(bq => {
+                    let dbc = (bq.content||'').replace(/<[^>]+>/g,'').trim();
+                    let dbk = extractKeywords(dbc);
+                    return dbk.length > 0 && qk.filter(k=>dbk.includes(k)).length >= Math.min(qk.length,3);
+                });
+                return found || null;
+            });
+        } catch(e) { return questions.map(()=>null); }
+    }
+
+    // 提取关键词（去标点 + 停用词 + 中文双字词fallback）
+    function extractKeywords(text) {
+        if (!text) return [];
+        let cleaned = text.replace(/<[^>]+>/g, '')
+            .replace(/[，。、；：？！""''（）()《》【】\[\]{}.,;:!?"'()\[\]{}<>\/\|@#$%^&*+=~`_\-]/g, ' ');
+        let tokens = cleaned.split(/\s+/).filter(w => w.length >= 2);
+        let stopwords = new Set(['以下','选项','的是','正确','错误','关于','下列','不是','属于','哪个','一项','什么','可以','没有','不属于','包括']);
+        tokens = tokens.filter(w => !stopwords.has(w));
+        // 中文长token拆双字词，提高无标点文本的匹配率
+        let keywords = [...tokens];
+        for (let token of tokens) {
+            if (token.length >= 4) {
+                for (let i = 0; i < token.length - 1; i++) {
+                    let bigram = token.substring(i, i + 2);
+                    if (!stopwords.has(bigram)) keywords.push(bigram);
+                }
+            }
+        }
+        return [...new Set(keywords)];
+    }
+
+    // 贡献到云端（通过 Worker，用 GM_xmlhttpRequest 跨域）
+    async function contributeToCloud(course, questions) {
+        if (!course || !questions || !questions.length) return false;
+        const clean = questions.map(q=>({type:q.type,content:q.content,options:q.options,answer:q.answer}));
+        try {
+            const result = await gmPost(`${CLOUD.workerBase}/contribute`, {course,questions:clean});
+            return !!(result && result.success);
+        } catch(e) { return false; }
+    }
+
+    // 一键上传本地全部题库到云端
+    async function uploadAllToCloud(course) {
+        if (!course) return;
+        const db = getDB();
+        if (db.length === 0) return;
+        await contributeToCloud(course, db);
+    }
+
+    // 从云端下载题库到本地
+    async function downloadCloudToLocal(course) {
+        if (!course) { qlog('❌ 请输入课程标识','err'); return; }
+        try {
+            const bank = await gmGet(`${CLOUD.workerBase}/course/${encodeURIComponent(course)}`);
+            if (!bank || !Array.isArray(bank)) { qlog('❌ 云端未找到该课程','err'); return; }
+            const added = saveToDB(bank);
+            qlog(`☁️ 下载完成: +${added}题 (云端${bank.length}题)`,'ok');
+            updateStats(getDB().length);
+        } catch(e) { qlog('❌ 下载失败','err'); }
+    }
+
+    // ==========================================
+    // 🎯 自动答题引擎
+    // ==========================================
+    
+    function parseCurrentPageQuestions(course) {
+        let found = [];
+        // 方法1：从 Vue 实例提取
+        const allElements = document.querySelectorAll('*');
+        for (let el of allElements) {
+            if (el.__vue__) {
+                try {
+                    let vueData = JSON.parse(JSON.stringify(el.__vue__.$data || {}));
+                    let extracted = extractQuestionsFromData(vueData);
+                    found = found.concat(extracted);
+                } catch(e) {}
+            }
+        }
+        // 方法2：DOM 选择器找题目文本
+        if (found.length === 0) {
+            const questionEls = document.querySelectorAll('[class*="question"], [class*="topic"], [class*="subject"], .q-title, .q-content');
+            questionEls.forEach(el => {
+                const text = el.textContent.trim();
+                if (text.length > 10) {
+                    found.push({ content: text, type: '未知题型', options: [], answer: '' });
+                }
+            });
+        }
+        return found;
+    }
+
+    // 执行自动答题
+    async function doAutoAnswer(course) {
+        if (!CLOUD.autoAnswerEnabled) return;
+        qlog('🎯 自动答题引擎启动，正在识别页面题目...');
+
+        const pageQuestions = parseCurrentPageQuestions(course);
+        if (pageQuestions.length === 0) {
+            qlog('⚠️ 未在页面检测到题目');
+            return;
+        }
+        qlog(`📋 检测到 ${pageQuestions.length} 道题目，正在查询答案...`);
+
+        // 1. 先查本地
+        const db = getDB();
+        let answeredCount = 0;
+        for (const pq of pageQuestions) {
+            const cleanContent = pq.content.replace(/<[^>]+>/g, '').trim();
+            const queryKeywords = extractKeywords(cleanContent);
+
+            // 本地查找
+            let match = db.find(q => {
+                let dbc = (q.content || '').replace(/<[^>]+>/g, '').trim();
+                const dbk = extractKeywords(dbc);
+                return queryKeywords.length > 0 && dbk.length > 0 && queryKeywords.filter(k => dbk.includes(k)).length >= Math.min(queryKeywords.length, 3);
+            });
+
+            // 云端查找
+            if (!match) {
+                match = await queryCloudAnswer(course, cleanContent);
+            }
+
+            if (match && match.answer) {
+                fillAnswerToPage(pq, match);
+                answeredCount++;
+                qlog(`✅ [${pq.type || '?'}] ${cleanContent.substring(0, 30)}... → 答案：${match.answer}`);
+            } else {
+                qlog(`❓ [${pq.type || '?'}] ${cleanContent.substring(0, 30)}... → 未找到答案`);
+            }
+        }
+
+        qlog(`🎯 自动答题完成：${answeredCount}/${pageQuestions.length} 题已填入答案`);
+    }
+
+    // 将答案填入页面控件
+    function fillAnswerToPage(question, match) {
+        const answer = match.answer;
+        const type = match.type || question.type;
+
+        if (type === '判断题' || type === 'JUDGMENT') {
+            const correctVal = (answer === '正确' || answer === 'Y' || answer === 'true') ? 'Y' : 'N';
+            // 尝试点击正确/错误按钮
+            const allBtns = document.querySelectorAll('button, label, .option, .choice, [class*="option"]');
+            allBtns.forEach(btn => {
+                const txt = (btn.textContent || '').trim();
+                if ((correctVal === 'Y' && txt.includes('正确')) || (correctVal === 'N' && txt.includes('错误'))) {
+                    btn.click();
+                }
+            });
+            // 尝试 radio
+            const radios = document.querySelectorAll('input[type="radio"]');
+            radios.forEach(r => {
+                const label = r.closest('label')?.textContent?.trim() || '';
+                if ((correctVal === 'Y' && label.includes('正确')) || (correctVal === 'N' && label.includes('错误'))) {
+                    r.click();
+                }
+            });
+        } else if (type === '单选题' || type === 'SINGLE') {
+            // 匹配选项
+            const options = match.options || [];
+            let targetAlias = answer;
+            if (options.length > 0) {
+                const matchedOpt = options.find(o => o.alias === answer);
+                if (matchedOpt) targetAlias = matchedOpt.alias;
+            }
+            // 点击对应选项
+            const allOptions = document.querySelectorAll('label, .option, [class*="option"], [class*="choice"]');
+            allOptions.forEach(opt => {
+                const txt = (opt.textContent || '').trim();
+                if (txt.startsWith(targetAlias + '.') || txt.startsWith(targetAlias + '、') || txt === targetAlias) {
+                    opt.click();
+                }
+            });
+            // radio
+            const radios = document.querySelectorAll('input[type="radio"]');
+            radios.forEach(r => {
+                const val = r.value || '';
+                const label = r.closest('label')?.textContent?.trim() || '';
+                if (val === targetAlias || label.startsWith(targetAlias + '.') || label.startsWith(targetAlias + '、')) {
+                    r.click();
+                }
+            });
+        } else if (type === '多选题' || type === 'MULTIPLE') {
+            const answers = answer.split(/[,，\s]+/).filter(Boolean);
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                const val = cb.value || '';
+                const label = cb.closest('label')?.textContent?.trim() || '';
+                if (answers.some(a => val === a || label.startsWith(a + '.') || label.startsWith(a + '、'))) {
+                    cb.checked = true;
+                    cb.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            });
+        } else if (type === '填空题' || type === 'BLANKFILL') {
+            const inputs = document.querySelectorAll('input[type="text"], textarea, [contenteditable="true"]');
+            const answers = answer.split(/\s*;\s*/);
+            inputs.forEach((inp, i) => {
+                if (i < answers.length) {
+                    if (inp.contentEditable === 'true') {
+                        inp.textContent = answers[i];
+                    } else {
+                        inp.value = answers[i];
+                        inp.dispatchEvent(new Event('input', { bubbles: true }));
+                    }
+                }
+            });
+        }
+    }
+
+    // 页面监控：检测到题目页面时自动触发答题
+    function watchForQuestions(course) {
+        if (autoAnswerTimer) clearInterval(autoAnswerTimer);
+        autoAnswerTimer = setInterval(() => {
+            if (!CLOUD.autoAnswerEnabled) return;
+            const questions = parseCurrentPageQuestions(course);
+            if (questions.length > 0) {
+                clearInterval(autoAnswerTimer);
+                doAutoAnswer(course);
+            }
+        }, 2000);
+        // 30秒后停止扫描
+        setTimeout(() => { if (autoAnswerTimer) clearInterval(autoAnswerTimer); }, 30000);
+    }
+
+    // ==========================================
+    // 3. UI 界面构建
+    // ==========================================
+    let logArea, countSpan, cloudCountSpan;
+
+    function initPanel() {
+        const panel = document.createElement('div');
+        panel.id = '__whut_qbank';
+        panel.style.cssText = `
+            position:fixed;top:80px;left:10px;width:248px;max-height:88vh;overflow-y:auto;
+            background:rgba(22,22,30,.88);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+            color:#cdd6f4;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,.05);
+            z-index:99998;font:12px/1.5 'Microsoft YaHei',sans-serif;user-select:none;transition:opacity .25s;
+        `;
+
+        panel.innerHTML = `
+            <style>
+            #__whut_qbank *{box-sizing:border-box;margin:0;padding:0}
+            #__whut_qbank ::-webkit-scrollbar{width:4px}
+            #__whut_qbank ::-webkit-scrollbar-track{background:transparent}
+            #__whut_qbank ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:4px}
+            #__whut_qbank input:focus,#__whut_qbank select:focus{box-shadow:0 0 0 2px rgba(203,166,247,.2)}
+            #__whut_qbank button{transition:all .2s}
+            #__whut_qbank button:active{transform:scale(.96)!important}
+            #__whut_qbank button:hover:not(:disabled){filter:brightness(1.15)}
+            #__whut_qbank.collapsed .tk-body{display:none}
+            #__whut_qbank.collapsed{width:auto!important;min-width:unset!important}
+            </style>
+            <div id="tk-header" style="padding:12px 10px;cursor:move;display:flex;align-items:center;gap:6px;">
+                <span style="font-size:14px;">🎯</span><span style="font-weight:700;font-size:12px;color:#cba6f7;">题库</span>
+                <span id="tk-count" style="margin-left:auto;font-size:11px;color:#a6adc8;">0题</span>
+                <button id="btn-minimize" title="折叠" style="background:#313244;color:#a6adc8;border:none;width:22px;height:22px;border-radius:6px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">−</button>
+            </div>
+            <div class="tk-body">
+            <div style="padding:0 10px 10px;">
+
+                <div style="margin-bottom:8px;background:rgba(166,227,161,.06);padding:8px 10px;border-radius:10px;border:1px solid rgba(166,227,161,.12);font-size:10px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="color:#a6e3a1;font-weight:600;">☁️ 云端 · Gitee</span>
+                        <button id="btn-cloud-refresh" style="background:none;border:none;color:#a6e3a1;cursor:pointer;font-size:12px;padding:0 2px;">↻</button>
+                    </div>
+                    <div id="tk-cloud-courses" style="color:#a6adc8;margin-top:2px;">加载中...</div>
+                </div>
+
+                <input type="text" id="tk-course" placeholder="课程标识..." style="width:100%;margin-bottom:6px;padding:7px 10px;border:1px solid rgba(255,255,255,.08);border-radius:8px;font-size:11px;outline:none;background:rgba(255,255,255,.04);color:#cdd6f4;">
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:6px;">
+                    <button id="btn-cloud-download" style="background:rgba(137,180,250,.15);color:#89b4fa;border:1px solid rgba(137,180,250,.2);padding:6px;border-radius:8px;cursor:pointer;font-size:10px;font-weight:600;">📥 下载</button>
+                    <button id="btn-cloud-upload" style="background:rgba(166,227,161,.15);color:#a6e3a1;border:1px solid rgba(166,227,161,.2);padding:6px;border-radius:8px;cursor:pointer;font-size:10px;font-weight:600;">📤 上传</button>
+                    <button id="btn-scan-dom" style="background:rgba(203,166,247,.12);color:#cba6f7;border:1px solid rgba(203,166,247,.15);padding:6px;border-radius:8px;cursor:pointer;font-size:10px;font-weight:600;">🔍 扫描</button>
+                    <button id="btn-pull-errors" style="background:rgba(250,179,135,.12);color:#fab387;border:1px solid rgba(250,179,135,.15);padding:6px;border-radius:8px;cursor:pointer;font-size:10px;font-weight:600;">📋 错题</button>
+                </div>
+
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;padding:6px 8px;background:rgba(249,226,175,.05);border-radius:8px;border:1px solid rgba(249,226,175,.08);">
+                    <span style="font-size:10px;font-weight:600;color:#f9e2af;">🎯 自动答题</span>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:9px;color:#a6adc8;">
+                            <input type="checkbox" id="tk-auto-answer" ${CLOUD.autoAnswerEnabled?'checked':''} style="accent-color:#f9e2af;width:12px;height:12px;">
+                        </label>
+                        <button id="btn-auto-answer-now" style="background:#f9e2af;color:#1e1e2e;border:none;padding:3px 8px;border-radius:5px;cursor:pointer;font-size:9px;font-weight:700;">运行</button>
+                    </div>
+                </div>
+
+                <textarea id="tk-log" style="width:100%;height:56px;font-size:9px;resize:none;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.06);color:#585b70;padding:6px 8px;border-radius:8px;outline:none;font-family:'SF Mono',Consolas,monospace;" readonly>☁️ 就绪</textarea>
+
+                <div style="display:flex;gap:3px;margin-top:4px;margin-bottom:8px;">
+                    <button id="btn-export-txt" style="flex:1;background:rgba(255,255,255,.03);color:#a6adc8;border:1px solid rgba(255,255,255,.06);padding:4px;border-radius:6px;cursor:pointer;font-size:9px;">TXT</button>
+                    <button id="btn-export-csv" style="flex:1;background:rgba(255,255,255,.03);color:#a6adc8;border:1px solid rgba(255,255,255,.06);padding:4px;border-radius:6px;cursor:pointer;font-size:9px;">CSV</button>
+                    <button id="btn-export-json" style="flex:1;background:rgba(255,255,255,.03);color:#a6adc8;border:1px solid rgba(255,255,255,.06);padding:4px;border-radius:6px;cursor:pointer;font-size:9px;">JSON</button>
+                    <button id="btn-clear" style="flex:1;background:transparent;color:#585b70;border:1px solid rgba(255,255,255,.04);padding:4px;border-radius:6px;cursor:pointer;font-size:9px;">🗑</button>
+                </div>
+
+                <div id="tk-api-toggle" style="font-size:9px;color:#585b70;cursor:pointer;text-align:center;padding:4px;user-select:none;">⚙ 高级</div>
+                <div id="tk-api-panel" style="display:none;">
+                    <select id="tk-api-method" style="width:100%;margin-bottom:3px;padding:4px 6px;background:rgba(0,0,0,.3);color:#cdd6f4;border:1px solid rgba(255,255,255,.06);border-radius:5px;font-size:9px;"><option value="GET">GET</option><option value="POST">POST</option></select>
+                    <input type="text" id="tk-api-url" placeholder="/api/student/xxx" style="width:100%;margin-bottom:3px;padding:5px 8px;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.06);border-radius:5px;font-size:9px;color:#cdd6f4;outline:none;">
+                    <textarea id="tk-api-body" placeholder="POST body" style="width:100%;height:24px;margin-bottom:3px;padding:4px 8px;background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.06);border-radius:5px;font-size:9px;color:#cdd6f4;outline:none;resize:none;"></textarea>
+                    <button id="btn-api-send" style="width:100%;background:rgba(243,139,168,.15);color:#f38ba8;border:1px solid rgba(243,139,168,.2);padding:4px;border-radius:6px;cursor:pointer;font-size:10px;font-weight:600;">发送</button>
+                </div>
+            </div>
+            </div>
+        `;
+        document.body.appendChild(panel);
+
+        logArea = document.getElementById('tk-log');
+        countSpan = document.getElementById('tk-count');
+
+        // 高级面板折叠
+        document.getElementById('tk-api-toggle').onclick = () => {
+            const p = document.getElementById('tk-api-panel');
+            p.style.display = p.style.display === 'none' ? 'block' : 'none';
+        };
+
+        // 事件绑定 - 原有功能
+        document.getElementById('btn-export-txt').onclick = exportTXT;
+        document.getElementById('btn-export-csv').onclick = exportCSV;
+        document.getElementById('btn-export-json').onclick = exportJSON;
+        document.getElementById('btn-clear').onclick = clearDB;
+        document.getElementById('btn-pull-errors').onclick = autoPullErrors;
+        document.getElementById('btn-scan-dom').onclick = scanDOMForQuestions;
+        document.getElementById('btn-api-send').onclick = sendCustomApiRequest;
+
+        // 事件绑定 - 云端功能
+        document.getElementById('btn-cloud-upload').onclick = () => {
+            const course = document.getElementById('tk-course').value.trim();
+            uploadAllToCloud(course);
+        };
+        document.getElementById('btn-cloud-download').onclick = () => {
+            const course = document.getElementById('tk-course').value.trim();
+            downloadCloudToLocal(course);
+        };
+        document.getElementById('btn-cloud-refresh').onclick = () => fetchCloudIndex(true);
+        document.getElementById('btn-auto-answer-now').onclick = () => {
+            const course = document.getElementById('tk-course').value.trim();
+            doAutoAnswer(course);
+        };
+        document.getElementById('tk-auto-answer').onchange = (e) => {
+            CLOUD.autoAnswerEnabled = e.target.checked;
+            qlog(`🎯 自动答题已${CLOUD.autoAnswerEnabled ? '开启' : '关闭'}`);
+        };
+        document.getElementById('btn-minimize').onclick = (e) => {
+            e.stopPropagation();
+            panel.classList.toggle('collapsed');
+            const btn = document.getElementById('btn-minimize');
+            btn.textContent = panel.classList.contains('collapsed') ? '+' : '−';
+        };
+
+        updateStats(getDB().length);
+        fetchCloudIndex().then(() => updateCloudUI());
+
+        // 拖拽
+        const header = document.getElementById('tk-header');
+        let isDragging = false, startX, startY, initialX, initialY;
+        header.onmousedown = (e) => {
+            isDragging = true; startX = e.clientX; startY = e.clientY;
+            initialX = panel.offsetLeft; initialY = panel.offsetTop;
+        };
+        document.onmousemove = (e) => {
+            if (!isDragging) return;
+            panel.style.left = (initialX + e.clientX - startX) + 'px';
+            panel.style.top = (initialY + e.clientY - startY) + 'px';
+            panel.style.right = 'auto';
+        };
+        document.onmouseup = () => isDragging = false;
+
+        // 初始启动题目监控
+        setTimeout(() => {
+            const course = document.getElementById('tk-course')?.value?.trim();
+            if (course) watchForQuestions(course);
+        }, 3000);
+    }
+
+    function updateCloudUI() {
+        const el = document.getElementById('tk-cloud-courses');
+        if (!el) return;
+        if (cloudIndex) {
+            el.textContent = `${cloudIndex.courses?.length || 0} 门 · ${Object.values(cloudIndex.count || {}).reduce((a,b)=>a+b,0) || 0} 题`;
+        } else {
+            el.textContent = '连接失败';
+        }
+    }
+
+    function qlog(msg) {
+        if(!logArea) return;
+        logArea.value += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
+        logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    function updateStats(count) {
+        if(countSpan) countSpan.innerText = count;
+    }
+
+    // ==========================================
+    // 4. 导出逻辑
+    // ==========================================
+    function exportTXT() {
+        const db = getDB();
+        if(db.length === 0) return alert("题库为空！");
+        let txtContent = "";
+        db.forEach((q) => {
+            txtContent += `【${q.type}】题目：${q.content}\n`;
+            if ((q.type === "单选题" || q.type === "多选题") && q.options && q.options.length > 0) {
+                q.options.forEach(opt => {
+                    if (opt.alias && opt.text) txtContent += `${opt.alias}. ${opt.text}\n`;
+                });
+            }
+            txtContent += `答案：${q.answer}\n\n`;
+        });
+        const blob = new Blob([txtContent], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `党校题库_${db.length}题.txt`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        qlog(`导出 TXT 成功。`);
+    }
+
+    function exportJSON() {
+        const db = getDB();
+        if(db.length === 0) return alert("题库为空！");
+        const blob = new Blob([JSON.stringify(db, null, 4)], { type: 'application/json;charset=utf-8' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `党校题库_${db.length}题.json`;
+        link.click();
+        qlog(`导出 JSON 成功。`);
+    }
+
+    function exportCSV() {
+        const db = getDB();
+        if(db.length === 0) return alert("题库为空！");
+        let csvContent = "﻿题型,题目,选项,正确答案\n";
+        db.forEach(q => {
+            let optStr = q.options.map(o => `${o.alias}. ${o.text}`).join(" | ");
+            csvContent += `"${q.type}","${q.content.replace(/"/g, '""')}","${optStr.replace(/"/g, '""')}","${String(q.answer).replace(/"/g, '""')}"\n`;
+        });
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `党校题库_${db.length}题.csv`;
+        link.click();
+        qlog(`导出 CSV 成功。`);
+    }
+
+    // ==========================================
+    // 5. DOM 启发式扫描器
+    // ==========================================
+    function scanDOMForQuestions() {
+        qlog("开始深度扫描当前网页元素...");
+        let foundQuestions = [];
+        const allElements = document.querySelectorAll('*');
+        let rawDataSources = [];
+        for (let el of allElements) {
+            if (el.__vue__) {
+                try {
+                    let vueData = JSON.parse(JSON.stringify(el.__vue__.$data || {}));
+                    rawDataSources.push(vueData);
+                } catch(e){}
+            }
+        }
+        if (rawDataSources.length > 0) {
+            rawDataSources.forEach(data => {
+                let extracted = extractQuestionsFromData(data);
+                foundQuestions = foundQuestions.concat(extracted);
+            });
+        }
+        if (foundQuestions.length > 0) {
+            let added = saveToDB(foundQuestions);
+            qlog(`DOM底层数据扫描完成，找到有效题目，新入库 ${added} 题！`);
+            // 自动贡献到云端
+            const course = document.getElementById('tk-course')?.value?.trim();
+            if (course && added > 0) {
+                contributeToCloud(course, foundQuestions);
+            }
+        } else {
+            qlog("未能从当前页面的底层数据中扫描到规范题库。");
+            qlog("提示：如果页面显示了题目，建议通过『高级API接口』重新请求该页面的数据源。");
+        }
+    }
+
+    // ==========================================
+    // 6. 高级 API 挖掘器
+    // ==========================================
+    async function sendCustomApiRequest() {
+        let method = document.getElementById('tk-api-method').value;
+        let url = document.getElementById('tk-api-url').value.trim();
+        let body = document.getElementById('tk-api-body').value.trim();
+        if (!url) return alert("请输入要挖掘的接口路径！");
+        if (!url.startsWith('http')) {
+            if (!url.startsWith('/')) url = '/' + url;
+            url = window.location.origin + url;
+        }
+        qlog(`[挖掘机] 正在向 ${url} 发送 ${method} 请求...`);
+        try {
+            let options = {
+                method: method,
+                headers: {
+                    "Accept": "application/json, text/plain, */*",
+                    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+                }
+            };
+            if (method === 'POST' && body) options.body = body;
+            let response = await fetch(url, options);
+            if (!response.ok) { qlog(`[挖掘机] 请求失败，HTTP状态码: ${response.status}`); return; }
+            let resJson = await response.json();
+            let qList = extractQuestionsFromData(resJson);
+            if (qList.length > 0) {
+                let added = saveToDB(qList);
+                qlog(`🎯 [挖掘机] 挖掘成功！发现 ${qList.length} 题，新入库 ${added} 题！`);
+                // 自动贡献到云端
+                const course = document.getElementById('tk-course')?.value?.trim();
+                if (course && qList.length > 0) {
+                    contributeToCloud(course, qList);
+                }
+            } else {
+                qlog(`[挖掘机] 接口请求成功，但返回的数据中没有识别到题目特征。`);
+                console.qlog("挖掘返回原始数据:", resJson);
+            }
+        } catch (e) {
+            qlog(`❌ [挖掘机] 请求异常: ${e.message}`);
+        }
+    }
+
+    // ==========================================
+    // 7. 错题本自动拉取
+    // ==========================================
+    async function autoPullErrors() {
+        qlog("开始全量拉取错题本...");
+        const course = document.getElementById('tk-course')?.value?.trim();
+        let current = 1; let totalPages = 1; let allRecords = [];
+        while (current <= totalPages) {
+            try {
+                let res = await fetch("/api/student/test/myErrorQuestion/list", {
+                    method: 'POST',
+                    headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
+                    body: `current=${current}&size=100&keyword=`
+                });
+                let resJson = await res.json();
+                if (resJson.code === 0 && resJson.data) {
+                    totalPages = resJson.data.pages || 1;
+                    let records = resJson.data.records || [];
+                    if(records.length > 0){
+                        allRecords = allRecords.concat(records);
+                        let added = saveToDB(records);
+                        qlog(`错题本第${current}页：新入库 ${added} 题。`);
+                    } else break;
+                } else break;
+                current++;
+                await new Promise(r => setTimeout(r, 600));
+            } catch (e) { break; }
+        }
+        qlog("错题本全量拉取完成！");
+        // 自动贡献到云端
+        if (course && allRecords.length > 0) {
+            const normQuestions = allRecords.map(r => normalizeQuestion(r)).filter(Boolean);
+            contributeToCloud(course, normQuestions);
+        }
+    }
+
+    // ==========================================
+    // 8. 网络拦截双引擎（增强：自动贡献云端）
+    // ==========================================
+    const courseInput = () => document.getElementById('tk-course')?.value?.trim();
+
+    // XHR 拦截
+    const originalXHR = window.XMLHttpRequest;
+    window.XMLHttpRequest = function() {
+        const xhr = new originalXHR();
+        xhr.addEventListener('load', function() {
+            try {
+                if (this.responseURL && this.responseURL.includes('/api/')) {
+                    let resData = this.responseType === 'json' ? this.response : JSON.parse(this.responseText);
+                    if (resData) {
+                        let qList = extractQuestionsFromData(resData);
+                        let added = saveToDB(qList);
+                        if (added > 0) {
+                            qlog(`[XHR拦截] 自动抓取入库 ${added} 题。`);
+                            const course = courseInput();
+                            if (course) contributeToCloud(course, qList);
+                        }
+                    }
+                }
+            } catch (e) {}
+        });
+        return xhr;
+    };
+
+    // Fetch 拦截
+    const originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const response = await originalFetch.apply(this, args);
+        const cloneRes = response.clone();
+        cloneRes.json().then(resData => {
+            try {
+                let url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url ? args[0].url : '');
+                if (url.includes('/api/')) {
+                    let qList = extractQuestionsFromData(resData);
+                    let added = saveToDB(qList);
+                    if (added > 0) {
+                        qlog(`[Fetch拦截] 自动抓取入库 ${added} 题。`);
+                        const course = courseInput();
+                        if (course) contributeToCloud(course, qList);
+                    }
+                }
+            } catch(e) {}
+        }).catch(() => {});
+        return response;
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPanel);
+    } else {
+        initPanel();
+    }
+
+
+
 })();
