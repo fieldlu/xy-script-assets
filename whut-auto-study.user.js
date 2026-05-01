@@ -11,6 +11,7 @@
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @run-at       document-idle
+
 // ==/UserScript==
 
 (function () {
