@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/party-member-treasury
-// @version      1.0.2
+// @version      1.1.0
 // @description  全自动学习+云端题库：视频断点续播/智能跳课、云端查答案/自动答题/贡献答案/全网采集
 // @author       FieldLu
 // @license      MIT
