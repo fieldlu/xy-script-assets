@@ -23,7 +23,7 @@
 
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
 2. 点击下方链接安装脚本：
-   - [WUT网上党校全能助手.user.js](https://gitee.com/fieldlu/whut-auto-study-dangxiao/raw/master/whut-auto-study.user.js)
+   - [WUT网上党校 全能助手.user.js](https://scriptcat.org/zh-CN/script-show-page/6134)
 3. 进入 wsdx.whut.edu.cn 即可使用
 
 ## 使用方法
@@ -43,8 +43,3 @@
 
 - **密钥仅保存在本地浏览器**，不会泄露
 - 支持 8 个 AI Provider，每位用户独立设置自己的密钥
-
-## 相关仓库
-
-- 题库数据：[party-member-treasury](https://gitee.com/fieldlu/party-member-treasury) (qbank/)
-- AI 配置：[ai-config.json](https://gitee.com/fieldlu/party-member-treasury/raw/master/qbank/ai-config.json)
