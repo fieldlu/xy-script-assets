@@ -1,0 +1,93 @@
+{
+  "providers": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "apiType": "openai-compatible",
+      "endpoint": "https://api.deepseek.com/v1/chat/completions",
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ],
+      "defaultModel": "deepseek-chat"
+    },
+    {
+      "id": "kimi",
+      "name": "Kimi (月之暗面)",
+      "apiType": "openai-compatible",
+      "endpoint": "https://api.moonshot.cn/v1/chat/completions",
+      "models": [
+        "moonshot-v1-8k",
+        "moonshot-v1-32k",
+        "moonshot-v1-128k"
+      ],
+      "defaultModel": "moonshot-v1-8k"
+    },
+    {
+      "id": "openai",
+      "name": "ChatGPT (OpenAI)",
+      "apiType": "openai-compatible",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "models": [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-3.5-turbo"
+      ],
+      "defaultModel": "gpt-4o-mini"
+    },
+    {
+      "id": "claude",
+      "name": "Claude (Anthropic)",
+      "apiType": "anthropic",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "models": [
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5"
+      ],
+      "defaultModel": "claude-haiku-4-5"
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini (Google)",
+      "apiType": "google",
+      "endpoint": "https://generativelanguage.googleapis.com/v1beta/models",
+      "models": [
+        "gemini-2.5-flash",
+        "gemini-2.5-pro"
+      ],
+      "defaultModel": "gemini-2.5-flash"
+    },
+    {
+      "id": "zhipu",
+      "name": "智谱 GLM",
+      "apiType": "openai-compatible",
+      "endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "models": [
+        "glm-4-plus",
+        "glm-4-flash"
+      ],
+      "defaultModel": "glm-4-flash"
+    },
+    {
+      "id": "qwen",
+      "name": "通义千问",
+      "apiType": "openai-compatible",
+      "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      "models": [
+        "qwen-turbo",
+        "qwen-plus",
+        "qwen-max"
+      ],
+      "defaultModel": "qwen-turbo"
+    },
+    {
+      "id": "custom",
+      "name": "自定义 (OpenAI兼容)",
+      "apiType": "openai-compatible",
+      "endpoint": "",
+      "models": [],
+      "defaultModel": ""
+    }
+  ],
+  "keys": {}
+}
