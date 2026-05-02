@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.4.7
+// @version      1.4.8
 // @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传 — 始终自动运行/真人模拟/进度看门狗
 // @author       FieldLu
 // @license      MIT
@@ -32,7 +32,7 @@
 
 // ==================== 云端题库配置 ====================
 const CLOUD = {
-    rawBase: 'https://gitee.com/fieldlu/whut-auto-study-dangxiao/raw/master/qbank',
+    rawBase: 'https://gitee.com/api/v5/repos/fieldlu/whut-auto-study-dangxiao/contents/qbank',
     apiBase: 'https://gitee.com/api/v5/repos/fieldlu/whut-auto-study-dangxiao/contents/qbank',
     workerBase: 'https://whut-qbank-worker.tianye0126.workers.dev',
     giteeToken: (() => {
@@ -1577,76 +1577,46 @@ let autoAnswerTimer = null;
         });
     }
 
+    // 通过 API 获取文件内容（绕过 raw URL 的内容审查拦截）
+    async function fetchGiteeFile(path) {
+        const token = CLOUD.giteeToken || '';
+        const url = `${CLOUD.rawBase}/${path}?access_token=${token}&t=${Date.now()}`;
+        const res = await gmFetch(url);
+        if (!res.ok) return null;
+        const info = await res.json().catch(() => null);
+        if (!info || !info.content) return null;
+        try {
+            const decoded = atob(info.content);
+            return JSON.parse(decoded);
+        } catch(e) { return null; }
+    }
+
     // 加载云端全量题库：优先合并文件 → 回退逐课加载
     async function loadCloudBank(forceRefresh = false) {
         if (cloudBank && !forceRefresh) return cloudBank;
 
-        // 尝试加载已合并的 qbank.json
-        const qres = await gmFetch(`${CLOUD.rawBase}/qbank.json?t=${Date.now()}`);
-        if (qres.ok) {
-            const data = await qres.json().catch(() => null);
-            if (Array.isArray(data) && data.length > 0) {
-                cloudBank = data;
-                qlog(`☁️ 云端题库已加载：${cloudBank.length} 题`, 'ok');
-                updateCloudUI(cloudBank.length);
-                return cloudBank;
-            }
-        }
-        // 新仓库没有 → 尝试旧仓库 qbank.json
-        const fbBase = 'https://gitee.com/fieldlu/party-member-treasury/raw/master/qbank';
-        const fbQres = await gmFetch(`${fbBase}/qbank.json?t=${Date.now()}`);
-        if (fbQres.ok) {
-          const fbData = await fbQres.json().catch(() => null);
-          if (Array.isArray(fbData) && fbData.length > 0) {
-            cloudBank = fbData;
-            qlog(`☁️ 云端题库已加载(旧仓库)：${cloudBank.length} 题`, 'ok');
+        // 尝试通过 API 加载已合并的 qbank.json
+        const qbankData = await fetchGiteeFile('qbank.json');
+        if (Array.isArray(qbankData) && qbankData.length > 0) {
+            cloudBank = qbankData;
+            qlog(`☁️ 云端题库已加载：${cloudBank.length} 题`, 'ok');
             updateCloudUI(cloudBank.length);
             return cloudBank;
-          }
         }
 
-        // 回退：逐课加载
-        const idxRes = await gmFetch(`${CLOUD.rawBase}/index.json?t=${Date.now()}`);
-        qlog(`[云端] index.json → ${idxRes.status}`, idxRes.ok ? 'ok' : 'warn');
-        if (!idxRes.ok) {
-          // 新仓库没有题库文件 → 回退旧仓库
-          const fallbackBase = 'https://gitee.com/fieldlu/party-member-treasury/raw/master/qbank';
-          const fbIdx = await gmFetch(`${fallbackBase}/index.json?t=${Date.now()}`);
-          if (fbIdx.ok) {
-            qlog('[云端] 从旧仓库加载题库...', 'ok');
-            const fbIndex = await fbIdx.json().catch(() => ({}));
-            const fbCourses = fbIndex.courses || [];
-            if (fbCourses.length > 0) {
-              const fbResults = await Promise.all(fbCourses.map(async (c) => {
-                const r = await gmFetch(`${fallbackBase}/${encodeURIComponent(c)}.json?t=${Date.now()}`);
-                return r.ok ? (await r.json().catch(() => []) || []) : [];
-              }));
-              cloudBank = [];
-              const fbSeen = new Set();
-              for (const bank of fbResults) {
-                if (!Array.isArray(bank)) continue;
-                for (const q of bank) {
-                  const k = (q.content || '').replace(/\s+/g, '').substring(0, 30);
-                  if (!fbSeen.has(k)) { fbSeen.add(k); cloudBank.push(q); }
-                }
-              }
-              qlog(`☁️ 云端题库已加载(旧仓库)：${cloudBank.length} 题`, 'ok');
-              updateCloudUI(cloudBank.length);
-              return cloudBank;
-            }
-          }
-          qlog('⚠️ 云端题库暂不可用', 'err');
-          updateCloudUI(0);
-          return [];
+        // 回退：逐课加载（通过 API 读 index.json + 逐课程文件）
+        const index = await fetchGiteeFile('index.json');
+        const courses = (index && index.courses) ? index.courses : [];
+        if (!courses.length) {
+            qlog('⚠️ 云端题库暂不可用', 'err');
+            updateCloudUI(0);
+            return [];
         }
-        const index = await idxRes.json().catch(() => ({}));
-        const courses = index.courses || [];
-        if (!courses.length) { qlog('⚠️ 云端无课程数据'); updateCloudUI(0); return []; }
 
-        qlog(`☁️ 加载 ${courses.length} 门课程...`);
+        qlog(`☁️ 通过API加载 ${courses.length} 门课程...`);
         const results = await Promise.all(courses.map(async (c) => {
-            const r = await gmFetch(`${CLOUD.rawBase}/${encodeURIComponent(c)}.json?t=${Date.now()}`);
-            return r.ok ? (await r.json().catch(() => []) || []) : [];
+            const data = await fetchGiteeFile(encodeURIComponent(c) + '.json');
+            return Array.isArray(data) ? data : [];
         }));
 
         cloudBank = [];
