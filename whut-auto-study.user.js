@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/party-member-treasury
-// @version      1.1.0
+// @version      1.1.1
 // @description  全自动学习+云端题库：视频断点续播/智能跳课、云端查答案/自动答题/贡献答案/全网采集
 // @author       FieldLu
 // @license      MIT
@@ -39,7 +39,7 @@ let autoAnswerTimer = null;
 
   const CFG = { checkInterval: 2000, coursePageTimeout: 900 };
   const hacked = new WeakSet();
-  let stats = { completed: 0, total: 0, startTime: 0 };
+  let stats = { completed: 0, total: 0, startTime: 0, scriptDone: 0 };
   let timers = [];
   let stopped = false;
   let navigating = false;
@@ -50,26 +50,94 @@ let autoAnswerTimer = null;
   let finishedDuration = 0;
   let lastVidUpdate = 0;
   let currentVidTime = 0;
+  let courseRecoveryTimer = null;
+  let watchdogProgressTime = Date.now();
+  let watchdogLastCurrentTime = -1;
+  const WATCHDOG_STUCK_LIMIT = 180000; // 3分钟无进展则强刷
 
-  // ==================== 持久化存储（断点续播） ====================
+  // ==================== 持久化存储（断点续播 + 后台重载恢复） ====================
   function saveState() {
     try {
       GM_setValue('whut_xmId', xmId);
       GM_setValue('whut_stopped', stopped);
       GM_setValue('whut_completed', stats.completed);
       GM_setValue('whut_total', stats.total);
+      GM_setValue('whut_scriptDone', stats.scriptDone);
     } catch(e) {}
+  }
+
+  // 重载前完整保存（含 courseList、进度、当前课程）
+  function saveStateForReload() {
+    try {
+      saveState();
+      if (courseList.length > 0) {
+        sessionStorage.setItem('whut_courseList', JSON.stringify(courseList));
+      }
+      if (currentCourse) {
+        sessionStorage.setItem('whut_currentCourse', JSON.stringify(currentCourse));
+      }
+      if (finishedDuration > 0) {
+        sessionStorage.setItem('whut_finishedDuration', finishedDuration);
+      }
+      // 保存完整课程状态用于跨重载渲染
+      const fullInfo = { total: stats.total, completed: stats.completed, scriptDone: stats.scriptDone };
+      sessionStorage.setItem('whut_courseInfo', JSON.stringify(fullInfo));
+      sessionStorage.setItem('whut_reload_reason', 'auto_recovery');
+    } catch(e) {}
+  }
+
+  function renderCourseList() {
+    if (!listEl) return;
+    let html = '';
+    const full = sessionStorage.getItem('whut_fullList');
+    if (full) {
+      try {
+        JSON.parse(full).forEach(c => {
+          const mode = c.studyMode || '';
+          const prog = c.progress != null ? parseFloat(c.progress)
+            : (c.finishedDuration >= c.duration ? 1 : 0);
+          const cls = prog >= 1 ? 'done' : (prog > 0 ? 'half' : (mode !== 'WLXX' && mode !== '' ? 'skip' : 'todo'));
+          html += '<span class=\"' + cls + '\">' + (prog >= 1 ? '✔' : (prog > 0 ? '◐' : '○')) + ' ' + (c.courseName || c.name || '') + ' ' + Math.round(prog * 100) + '%</span>\n';
+        });
+      } catch(e) {}
+    }
+    if (!html && courseList.length > 0) {
+      courseList.forEach(c => {
+        html += '<span class=\"todo\">○ ' + (c.courseName || c.name) + ' 0%</span>\n';
+      });
+    }
+    if (html) listEl.innerHTML = html;
   }
 
   function loadState() {
     try {
       xmId = GM_getValue('whut_xmId', '');
       const wasStopped = GM_getValue('whut_stopped', true);
-      stats.completed = GM_getValue('whut_completed', 0);
-      stats.total = GM_getValue('whut_total', 0);
+      stats.completed = GM_getValue('whut_completed', 0) | 0;
+      stats.total = GM_getValue('whut_total', 0) | 0;
+      stats.scriptDone = GM_getValue('whut_scriptDone', 0) | 0;
+      // 尝试恢复课程列表
+      const saved = sessionStorage.getItem('whut_courseList');
+      if (saved) {
+        try { courseList = JSON.parse(saved); } catch(e) {}
+      }
+      const savedCourse = sessionStorage.getItem('whut_currentCourse');
+      if (savedCourse) {
+        try { currentCourse = JSON.parse(savedCourse); } catch(e) {}
+      }
+      const savedFd = sessionStorage.getItem('whut_finishedDuration');
+      if (savedFd) finishedDuration = parseFloat(savedFd) || 0;
+      // 检查是否从重载中恢复
+      const reloadReason = sessionStorage.getItem('whut_reload_reason');
+      if (reloadReason) {
+        sessionStorage.removeItem('whut_reload_reason');
+        // 清理一次性恢复标记
+        sessionStorage.removeItem('whut_finishedDuration');
+        return 'reload_recovery';
+      }
       if (xmId && wasStopped === false) {
         stopped = false;
-        return true;
+        return 'session_restore';
       }
     } catch(e) {}
     return false;
@@ -88,6 +156,11 @@ let autoAnswerTimer = null;
     if (isCoursePage()) return p.get('xmId') || '';
     if (isDetailPage()) return p.get('id') || '';
     return p.get('xmId') || p.get('id') || '';
+  }
+  function getResourceId() {
+    const qs = (location.hash || '').split('?')[1] || '';
+    if (!qs || !isCoursePage()) return '';
+    return new URLSearchParams(qs).get('id') || '';
   }
 
   // ==================== API ====================
@@ -171,7 +244,7 @@ let autoAnswerTimer = null;
       + '#__whut_panel .course-bar-inner{height:100%;background:linear-gradient(90deg,#cba6f7,#f5c2e7);border-radius:2px;transition:width .5s;width:0%}'
       // course list
       + '#__whut_panel .clist-label{font-size:10px;color:#585b70;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}'
-      + '#__whut_panel .clist{font-size:10px;color:#a6adc8;max-height:140px;overflow-y:auto;line-height:1.7;white-space:pre-wrap;background:#11111b;border-radius:6px;padding:6px 8px}'
+      + '#__whut_panel .clist{font-size:10px;color:#a6adc8;max-height:420px;overflow-y:auto;line-height:1.7;white-space:pre-wrap;background:#11111b;border-radius:6px;padding:6px 8px}'
       + '#__whut_panel .clist .done{color:#a6e3a1}'
       + '#__whut_panel .clist .half{color:#f9e2af}'
       + '#__whut_panel .clist .todo{color:#a6adc8}'
@@ -269,23 +342,25 @@ let autoAnswerTimer = null;
   }
 
   function updateCourseProgress() {
-    if (progressEl) progressEl.textContent = stats.completed + ' / ' + stats.total;
+    const actual = (stats.completed|0) + (stats.scriptDone|0);
+    if (progressEl) progressEl.textContent = actual + ' / ' + (stats.total|0);
     const bar = $('#__whut_crsBar');
-    if (bar && stats.total > 0) bar.style.width = Math.min(100, (stats.completed / stats.total) * 100) + '%';
+    if (bar && stats.total > 0) bar.style.width = Math.min(100, (actual / (stats.total|0)) * 100) + '%';
   }
 
   function updateVidProgress() {
     const v = $('video');
     if (v && v.duration && !v.ended) {
       currentVidTime = v.currentTime;
+      const total = v.duration; // 使用真实 video.duration，不依赖 API 推算
       const blk = $('#__whut_vidBlk');
       if (blk) blk.style.display = 'block';
-      const pct = Math.min(100, (currentVidTime / (videoDuration || v.duration)) * 100);
+      const pct = Math.min(100, (currentVidTime / total) * 100);
       if (vidBarEl) vidBarEl.style.width = pct + '%';
       if (vidTimeEl) vidTimeEl.textContent = fmtTime(currentVidTime);
-      if (vidTotalEl) vidTotalEl.textContent = fmtTime(videoDuration || v.duration);
+      if (vidTotalEl) vidTotalEl.textContent = fmtTime(total);
       if (vidEtaEl) {
-        const rem = (videoDuration || v.duration) - currentVidTime;
+        const rem = total - currentVidTime;
         vidEtaEl.textContent = rem > 0 ? '剩余 ' + fmtTime(rem) : '';
       }
     }
@@ -338,24 +413,49 @@ let autoAnswerTimer = null;
     video.muted = true;
     video.playbackRate = 1;
 
-    const seekTo = finishedDuration;
+    // 智能计算跳播时长：处理 API 返回秒/分钟单位不一致
+    let seekTo = finishedDuration;
     let seekDone = false;
+    let seekRetries = 0;
+    const MAX_SEEK_RETRIES = 20; // 10秒内每500ms重试
+
     const doSeek = () => {
-      if (seekDone) return;
-      if (seekTo > 0 && video.duration && seekTo < video.duration - 5) {
+      if (seekDone || seekRetries >= MAX_SEEK_RETRIES) return;
+      if (!video.duration || video.duration <= 0) return;
+      seekRetries++;
+      // 单位修正：如果 finishedDuration 远大于实际时长，可能是重复乘了60
+      if (seekTo > video.duration * 1.5) {
+        const fixed = seekTo / 60;
+        if (fixed > 0 && fixed < video.duration - 5) {
+          log('单位修正: ' + fmtTime(seekTo) + ' → ' + fmtTime(fixed), 'warn');
+          seekTo = fixed;
+        }
+      }
+      if (seekTo > 0 && seekTo < video.duration - 5) {
         seekDone = true;
         video.currentTime = seekTo;
+        watchdogLastCurrentTime = seekTo;
+        watchdogProgressTime = Date.now();
         log('跳过已看 ' + fmtTime(seekTo) + '，继续播放', 'info');
       }
     };
-    // loadedmetadata 只触一次，canplay 用 once 防反复回跳
+    // 事件驱动 + 定时兜底，防 SPA 不触发原生事件
     video.addEventListener('loadedmetadata', doSeek);
-    video.addEventListener('canplay', doSeek, { once: true });
+    video.addEventListener('canplay', () => { doSeek(); }, { once: false });
     if (video.readyState >= 2 && video.duration) doSeek();
 
     const forceTimer = setInterval(() => {
       if (video.ended) { clearInterval(forceTimer); return; }
-      if (video.paused) video.play().catch(() => { });
+      if (!seekDone) doSeek(); // 定时重试跳播
+      if (video.paused) {
+        video.play().catch(() => { });
+      } else {
+        // 看门狗：视频在播放但 currentTime 变了才算有进展
+        if (Math.abs(video.currentTime - watchdogLastCurrentTime) > 0.2) {
+          watchdogLastCurrentTime = video.currentTime;
+          watchdogProgressTime = Date.now();
+        }
+      }
       updateVidProgress();
     }, 500);
 
@@ -412,20 +512,99 @@ let autoAnswerTimer = null;
       }
     }
 
-    log('本节完成 → 返回列表', 'ok');
-    stats.completed++;
-    updateCourseProgress();
-    navigating = true;
-    goBackAndContinue();
+    if (courseList.length > 1) {
+      log('本节完成 → 返回列表重扫', 'ok');
+      stats.scriptDone = (stats.scriptDone | 0) + 1;
+      updateCourseProgress();
+      goBackAndContinue();
+    } else {
+      log('全部完成 → 返回列表', 'ok');
+      stats.scriptDone = 0;
+      stats.completed = stats.total | 0;
+      updateCourseProgress();
+      goBackAndContinue();
+    }
   }
 
   function goBackAndContinue() {
-    const modal = $('.el-dialog__wrapper:not([style*="display:none"]),.el-message-box__wrapper:not([style*="display:none"])');
-    if (modal) { const btn = modal.querySelector('button'); if (btn) { btn.click(); } }
-    location.href = '#/myTrain/detail?id=' + xmId;
+    cancelCourseRecovery();
+    sessionStorage.setItem('whut_goto_detail', xmId);
+    saveStateForReload();
+    location.reload();
   }
 
   // ==================== 扫描 ====================
+
+  // 静默拉取课程列表和进度（不导航，只填充数据供课程页初始化用）
+  async function fetchCourseStats() {
+    try {
+      const resp = await API.getXm();
+      if (resp.code !== 0 || !resp.data) return;
+      const list = resp.data.xmCourseSetting.chooseCourseList;
+      setBanner(resp.data.name);
+      courseList = list
+        .filter(c => {
+          const mode = c.studyMode || '';
+          if (mode !== 'WLXX' && mode !== '') return false;
+          if (!c.resourceId) return false;
+          const prog = c.progress != null ? parseFloat(c.progress) : 0;
+          return prog < 1;
+        })
+        .sort((a, b) => (a.sort || 0) - (b.sort || 0));
+      // 过滤掉当前正在播放的课程，避免重复进入
+      const resId = getResourceId();
+      if (resId) courseList = courseList.filter(c => String(c.resourceId) !== resId);
+      const totalOnline = list.filter(c => c.resourceId).length;
+      stats.total = totalOnline | 0;
+      stats.completed = (totalOnline - list.filter(c => {
+        const mode = c.studyMode || '';
+        if (mode !== 'WLXX' && mode !== '') return false;
+        const prog = c.progress != null ? parseFloat(c.progress) : 0;
+        return prog < 1;
+      }).length) | 0;
+      updateCourseProgress();
+      // 渲染课程列表
+      let html = ''; const clsMap = ['todo','half','done','skip'];
+      list.forEach(c => {
+        const mode = c.studyMode || '';
+        const prog = c.progress != null ? parseFloat(c.progress) : (c.finishedDuration >= c.duration ? 1 : 0);
+        const cls = prog >= 1 ? 'done' : (prog > 0 ? 'half' : (mode !== 'WLXX' && mode !== '' ? 'skip' : 'todo'));
+        html += '<span class=\"' + cls + '\">' + (prog >= 1 ? '✔' : (prog > 0 ? '◐' : '○')) + ' ' + (c.courseName || c.name) + ' ' + Math.round(prog * 100) + '%</span>\n';
+      });
+      if (listEl) listEl.innerHTML = html;
+    } catch(e) {}
+  }
+
+  // 静默扫描：只拉API渲染课程状态，不启动自动学习
+  async function scanAndRender() {
+    try {
+      const resp = await API.getXm();
+      if (resp.code !== 0 || !resp.data) return;
+      const list = resp.data.xmCourseSetting.chooseCourseList;
+      sessionStorage.setItem('whut_fullList', JSON.stringify(list));
+      setBanner(resp.data.name);
+      // 渲染全部课程状态
+      let html = '';
+      list.forEach(c => {
+        const mode = c.studyMode || '';
+        const prog = c.progress != null ? parseFloat(c.progress)
+          : (c.finishedDuration >= c.duration ? 1 : 0);
+        const cls = prog >= 1 ? 'done' : (prog > 0 ? 'half' : (mode !== 'WLXX' && mode !== '' ? 'skip' : 'todo'));
+        html += '<span class=\"' + cls + '\">' + (prog >= 1 ? '✔' : (prog > 0 ? '◐' : '○')) + ' ' + (c.courseName || c.name) + ' ' + Math.round(prog * 100) + '%</span>\n';
+      });
+      if (listEl) listEl.innerHTML = html;
+      // 填充 courseList 和 stats
+      courseList = list
+        .filter(c => c.resourceId && (c.progress != null ? parseFloat(c.progress) : 0) < 1)
+        .sort((a, b) => (a.sort || 0) - (b.sort || 0));
+      const resId = getResourceId();
+      if (resId) courseList = courseList.filter(c => String(c.resourceId) !== resId);
+      stats.total = list.filter(c => c.resourceId).length | 0;
+      stats.completed = (stats.total - courseList.length + (resId ? 1 : 0)) | 0;
+      updateCourseProgress();
+    } catch(e) {}
+  }
+
   async function scanAndStart() {
     xmId = getXmId();
     if (!xmId) {
@@ -458,12 +637,12 @@ let autoAnswerTimer = null;
     setBanner(data.name);
     log('培训班: ' + data.name, 'ok');
     const list = data.xmCourseSetting.chooseCourseList;
+    sessionStorage.setItem('whut_fullList', JSON.stringify(list));
 
     // 筛选 WLXX 未完成
     courseList = list
       .filter(c => {
         const mode = c.studyMode || '';
-        if (mode !== 'WLXX' && mode !== '') return false;
         if (!c.resourceId) return false;
         const prog = c.progress != null ? parseFloat(c.progress) : 0;
         return prog < 1;
@@ -483,9 +662,9 @@ let autoAnswerTimer = null;
     });
     if (listEl) listEl.innerHTML = html;
 
-    const totalOnline = list.filter(c => { const m = c.studyMode || ''; return m === 'WLXX' || !m; }).length;
-    stats.total = totalOnline;
-    stats.completed = totalOnline - courseList.length;
+    const totalOnline = list.filter(c => c.resourceId).length;
+    stats.total = totalOnline | 0;
+    stats.completed = (totalOnline - courseList.length) | 0;
     updateCourseProgress();
 
     if (courseList.length === 0) {
@@ -511,10 +690,12 @@ let autoAnswerTimer = null;
       return;
     }
 
-    currentCourse = courseList[0];
+    navigating = true;
+    currentCourse = courseList.shift();
     const name = currentCourse.courseName || currentCourse.name;
     setStatus('进入课程', name);
     setState('play');
+    updateCourseProgress();
 
     videoDuration = 0;
     finishedDuration = 0;
@@ -531,19 +712,44 @@ let autoAnswerTimer = null;
       }
     } catch (e) { /* 静默 */ }
 
-    location.href = '#/myTrain/course?id=' + currentCourse.resourceId + '&xmId=' + xmId;
+    // 真刷新进课：保存已完成进度 + 跳播位置 + 目标课程
+    saveStateForReload();
+    sessionStorage.setItem('whut_finishedDuration', finishedDuration);
+    sessionStorage.setItem('whut_goto_course', JSON.stringify({
+      resourceId: currentCourse.resourceId,
+      xmId: xmId
+    }));
+    location.reload();
+  }
+
+  // ==================== 重载恢复 ====================
+  function scheduleCourseRecovery() {
+    cancelCourseRecovery();
+    courseRecoveryTimer = setTimeout(() => {
+      if (!stopped && isCoursePage() && $$('video').length === 0 && !navigating) {
+        log('超时无视频，强制刷新恢复...', 'warn');
+        saveStateForReload(); location.reload();
+      }
+    }, 45000);
+  }
+
+  function cancelCourseRecovery() {
+    if (courseRecoveryTimer) { clearTimeout(courseRecoveryTimer); courseRecoveryTimer = null; }
   }
 
   // ==================== 课程循环 ====================
   function startCourseLoop() {
     stats.startTime = Date.now();
     navigating = false;
+    watchdogProgressTime = Date.now();
+    watchdogLastCurrentTime = -1;
 
     const timer = setInterval(() => {
       if (stopped) { clearInterval(timer); return; }
       if (!isCoursePage()) { clearInterval(timer); return; }
 
       const vids = $$('video');
+      if (vids.length > 0) { cancelCourseRecovery(); }
       if (vids.length === 0) {
         window.scrollTo(0, document.body.scrollHeight);
         if (Date.now() - stats.startTime > CFG.coursePageTimeout * 1000) {
@@ -553,6 +759,22 @@ let autoAnswerTimer = null;
         }
       } else {
         hackAllVideos();
+        // 🐕 看门狗：3分钟无播放进展则强刷
+        if (Date.now() - watchdogProgressTime > WATCHDOG_STUCK_LIMIT) {
+          log('看门狗：视频卡死超过3分钟，强制刷新恢复', 'err');
+          setTimeout(() => { saveStateForReload(); location.reload(); }, 500);
+          clearInterval(timer);
+          return;
+        }
+        // 🐕 子检测：30秒持续暂停无播放则强刷
+        const allPaused = vids.every(v => v.paused && !v.ended);
+        if (allPaused && vids.some(v => v.currentTime < 0.5) &&
+            (Date.now() - stats.startTime > 30000)) {
+          log('视频卡死在0:00，强制刷新恢复', 'err');
+          setTimeout(() => { saveStateForReload(); location.reload(); }, 500);
+          clearInterval(timer);
+          return;
+        }
         const allDone = vids.every(v => v.ended || (v.duration && v.currentTime >= v.duration - 1));
         if (allDone && !navigating) {
           clearInterval(timer);
@@ -566,9 +788,10 @@ let autoAnswerTimer = null;
   // ==================== 启动/停止 ====================
   function start() {
     stopped = false; navigating = false;
-    stats = { completed: 0, total: 0, startTime: 0 };
+    stats = { completed: 0, total: 0, startTime: 0, scriptDone: 0 };
     courseList = []; currentCourse = null;
     timers.forEach(clearInterval); timers = [];
+    cancelCourseRecovery();
     updateCourseProgress();
     log('▶ 全自动学习启动', 'ok');
     saveState();
@@ -578,6 +801,13 @@ let autoAnswerTimer = null;
   function stop() {
     stopped = true; navigating = false;
     timers.forEach(clearInterval); timers = [];
+    cancelCourseRecovery();
+    // 清理 sessionStorage，防止手动刷新后误恢复
+    sessionStorage.removeItem('whut_reload_reason');
+    sessionStorage.removeItem('whut_courseList');
+    sessionStorage.removeItem('whut_currentCourse');
+    sessionStorage.removeItem('whut_finishedDuration');
+    courseList = [];
     setStatus('已停止', '点击"开始学习"继续');
     setState('idle');
     const vBlk = $('#__whut_vidBlk');
@@ -593,6 +823,10 @@ let autoAnswerTimer = null;
       lastUrl = location.href;
       if (!stopped) {
         if (isCoursePage()) {
+          navigating = false;
+          // 从 loadState 恢复的数据渲染课程状态（不调 API，避免覆盖 scriptDone）
+          renderCourseList();
+          updateCourseProgress();
           setStatus('播放中...', currentCourse ? (currentCourse.courseName || currentCourse.name) : '');
           setState('play');
           let waited = 0;
@@ -625,9 +859,38 @@ let autoAnswerTimer = null;
         }
     }).observe(document.body || document.documentElement, { childList: true, subtree: true });
 
+    // 从课程页回详情页的真刷新标记
+    const gotoDetail = sessionStorage.getItem('whut_goto_detail');
+    if (gotoDetail) {
+      sessionStorage.removeItem('whut_goto_detail');
+      stopped = false;
+      xmId = gotoDetail;
+      loadState(); // 恢复进度/课程列表等
+      location.href = '#/myTrain/detail?id=' + xmId;
+      return;
+    }
+
+    const gotoCourse = sessionStorage.getItem('whut_goto_course');
+    if (gotoCourse) {
+      sessionStorage.removeItem('whut_goto_course');
+      try {
+        const c = JSON.parse(gotoCourse);
+        stopped = false;
+        xmId = c.xmId;
+        loadState(); // 恢复 finishedDuration、进度、currentCourse、courseList
+        location.href = '#/myTrain/course?id=' + c.resourceId + '&xmId=' + c.xmId;
+      } catch(e) {}
+      return;
+    }
+
     // 尝试恢复上次状态
     const restored = loadState();
-    if (restored) {
+    if (restored === 'reload_recovery') {
+      log('后台重载恢复 · 培训班: ' + xmId, 'ok');
+      log('恢复进度: ' + stats.completed + '/' + stats.total, 'info');
+      if (courseList.length > 0) log('待完成: ' + courseList.length + ' 门', 'info');
+      stopped = false;
+    } else if (restored === 'session_restore') {
       log('已恢复上次会话 · 培训班ID: ' + xmId, 'ok');
       log('上次进度: ' + stats.completed + '/' + stats.total, 'info');
     }
@@ -637,25 +900,40 @@ let autoAnswerTimer = null;
       if (xmId) {
         const v = $('video');
         if (v && v.currentTime > 0) finishedDuration = v.currentTime;
+        // 如果是重载恢复且已有 courseList，直接接管；否则异步拉取
+        if (restored !== 'reload_recovery' || courseList.length === 0) {
+          fetchCourseStats();
+        } else {
+          updateCourseProgress();
+        }
         log('已检测到课程页面，自动接管', 'ok');
-        setStatus('自动接管', '正在播放');
+        setStatus('后台运行中', currentCourse ? (currentCourse.courseName || currentCourse.name) : '');
         setState('play');
         startCourseLoop();
       }
     } else if (isDetailPage()) {
-      setStatus('准备就绪', '点击「全自动学习」开始');
-      setState('idle');
-      log('检测到培训班详情页，可以开始学习', 'ok');
-      // 如果有恢复的状态且之前未停止，自动开始
-      if (restored && !stopped && xmId) {
-        log('检测到未完成任务，自动恢复学习...', 'ok');
-        setTimeout(() => { if (isDetailPage()) scanAndStart(); }, 1000);
+      xmId = getXmId() || xmId;
+      if (!xmId) {
+        setStatus('请进入培训班', '点击左侧「我的培训」→ 选择培训班');
+        setState('idle');
+        return;
+      }
+      // 始终拉取并渲染全部课程状态
+      scanAndRender();
+      if (restored === 'reload_recovery' && !stopped && courseList.length > 0) {
+        log('重载恢复：自动进入下一门课...', 'ok');
+        setTimeout(() => { navigating = true; enterNextCourse(); }, 800);
+      } else if (restored === 'session_restore' && !stopped) {
+        log('检测到未完成任务，自动恢复...', 'ok');
+        setTimeout(() => { if (isDetailPage()) startAutoLearning(); }, 1000);
+      } else {
+        setStatus('准备就绪', '点击「全自动学习」开始');
+        setState('idle');
       }
     } else {
       setStatus('请进入培训班', '点击左侧「我的培训」→ 选择培训班');
       setState('idle');
       log('请进入培训班详情页后使用', 'warn');
-      log('路径: 我的培训 → 点击培训班 → 进入详情页', 'warn');
     }
   }
 
