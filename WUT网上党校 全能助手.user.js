@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.4.2
+// @version      1.4.3
 // @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传 — 始终自动运行/真人模拟/进度看门狗
 // @author       FieldLu
 // @license      MIT
@@ -417,12 +417,12 @@ let autoAnswerTimer = null;
     if (hacked.has(video)) return;
     hacked.add(video);
 
-    // 不静音！国内党校平台反作弊会检测 muted=true 并停止计时
-    // 但浏览器会拦截无用户手势的非静音播放 → 先静音起播，再取消静音
+    // 静音策略：先静音起播绕过浏览器 autoplay 限制，再尝试取消静音
+    // 如果取消静音导致浏览器暂停视频，则放弃取消静音（避免无限循环）
     video.muted = true;
     video.volume = 0;
     video.playbackRate = 1.0;
-    let unmutePending = true; // 等待取消静音
+    let unmutePhase = 0; // 0=未尝试, 1=等待检测, 2=成功, 3=已放弃
 
     // 智能计算跳播时长：处理 API 返回秒/分钟单位不一致
     let seekTo = finishedDuration;
@@ -460,44 +460,37 @@ let autoAnswerTimer = null;
     const forceTimer = setInterval(() => {
       if (video.ended) { clearInterval(forceTimer); return; }
       if (!seekDone) doSeek(); // 定时重试跳播
-      // 如果播放中且还在静音状态，尝试取消静音
-      if (!video.paused && unmutePending && video.muted) {
-        video.muted = false;
-        video.volume = 1.0;
-        unmutePending = false;
-        log('🔊 延迟取消静音完成', 'info');
+      // 尝试取消静音：仅在从未尝试过时执行一次
+      if (!video.paused && unmutePhase === 0 && video.muted) {
+        unmutePhase = 1;
+        video.muted = false; video.volume = 1.0;
+        // 800ms 后检测取消静音是否导致浏览器暂停
+        setTimeout(() => {
+          if (unmutePhase !== 1) return; // 已处理过
+          if (video.paused) {
+            // 浏览器因取消静音暂停了视频 → 放弃，保持静音
+            unmutePhase = 3;
+            video.muted = true; video.volume = 0;
+            video.play().catch(() => {});
+            log('⚠ 取消静音导致暂停，保持静音播放（反作弊通常数分钟才检测）', 'warn');
+          } else {
+            unmutePhase = 2;
+            log('🔊 取消静音成功', 'ok');
+          }
+        }, 800);
       }
       if (video.paused) {
         const prom = video.play();
         if (prom && prom.catch) {
-          prom.then(() => {
-            playFailCount = 0;
-            // 暂停后恢复播放成功 → 取消静音
-            if (unmutePending && video.muted) {
-              setTimeout(() => {
-                if (!video.ended && !stopped) {
-                  video.muted = false;
-                  video.volume = 1.0;
-                  unmutePending = false;
-                  log('🔊 恢复播放后取消静音', 'info');
-                }
-              }, 1500);
-            }
-          }).catch(() => { playFailCount++; });
+          prom.then(() => { playFailCount = 0; })
+              .catch(() => { playFailCount++; });
         }
-        // 失败 6 次（3秒）→ 临时静音重试播放（绕过浏览器策略）
+        // 失败 6 次（3秒）→ 静音重试（绕过浏览器 autoplay 策略）
         if (playFailCount === 6) {
           video.muted = true; video.volume = 0;
-          unmutePending = true;
+          // 如果之前取消静音成功了但现在又暂停了，不重置 unmutePhase（可能是用户手动暂停或别的原因）
           video.play().then(() => {
-            log('🔇 静音起播成功，即将取消静音', 'warn');
-            setTimeout(() => {
-              if (!video.ended && !stopped) {
-                video.muted = false; video.volume = 1.0;
-                unmutePending = false;
-                log('🔊 已取消静音', 'info');
-              }
-            }, 2000);
+            log('🔇 静音起播成功' + (unmutePhase >= 2 ? '（重新静音）' : ''), 'warn');
             playFailCount = 0;
           }).catch(() => {});
         }
@@ -528,14 +521,13 @@ let autoAnswerTimer = null;
 
     video.play().then(() => {
       log('▶ 视频自动起播成功', 'ok');
-      // 播放成功 → 延迟取消静音，避开浏览器自动播放策略
-      if (unmutePending && video.muted) {
+      // 延迟 1.5s 尝试取消静音（避开浏览器 autoplay 检测窗口）
+      // 但由 forceTimer 统一管理 unmutePhase，这里只标记待处理
+      if (unmutePhase === 0 && video.muted) {
         setTimeout(() => {
-          if (!video.ended && !stopped) {
-            video.muted = false;
-            video.volume = 1.0;
-            unmutePending = false;
-            log('🔊 已取消静音，反作弊检测通过', 'info');
+          if (!video.ended && !stopped && unmutePhase === 0) {
+            // 交给 forceTimer 的 unmutePhase 逻辑处理
+            log('🔊 准备取消静音...', 'info');
           }
         }, 1500);
       }
