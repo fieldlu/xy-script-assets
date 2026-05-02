@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.4.5
+// @version      1.4.6
 // @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传 — 始终自动运行/真人模拟/进度看门狗
 // @author       FieldLu
 // @license      MIT
@@ -2303,16 +2303,7 @@ let autoAnswerTimer = null;
         const unfilled = answerCache.filter(a => a.match && a.match.answer);
         if (unfilled.length === 0) { qlog('⚠️ 没有可填充的答案', 'warn'); return; }
 
-        // 优先使用 API 提交（POST /api/student/paper/saveData）
-        qlog(`✍ 正在通过API提交 ${unfilled.length} 道题目...`);
-        const apiCount = await submitAnswersAPI(unfilled);
-        if (apiCount > 0) {
-            qlog(`✍ API提交完成：${apiCount}/${unfilled.length} 题已填入页面。网络拦截器将在交卷后自动捕获正确答案并上传云端。`);
-            return;
-        }
-
-        // API 失败则回退 DOM 点击
-        qlog('API提交失败，回退到DOM点击填充...', 'warn');
+        // 仅填充到页面 DOM，不提交
         let filled = 0;
         for (const { pq, match, cleanContent } of unfilled) {
             const ok = fillAnswerToPage(pq, match);
@@ -2323,7 +2314,7 @@ let autoAnswerTimer = null;
                 qlog(`⚠️ [${pq.type || '?'}] 填充失败`, 'warn');
             }
         }
-        qlog(`✍ DOM填充完成：${filled}/${unfilled.length} 题`);
+        qlog(`✍ 填充完成：${filled}/${unfilled.length} 题已填入页面`);
     }
 
     async function aiDirectAnswer() {
@@ -2360,7 +2351,20 @@ let autoAnswerTimer = null;
         }
     }
 
-    function submitAnswers() {
+    async function submitAnswers() {
+        // Step 1: 如果有缓存的答案，先通过 API 提交
+        const unfilled = answerCache.filter(a => a.match && a.match.answer);
+        if (unfilled.length > 0) {
+            qlog(`📤 正在通过API提交 ${unfilled.length} 道题目...`);
+            const apiCount = await submitAnswersAPI(unfilled);
+            if (apiCount > 0) {
+                qlog(`📤 API提交完成：${apiCount}/${unfilled.length} 题`, 'ok');
+            } else {
+                qlog('⚠️ API提交失败，尝试直接点击提交按钮', 'warn');
+            }
+        }
+
+        // Step 2: 点击页面提交按钮
         const allBtns = document.querySelectorAll('button, a, span[class*="btn"], div[class*="btn"], input[type="button"], input[type="submit"]');
         const keywords = ['提交', '交卷', 'submit', '下一题', '下一节', '确认', '确定'];
         let submitBtn = null;
