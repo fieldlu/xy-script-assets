@@ -1,0 +1,2414 @@
+[
+  {
+    "type": "单选题",
+    "content": "1956年9月15日，中国共产党在北京召开了第（  ）次全国代表大会。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "七"
+      },
+      {
+        "alias": "B",
+        "text": "八"
+      },
+      {
+        "alias": "C",
+        "text": "九"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "2008年12月18日，纪念（）30周年大会在京隆重举行。胡锦涛总书记在会上发表重要讲话强调，实践充分证明，30年来，我们党团结带领人民开辟的道路、形成的理论和路线方针政策是完全正确的。1978年12月18日，也就是30年前的今天，我们党实现了新中国成立以来历史上具有深远意义的伟大转折，开启了我国（）历史新时期。（  ）",
+    "options": [
+      {
+        "alias": "A",
+        "text": "改革开放事业社会主义市场经济建设"
+      },
+      {
+        "alias": "B",
+        "text": "党的十一届三中全会召开中国特色社会主义改革开放"
+      },
+      {
+        "alias": "C",
+        "text": "真理标准讨论社会主义经济体制改革对外开放"
+      },
+      {
+        "alias": "D",
+        "text": "实现工作重心转移经济建设三步走思想解放"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "党章总纲强调，要全面提高党的建设（  ）水平。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "规范化"
+      },
+      {
+        "alias": "B",
+        "text": "科学化"
+      },
+      {
+        "alias": "C",
+        "text": "制度化"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "（  ）是中国革命史上具有划时代意义的事件，标志着新民主主义革命的伟大开端。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "辛亥革命"
+      },
+      {
+        "alias": "B",
+        "text": "中国共产党的建立"
+      },
+      {
+        "alias": "C",
+        "text": "五四运动"
+      },
+      {
+        "alias": "D",
+        "text": "第一次国共合作"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "民主集中制是（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "民主基础上的集中"
+      },
+      {
+        "alias": "B",
+        "text": "集中指导下的民主"
+      },
+      {
+        "alias": "C",
+        "text": "民主基础上的集中和集中指导下的民主相结合"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "现阶段我们党的统一战线是在中国共产党领导下由全体社会主义劳动者、社会主义事业的建设者、拥护社会主义的爱国者、拥护祖国统一和（  ）的爱国者组成的最广泛的爱国统一战线。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "维护领土完整"
+      },
+      {
+        "alias": "B",
+        "text": "致力于经济社会发展"
+      },
+      {
+        "alias": "C",
+        "text": "致力于中华民族伟大复兴"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "党的纪律处分有：警告、严重警告、（  ）、留党察看、开除党籍。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "撤销党内外一切职务"
+      },
+      {
+        "alias": "B",
+        "text": "撤销党内职务"
+      },
+      {
+        "alias": "C",
+        "text": "记过"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "在对违纪行为有关责任人员的区分上，（   ），是指在其职责范围内，对应管的工作或者参与决定的工作不履行或者不正确履行职责，对造成的损失或者后果负次要领导责任的党员领导干部。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "直接责任者"
+      },
+      {
+        "alias": "B",
+        "text": "主要领导责任者"
+      },
+      {
+        "alias": "C",
+        "text": "间接责任者"
+      },
+      {
+        "alias": "D",
+        "text": "重要领导责任者"
+      }
+    ],
+    "answer": "D",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "从现在到二〇二〇年，是全面建成小康社会（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "决胜期"
+      },
+      {
+        "alias": "B",
+        "text": "交汇期"
+      },
+      {
+        "alias": "C",
+        "text": "转折期"
+      },
+      {
+        "alias": "D",
+        "text": "机遇期"
+      }
+    ],
+    "answer": "A",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "______是两岸关系的政治基础。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "“九二共识”"
+      },
+      {
+        "alias": "B",
+        "text": "反对“台独”"
+      },
+      {
+        "alias": "C",
+        "text": "一个中国原则"
+      },
+      {
+        "alias": "D",
+        "text": "和平统一"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "为了反对党和红军中的教条主义思想，毛泽东在1930年5月写下一篇题为《调查工作》的文章，提出了“没有（  ），就没有发言权”的科学论断。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "了解"
+      },
+      {
+        "alias": "B",
+        "text": "调查"
+      },
+      {
+        "alias": "C",
+        "text": "分析"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "中国特色社会主义制度的最大优势，是（） 。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "马克思主义科学理论指导"
+      },
+      {
+        "alias": "B",
+        "text": "坚持改革开放"
+      },
+      {
+        "alias": "C",
+        "text": "中国共产党领导"
+      },
+      {
+        "alias": "D",
+        "text": "坚持全面从严治党"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "1927年12月1日，在张太雷、叶挺、周文雍、恽代英、杨殷、叶剑英、聂荣臻等人的领导下，发动了（  ），建立苏维埃政府。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "秋收起义"
+      },
+      {
+        "alias": "B",
+        "text": "南昌起义"
+      },
+      {
+        "alias": "C",
+        "text": "广州起义"
+      },
+      {
+        "alias": "D",
+        "text": "麻城起义"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "（  ）是我国人民民主专政的政权组织形式，是我国的根本政治制度。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "人民民主"
+      },
+      {
+        "alias": "B",
+        "text": "人民代表大会制度"
+      },
+      {
+        "alias": "C",
+        "text": "全民所有制"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "党的六大明确中国仍是一个半殖民地半封建的国家，现阶段的中国革命仍是（  ）性质的民主主义革命。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "资产阶级"
+      },
+      {
+        "alias": "B",
+        "text": "无产阶级"
+      },
+      {
+        "alias": "C",
+        "text": "资产阶级和无产阶级"
+      }
+    ],
+    "answer": "A",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "违反党章和其他党内法规的规定，采取弄虚作假或者其他手段把不符合党员条件的人发展为党员，或者为非党员出具党员身份证明的，对直接责任者和领导责任者，情节严重的，给予(   )处分。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "严重警告"
+      },
+      {
+        "alias": "B",
+        "text": "撤销党内职务"
+      },
+      {
+        "alias": "C",
+        "text": "留党察看"
+      },
+      {
+        "alias": "D",
+        "text": "开除党籍"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "在新世纪新时代，经济和社会发展的战略目标是，到（  ）时，全面建成小康社会；到新中国成立一百年时，全面建成社会主义现代化强国。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "21世纪中叶"
+      },
+      {
+        "alias": "B",
+        "text": "建党一百年"
+      },
+      {
+        "alias": "C",
+        "text": "2020年"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "某市审计局副局长刘某因严重违纪受到留党察看二年处分。一年内，有关部门又查清刘某违反廉洁纪律，依据《中国共产党纪律处分条例》，对刘某应当给予其（  ）处分。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "开除党籍处分"
+      },
+      {
+        "alias": "B",
+        "text": "延长一年察看期"
+      },
+      {
+        "alias": "C",
+        "text": "延长两年察看期"
+      },
+      {
+        "alias": "D",
+        "text": "撤销党内职务"
+      }
+    ],
+    "answer": "A",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "党员受到开除党籍处分，（  ）内不得重新入党。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "两年"
+      },
+      {
+        "alias": "B",
+        "text": "三年"
+      },
+      {
+        "alias": "C",
+        "text": "五年"
+      },
+      {
+        "alias": "D",
+        "text": "十年"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "对不明真相被裹挟参加，参与挑拨民族关系制造事端或者参加民族分裂活动的，经批评教育后确有悔改表现的，可以（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "警告或者严重警告处分"
+      },
+      {
+        "alias": "B",
+        "text": "撤销党内职务或者留党察看处分"
+      },
+      {
+        "alias": "C",
+        "text": "开除党籍处分"
+      },
+      {
+        "alias": "D",
+        "text": "免于处分或不予处分"
+      }
+    ],
+    "answer": "D",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "全党要更加自觉地增强____、____、____、____，既不走封闭僵化的老路，也不走改旗易帜的邪路，保持政治定力，坚持实干兴邦，始终坚持和发展中国特色社会主义。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "道路自信"
+      },
+      {
+        "alias": "B",
+        "text": "理论自信"
+      },
+      {
+        "alias": "C",
+        "text": "制度自信"
+      },
+      {
+        "alias": "D",
+        "text": "文化自信"
+      },
+      {
+        "alias": "E",
+        "text": "思想自信"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "十八大以来，我们党勇于进行理论探索和创新，以全新的视野深化对（）的认识，取得系列理论创新成果，集中体现为新时代中国特色社会主义思想。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "共产党执政规律"
+      },
+      {
+        "alias": "B",
+        "text": "共产主义建设规律"
+      },
+      {
+        "alias": "C",
+        "text": "社会主义建设规律"
+      },
+      {
+        "alias": "D",
+        "text": "人类社会发展规律"
+      }
+    ],
+    "answer": "ACD",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "党坚持 （  ） 的方针，建立健全惩治和预防腐败体系，坚持不懈地反对腐败，加强党风建设和廉政建设。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "标本兼治"
+      },
+      {
+        "alias": "B",
+        "text": "综合治理"
+      },
+      {
+        "alias": "C",
+        "text": "惩防并举"
+      },
+      {
+        "alias": "D",
+        "text": "注重预防"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "党的二十大报告指出，要加快建设农业强国，扎实推动产业、人才、（）振兴。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "文化"
+      },
+      {
+        "alias": "B",
+        "text": "生态"
+      },
+      {
+        "alias": "C",
+        "text": "环境"
+      },
+      {
+        "alias": "D",
+        "text": "组织"
+      }
+    ],
+    "answer": "ABD",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "倡导简约适度、绿色低碳的生活方式，反对奢侈浪费和不合理消费，开展创建节约型机关、_____、_____、_____、_____等行动。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "绿色家庭"
+      },
+      {
+        "alias": "B",
+        "text": "绿色学校"
+      },
+      {
+        "alias": "C",
+        "text": "绿色社区"
+      },
+      {
+        "alias": "D",
+        "text": "绿色城市"
+      },
+      {
+        "alias": "E",
+        "text": "绿色出行"
+      }
+    ],
+    "answer": "ABCE",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "面对突如其来的新冠肺炎疫情，我们坚持（） ，坚持外防输入、内防反弹，坚持动态清零不动摇。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "安全至上"
+      },
+      {
+        "alias": "B",
+        "text": "人民至上"
+      },
+      {
+        "alias": "C",
+        "text": "生命至上"
+      },
+      {
+        "alias": "D",
+        "text": "团结至上"
+      }
+    ],
+    "answer": "BC",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "对于（  ）行为，情节较重的，给予警告或者严重警告处分。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "违反个人有关事项报告规定，不报告、不如实报告的"
+      },
+      {
+        "alias": "B",
+        "text": "在组织进行谈话、函询时，不如实向组织说明问题的"
+      },
+      {
+        "alias": "C",
+        "text": "不如实填报个人档案资料的"
+      },
+      {
+        "alias": "D",
+        "text": "参加迷信活动，造成不良影响的"
+      }
+    ],
+    "answer": "ABC",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "对党员的纪律处分种类有（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "警告"
+      },
+      {
+        "alias": "B",
+        "text": "严重警告"
+      },
+      {
+        "alias": "C",
+        "text": "撤销党内职务"
+      },
+      {
+        "alias": "D",
+        "text": "留党察看以及开除党籍"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "违反有关规定取得外国国籍或者获取国（境）外永久居留资格、长期居留许可的，给予（  ）处分。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "严重警告"
+      },
+      {
+        "alias": "B",
+        "text": "撤销党内职务"
+      },
+      {
+        "alias": "C",
+        "text": "留党察看"
+      },
+      {
+        "alias": "D",
+        "text": "开除党籍"
+      }
+    ],
+    "answer": "BCD",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "对严重违犯党纪的党组织的纪律处理措施有（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "改组"
+      },
+      {
+        "alias": "B",
+        "text": "重组"
+      },
+      {
+        "alias": "C",
+        "text": "解散"
+      },
+      {
+        "alias": "D",
+        "text": "合并"
+      }
+    ],
+    "answer": "AC",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "党重视（  ）干部，特别是培养、选拔优秀年轻干部。积极推进干部制度改革。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "教育"
+      },
+      {
+        "alias": "B",
+        "text": "培训"
+      },
+      {
+        "alias": "C",
+        "text": "选拔"
+      },
+      {
+        "alias": "D",
+        "text": "考核和监督"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "组织、参加反对党的基本理论、基本路线、基本纲领、基本经验、基本要求或者重大方针政策的集会、游行、示威等活动的，或者以组织讲座、论坛、报告会、座谈会等方式，反对党的基本理论、基本路线、基本纲领、基本经验、基本要求或者重大方针政策，造成严重不良影响的，对（  ），给予开除党籍处分。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "策划者"
+      },
+      {
+        "alias": "B",
+        "text": "组织者"
+      },
+      {
+        "alias": "C",
+        "text": "骨干分子"
+      },
+      {
+        "alias": "D",
+        "text": "其他参加人员"
+      }
+    ],
+    "answer": "ABC",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "在选举产生党的各级代表大会的代表和委员会委员时，下列表述中，正确的是（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "只能采取差额选举的办法"
+      },
+      {
+        "alias": "B",
+        "text": "必须先采取差额选举办法进行预选，产生候选人名单，然后进行正式选举"
+      },
+      {
+        "alias": "C",
+        "text": "可以直接采用候选人数多于应选人数的差额选举办法进行正式选举"
+      },
+      {
+        "alias": "D",
+        "text": "可以先采用差额选举办法进行预选，产生候选人名单，然后进行正式选举"
+      }
+    ],
+    "answer": "CD",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "党员必须履行（  ）义务。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "认真学习马克思列宁主义、毛泽东思想、邓小平理论、“三个代表”重要思想和科学发展观，学习党的路线、方针、政策和决议，学习党的基本知识，学习科学、文化、法律和业务知识，努力提高为人民服务的本领"
+      },
+      {
+        "alias": "B",
+        "text": "贯彻执行党的基本路线和各项方针、政策，在生产、工作、学习和社会生活中起先锋模范作用"
+      },
+      {
+        "alias": "C",
+        "text": "坚持党和人民的利益高于一切，个人利益服从党和人民的利益，吃苦在前，享受在后，克己奉公，多做贡献"
+      },
+      {
+        "alias": "D",
+        "text": "自觉遵守党的纪律，模范遵守国家的法律法规，严格保守党和国家的秘密，执行党的决定，服从组织分配，积极完成党的任务"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "多选题",
+    "content": "全党全国各族人民要紧密团结在党中央周围，高举中国特色社会主义伟大旗帜，锐意进取，埋头苦干，为实现推进现代化建设、完成祖国统一、维护世界和平与促进共同发展三大历史任务，为___________继续奋斗！",
+    "options": [
+      {
+        "alias": "A",
+        "text": "决胜全面建成小康社会"
+      },
+      {
+        "alias": "B",
+        "text": "夺取新时代中国特色社会主义伟大胜利"
+      },
+      {
+        "alias": "C",
+        "text": "全面建成社会主义现代化强国"
+      },
+      {
+        "alias": "D",
+        "text": "实现中华民族伟大复兴的中国梦"
+      },
+      {
+        "alias": "E",
+        "text": "实现人民对美好生活的向往"
+      }
+    ],
+    "answer": "ABDE",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "入党申请人口头提出申请同样可以表明自己的入党愿望，因此，不必提交书面申请。",
+    "options": [],
+    "answer": "错误",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "只有为献身共产主义，为实现党的宗旨而要求入党，才是唯一正确的入党动机。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "代表中国先进生产力的发展要求，首先要坚持以经济建设为中心，始终把发展社会生产力作为根本任务。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "参政党的地位和参政权利受到宪法和法律的保护。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "党除了工人阶级和最广大人民群众的利益，没有自己特殊的利益。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "1956年社会主义三大改造基本完成",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "《论共产党员的修养》中指出，为了坚持这种马克思列宁主义的修养方法，我们必须坚决反对和彻底肃清旧社会在教育和学习中遗留给我们的最大祸害之一——理论和实际的脱离。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "马克思、恩格斯曾经指出：“作为确定的人、现实的人，你就有规定，就有使命，就有任务。”",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "取消预备党员资格是党纪处分",
+    "options": [],
+    "answer": "错误",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "判断题",
+    "content": "发展党员必须坚持入党自愿原则。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "1982年9月，邓小平在党的十二大开幕词中明确提出：“把马克思主义的普遍真理同我国的具体实际结合起来，走自己的道路，建设有____的社会主义”。",
+    "options": [],
+    "answer": "中国特色",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "中国特色"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "中国共产党第一次全国代表大会的中心议题是____。",
+    "options": [],
+    "answer": "正式建立中国共产党",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "正式建立中国共产党"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "《八一宣言》的全称是：____。",
+    "options": [],
+    "answer": "中国苏维埃政府、中国共产党中央为抗日救国告全体同胞书",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "中国苏维埃政府、中国共产党中央为抗日救国告全体同胞书"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "新时代的社会主要矛盾。党的十九大明确提出，中国特色社会主义进入新时代，我国社会主要矛盾已经转化为____和____之间的矛盾。这是关于中国发展全局和战略的新的重大判断。",
+    "options": [],
+    "answer": "人民日益增长的美好生活需要 ; 不平衡不充分的发展",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "人民日益增长的美好生活需要"
+      },
+      {
+        "id": 2,
+        "name": "BLANK2",
+        "value": "不平衡不充分的发展"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "1984年10月20日，党的十二届三中全会通过的《关于经济体制改革的决定》，标志着我国经济体制改革的重点____。",
+    "options": [],
+    "answer": "从农村转向城市",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "从农村转向城市"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "十九大党章增写了必须坚持以____为中心的发展思想。",
+    "options": [],
+    "answer": "人民",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "人民"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "1987年召开的党的十三大提出并系统论述了____理论。",
+    "options": [],
+    "answer": "社会主义初级阶段",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "社会主义初级阶段"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "“四史”是指____、____、____、____。",
+    "options": [],
+    "answer": "党史 ; 新中国史 ; 改革开放史 ; 社会主义发展史",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "党史"
+      },
+      {
+        "id": 2,
+        "name": "BLANK2",
+        "value": "新中国史"
+      },
+      {
+        "id": 3,
+        "name": "BLANK3",
+        "value": "改革开放史"
+      },
+      {
+        "id": 4,
+        "name": "BLANK4",
+        "value": "社会主义发展史"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "1997年9月12日至18日党的十五大在北京举行。江泽民作《高举邓小平理论伟大旗帜，把建设有中国特色社会主义事业全面推向二十一世纪》的报告。大会首次使用“____”概念，提出了社会主义初级阶段的基本纲领，规划了跨世纪发展的战略部署。",
+    "options": [],
+    "answer": "邓小平理论",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "邓小平理论"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "填空题",
+    "content": "党员的党龄从____之日算起。",
+    "options": [],
+    "answer": "预备期满转为正式党员",
+    "blanks": [
+      {
+        "id": 1,
+        "name": "BLANK1",
+        "value": "预备期满转为正式党员"
+      }
+    ],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "未知题型",
+    "content": "党的行动指南是什么？",
+    "options": [],
+    "answer": "<p>中国共产党以马克思列宁主义、毛泽东思想、邓小平理论、“三个代表” 重要思想、科学发展观、习近平新时代中国特色社会主义思想作为自己的行动指南</p>",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "未知题型",
+    "content": "党的群众路线是什么？",
+    "options": [],
+    "answer": "<p>一切为了群众，一切依靠群众，从群众中来，到群众中去，把党的正确主张变为群众的自觉行动</p>",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "未知题型",
+    "content": "2022年4月5日，习近平总书记在中国人民大学考察调研时指出，立足新时代新征程，中国青年的奋斗目标和前行方向归结到一点，就是坚定不移听党话、跟党走，努力成长为堪当民族复兴重任的时代新人。希望广大青年要？",
+    "options": [],
+    "answer": "<p>希望广大青年用脚步丈量祖国大地，用眼睛发现中国精神，用耳朵倾听人民呼声，用内心感应时代脉搏，把对祖国血浓于水、与人民同呼吸共命运的情感贯穿学业全过程、融汇在事业追求中</p>",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "未知题型",
+    "content": "新时代新征程中国共产党的使命任务是什么？",
+    "options": [],
+    "answer": "<p>从现在起，中国共产党的中心任务就是团结带领全国各族人民全面建成社会主义现代化强国、实现第二个百年奋斗目标，以中国式现代化全面推进中华民族伟大复兴</p>",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "未知题型",
+    "content": "党的建设必须坚决实现的五项基本要求是那些？",
+    "options": [],
+    "answer": "<p>坚持党的基本路线；坚持解放思想，实事求是，与时俱进，求真务实；坚持全心全意为人民服务；坚持民主集中制；坚持从严管党治党</p>",
+    "blanks": [],
+    "source": "import",
+    "verified": false
+  },
+  {
+    "type": "单选题",
+    "content": "党员郑某因不明真相被裹挟参加民族分裂游行活动，经批评教育后也确有悔改表现的。根据《中国共产党纪律处分条例》，对郑某给予（  ）处理。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "应当给予其党内警告处分"
+      },
+      {
+        "alias": "B",
+        "text": "可以免予处分或不予处分"
+      },
+      {
+        "alias": "C",
+        "text": "应当给予处分"
+      },
+      {
+        "alias": "D",
+        "text": "应当免于处分"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "党的基层组织是党的（  ）基础，应该成为贯彻“三个代表”重要思想的组织者推动者和实践者。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "全部组织和工作"
+      },
+      {
+        "alias": "B",
+        "text": "全部工作和战斗力"
+      },
+      {
+        "alias": "C",
+        "text": "战斗力和凝聚力"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "挑拨民族关系制造事端或者参加民族分裂活动的，对策划者、组织者和骨干分子，给予（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "警告或者严重警告处分"
+      },
+      {
+        "alias": "B",
+        "text": "严重警告或者撤销党内职务处分"
+      },
+      {
+        "alias": "C",
+        "text": "开除党籍处分"
+      },
+      {
+        "alias": "D",
+        "text": "批评"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "实现“两个一百年”奋斗目标、实现中华民族伟大复兴的中国梦，不断提高人民生活水平，必须坚定不移把_____作为党执政兴国的第一要务。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "创新"
+      },
+      {
+        "alias": "B",
+        "text": "改革"
+      },
+      {
+        "alias": "C",
+        "text": "发展"
+      },
+      {
+        "alias": "D",
+        "text": "开放"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "1985年5月15日至20日，中共中央、国务院在北京召开全国教育工作会议。会议讨论了《中共中央关于教育体制改革的决定（草案）》，研究了实行教育体制改革的步骤和措施，提出要有步骤地实行（  ）制义务教育。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "6年"
+      },
+      {
+        "alias": "B",
+        "text": "9年"
+      },
+      {
+        "alias": "C",
+        "text": "12年"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "党员因过失犯罪被判处三年以下（含三年）有期徒刑或者被判处管制、拘役的，一般应当（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "严重警告"
+      },
+      {
+        "alias": "B",
+        "text": "撤销党内职务"
+      },
+      {
+        "alias": "C",
+        "text": "留党察看"
+      },
+      {
+        "alias": "D",
+        "text": "开除党籍"
+      }
+    ],
+    "answer": "D",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "留党察看期限最长不得超过（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "半年"
+      },
+      {
+        "alias": "B",
+        "text": "一年"
+      },
+      {
+        "alias": "C",
+        "text": "两年"
+      },
+      {
+        "alias": "D",
+        "text": "三年"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "通过信息网络、广播、电视、报刊、书籍、讲座、论坛、报告会、座谈会等方式，公开发表违背四项基本原则，违背、歪曲党的改革开放决策，或者其他有严重政治问题的文章、演说、宣言、声明等，情节较轻的，给予（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "警告或者严重警告处分"
+      },
+      {
+        "alias": "B",
+        "text": "撤销党内职务或者留党察看处分"
+      },
+      {
+        "alias": "C",
+        "text": "开除党籍处分"
+      },
+      {
+        "alias": "D",
+        "text": "记过"
+      }
+    ],
+    "answer": "A",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "预备党员认真履行党员义务，具备党员条件的，应当按期转为正式党员；需要继续考察和教育的，可以延长预备期，但不能超过（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "半年"
+      },
+      {
+        "alias": "B",
+        "text": "一年"
+      },
+      {
+        "alias": "C",
+        "text": "一年半"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "民主集中制既是（  ），也是群众路线在党的生活中的运用。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "党的领导原则"
+      },
+      {
+        "alias": "B",
+        "text": "党的组织原则"
+      },
+      {
+        "alias": "C",
+        "text": "党的工作路线"
+      },
+      {
+        "alias": "D",
+        "text": "党的思想路线"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "必须认识到，我国社会主要矛盾的变化，没有改变我们对我国社会主义所处历史阶段的判断，我国仍处于并将长期处于____的基本国情没有变，我国是世界最大发展中国家的国际地位没有变。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "社会主义阶段"
+      },
+      {
+        "alias": "B",
+        "text": "社会主义初级阶段"
+      },
+      {
+        "alias": "C",
+        "text": "社会主义中级阶段"
+      },
+      {
+        "alias": "D",
+        "text": "社会主义高级阶段"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "1978年12月18日至22日，中共中央召开党的十一届三中全会。全会认为应当及时地、果断地把党和国家的工作中心转移到经济建设上来、实行（  ）的历史性决策。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "经济体制改革"
+      },
+      {
+        "alias": "B",
+        "text": "对外开放"
+      },
+      {
+        "alias": "C",
+        "text": "改革开放"
+      }
+    ],
+    "answer": "C",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "违反有关规定组织、参加用公款支付的宴请、高消费娱乐、健身活动，或者用公款购买赠送、发放礼品，对直接责任者和领导责任者，情节严重的，给予（  ）处分。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "严重警告"
+      },
+      {
+        "alias": "B",
+        "text": "撤销党内职务"
+      },
+      {
+        "alias": "C",
+        "text": "留党察看"
+      },
+      {
+        "alias": "D",
+        "text": "开除党籍"
+      }
+    ],
+    "answer": "D",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "必须按照中国特色社会主义事业“五位一体”总体布局和“四个全面”战略布局，统筹推进经济建设、政治建设、文化建设、社会建设、（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "制度建设"
+      },
+      {
+        "alias": "B",
+        "text": "生态文明建设"
+      },
+      {
+        "alias": "C",
+        "text": "作风建设"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "增强党自我净化能力，根本靠强化____和____。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "党的自我监督 舆论监督"
+      },
+      {
+        "alias": "B",
+        "text": "党的自我监督 群众监督"
+      },
+      {
+        "alias": "C",
+        "text": "党的自我监督 司法监督"
+      },
+      {
+        "alias": "D",
+        "text": "党的自我监督 民主监督"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "国家安全是安邦定国的重要基石，______是全国各族人民根本利益所在。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "加快经济发展"
+      },
+      {
+        "alias": "B",
+        "text": "维护国家统一"
+      },
+      {
+        "alias": "C",
+        "text": "促进国际合作"
+      },
+      {
+        "alias": "D",
+        "text": "维护国家安全"
+      }
+    ],
+    "answer": "D",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "2008年7月，胡锦涛在抗震救灾先进基层党组织和优秀共产党员代表座谈会上，高度概括了抗震救灾精神，即：万众一心、众志成城，不畏艰险、百折不挠，以人为本、（  ）的精神。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "尊重科学"
+      },
+      {
+        "alias": "B",
+        "text": "创新发展"
+      },
+      {
+        "alias": "C",
+        "text": "尊重创造"
+      }
+    ],
+    "answer": "A",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "单选题",
+    "content": "1939年10月，毛泽东发表《〈共产党人〉发刊词》，根据中国革命两次胜利和两次失败的经验教训，揭示了中国社会和中国革命的客观规律，科学地提出了中国共产党在中国革命中战胜敌人的三个主要法宝：统一战线、（  ）、党的建设。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "重视学习"
+      },
+      {
+        "alias": "B",
+        "text": "武装斗争"
+      },
+      {
+        "alias": "C",
+        "text": "团结群众"
+      }
+    ],
+    "answer": "B",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "党的纪律处分工作应当坚持以下（  ）原则。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "党要管党、从严治党"
+      },
+      {
+        "alias": "B",
+        "text": "党纪面前一律平等"
+      },
+      {
+        "alias": "C",
+        "text": "实事求是"
+      },
+      {
+        "alias": "D",
+        "text": "民主集中制和惩前毖后、治病救人"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "我们深入贯彻以人民为中心的发展思想，在幼有所育、学有所教、劳有所得、（）上持续用力，人民生活全方位改善。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "病有所医"
+      },
+      {
+        "alias": "B",
+        "text": "老有所养"
+      },
+      {
+        "alias": "C",
+        "text": "住有所居"
+      },
+      {
+        "alias": "D",
+        "text": "弱有所扶"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "在干部选拔任用工作中，违反干部选拔任用规定的，对直接责任者和领导责任者，情节较重的，给予（  ）处分。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "严重警告"
+      },
+      {
+        "alias": "B",
+        "text": "撤销党内职务"
+      },
+      {
+        "alias": "C",
+        "text": "留党察看"
+      },
+      {
+        "alias": "D",
+        "text": "开除党籍"
+      }
+    ],
+    "answer": "BC",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "下列哪几项行为应当给予党纪处分的（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "违反个人有关事项报告规定，不报告、不如实报告的"
+      },
+      {
+        "alias": "B",
+        "text": "在组织进行谈话、函询时，不如实向组织说明问题的"
+      },
+      {
+        "alias": "C",
+        "text": "不如实填报个人档案资料的"
+      },
+      {
+        "alias": "D",
+        "text": "隐瞒入党前严重错误的"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "领导十三亿多人的社会主义大国，我们党既要政治过硬，也要本领高强。要_______。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "增强学习本领，增强政治领导本领"
+      },
+      {
+        "alias": "B",
+        "text": "增强改革创新本领，增强科学发展本领"
+      },
+      {
+        "alias": "C",
+        "text": "增强依法执政本领，增强群众工作本领"
+      },
+      {
+        "alias": "D",
+        "text": "增强狠抓落实本领，增强驾驭风险本领"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "有下列情形之一的，可以从轻或减轻处分（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "主动交代本人应当受到党纪处分的问题的"
+      },
+      {
+        "alias": "B",
+        "text": "检举同案人或者其他人应当受到党纪处分或者法律追究的问题，经查证属实的"
+      },
+      {
+        "alias": "C",
+        "text": "主动挽回损失、消除不良影响或者有效阻止危害结果发生的"
+      },
+      {
+        "alias": "D",
+        "text": "主动上交违纪所得的"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "《中国共产党纪律处分条例》的任务包括（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "维护党的章程和其他党内法规"
+      },
+      {
+        "alias": "B",
+        "text": "严肃党的纪律，纯洁党的组织"
+      },
+      {
+        "alias": "C",
+        "text": "保证党的路线、方针、政策等的贯彻执行"
+      },
+      {
+        "alias": "D",
+        "text": "保障党员民主权利，教育党员遵纪守法，维护党的团结统一"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "新时代十年的伟大变革，在党史、（）中华民族发展史上具有里程碑意义。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "新中国史"
+      },
+      {
+        "alias": "B",
+        "text": "中国革命史"
+      },
+      {
+        "alias": "C",
+        "text": "改革开放史"
+      },
+      {
+        "alias": "D",
+        "text": "社会主义发展史"
+      }
+    ],
+    "answer": "ACD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "党组织不履行全面从严治党主体责任或者履行全面从严治党主体责任不力，造成严重损害或者严重不良影响的，对直接责任者和领导责任者，情节严重的，给予（  ）处分。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "严重警告"
+      },
+      {
+        "alias": "B",
+        "text": "撤销党内职务"
+      },
+      {
+        "alias": "C",
+        "text": "留党察看"
+      },
+      {
+        "alias": "D",
+        "text": "开除党籍"
+      }
+    ],
+    "answer": "BC",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "五年来，我们勇于面对党面临的重大风险考验和党内存在的突出问题，以顽强意志品质正风肃纪、反腐惩恶，消除了党和国家内部存在的严重隐患，党内政治生活气象更新，党内政治生态明显好转，党的_______显著增强。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "创造力"
+      },
+      {
+        "alias": "B",
+        "text": "创新力"
+      },
+      {
+        "alias": "C",
+        "text": "凝聚力"
+      },
+      {
+        "alias": "D",
+        "text": "战斗力"
+      }
+    ],
+    "answer": "ACD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "下列关于违纪行为有关责任人员的区分正确的有（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "直接责任者，是指在其职责范围内，不履行或者不正确履行自己的职责，对造成的损失或者后果起决定性作用的党员或者党员领导干部"
+      },
+      {
+        "alias": "B",
+        "text": "主要领导责任者，是指在其职责范围内，对直接主管的工作不履行或者不正确履行职责，对造成的损失或者后果负直接领导责任的党员领导干部"
+      },
+      {
+        "alias": "C",
+        "text": "重要领导责任者，是指在其职责范围内，对应管的工作或者参与决定的工作不履行或者不正确履行职责，对造成的损失或者后果负次要领导责任的党员领导干部"
+      },
+      {
+        "alias": "D",
+        "text": "本条例所称领导责任者，包括主要领导责任者和重要领导责任者"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "关于预备党员转正的说法正确的有____、____、____。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "只要预备党员的预备期满一年就可以转为正式党员"
+      },
+      {
+        "alias": "B",
+        "text": "预备党员在预备期间认真履行党员义务，具备党员条件的，应当按期转为正式党员"
+      },
+      {
+        "alias": "C",
+        "text": "预备党员转正必须经过支部大会讨论通过和上级党组织批准"
+      },
+      {
+        "alias": "D",
+        "text": "预备党员转正必须由本人提出转正申请"
+      }
+    ],
+    "answer": "BCD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "留党察看期间，受处分党员不享有下列哪些权利（  ）。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "表决权"
+      },
+      {
+        "alias": "B",
+        "text": "选举权"
+      },
+      {
+        "alias": "C",
+        "text": "被选举权"
+      },
+      {
+        "alias": "D",
+        "text": "申诉权"
+      }
+    ],
+    "answer": "ABC",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "中国特色社会主义事业总体布局是全面推进____、____、____、____、____。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "经济建设"
+      },
+      {
+        "alias": "B",
+        "text": "政治建设"
+      },
+      {
+        "alias": "C",
+        "text": "文化建设"
+      },
+      {
+        "alias": "D",
+        "text": "社会建设"
+      },
+      {
+        "alias": "E",
+        "text": "生态文明建设"
+      }
+    ],
+    "answer": "ABCDE",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "多选题",
+    "content": "巩固和发展爱国统一战线。坚持______，支持民主党派按照中国特色社会主义参政党要求更好履行职能。",
+    "options": [
+      {
+        "alias": "A",
+        "text": "长期共存"
+      },
+      {
+        "alias": "B",
+        "text": "互相监督"
+      },
+      {
+        "alias": "C",
+        "text": "肝胆相照"
+      },
+      {
+        "alias": "D",
+        "text": "荣辱与共"
+      }
+    ],
+    "answer": "ABCD",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "留党察看处分最长不超过两年，但可以延长一年。",
+    "options": [],
+    "answer": "错误",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "政党是一个历史范畴。在不同的国家，政党产生的背景、运作的环境、发挥的功能都有所不同；在相同国家的不同历史时期，也有不同的内涵和外延。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "党中央是我国最高权力机关，全国人大、国务院、全国政协都是党中央的执行机关。",
+    "options": [],
+    "answer": "错误",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "正确认识和处理眼前利益与长远利益的关系，坚定不移地推进经济体制改革。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "拥有马克思主义科学理论指导是我们党坚定信仰信念、把握历史主动的根本所在。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "民主党派代表了中国最广大人民的根本利益。",
+    "options": [],
+    "answer": "错误",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "代表中国先进生产力的发展要求，应履行实施科教兴国的重要职责。",
+    "options": [],
+    "answer": "正确",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "在全国第二次代表大会中共产国际代表马林也参加了大会",
+    "options": [],
+    "answer": "错误",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "中国共产党以议会制为根本组织制度和领导制度。",
+    "options": [],
+    "answer": "错误",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "判断题",
+    "content": "判断一个政党的性质是否先进，是不是工人阶级先锋队，主要应看它的阶级成分。",
+    "options": [],
+    "answer": "错误",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "新发展格局是什么？",
+    "options": [],
+    "answer": "<p>加快构建以国内大循环为主体、国内国际双循环相互促进的新发展格局</p>",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "“四个自信”是什么？",
+    "options": [],
+    "answer": "<p>中国特色社会主义道路自信、理论自信、制度自信、文化自信</p>",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "前进道路上，必须牢牢把握的五个重大原则是什么？",
+    "options": [],
+    "answer": "<p>坚持和加强党的全面领导；坚持中国特色社会主义道路；坚持以人民为中心的发展思想；坚持深化改革开放：坚持发扬斗争精神</p>",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、可以免予处分或不予处分",
+    "options": [],
+    "answer": "B、可以免予处分或不予处分",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、全部工作和战斗力",
+    "options": [],
+    "answer": "B、全部工作和战斗力",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "A、警告或者严重警告处分",
+    "options": [],
+    "answer": "A、警告或者严重警告处分",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、社会主义初级阶段",
+    "options": [],
+    "answer": "B、社会主义初级阶段",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "C、可以直接采用候选人数多于应选人数的差额选举办法进行正式选举；也可以先采用差额选举办法进行预选，产生候选人名单，然后进行正式选举。",
+    "options": [],
+    "answer": "C、可以直接采用候选人数多于应选人数的差额选举办法进行正式选举；也可以先采用差额选举办法进行预选，产生候选人名单，然后进行正式选举。",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、党的自我监督 群众监督",
+    "options": [],
+    "answer": "B、党的自我监督 群众监督",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "A、党要管党、从严治党",
+    "options": [],
+    "answer": "A、党要管党、从严治党",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、党纪面前一律平等",
+    "options": [],
+    "answer": "B、党纪面前一律平等",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "D、民主集中制和惩前毖后、治病救人",
+    "options": [],
+    "answer": "D、民主集中制和惩前毖后、治病救人",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "A、违反个人有关事项报告规定，不报告、不如实报告的",
+    "options": [],
+    "answer": "A、违反个人有关事项报告规定，不报告、不如实报告的",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、在组织进行谈话、函询时，不如实向组织说明问题的",
+    "options": [],
+    "answer": "B、在组织进行谈话、函询时，不如实向组织说明问题的",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "C、不如实填报个人档案资料的",
+    "options": [],
+    "answer": "C、不如实填报个人档案资料的",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "D、隐瞒入党前严重错误的",
+    "options": [],
+    "answer": "D、隐瞒入党前严重错误的",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "A、增强学习本领，增强政治领导本领",
+    "options": [],
+    "answer": "A、增强学习本领，增强政治领导本领",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、增强改革创新本领，增强科学发展本领",
+    "options": [],
+    "answer": "B、增强改革创新本领，增强科学发展本领",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "C、增强依法执政本领，增强群众工作本领",
+    "options": [],
+    "answer": "C、增强依法执政本领，增强群众工作本领",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "D、增强狠抓落实本领，增强驾驭风险本领",
+    "options": [],
+    "answer": "D、增强狠抓落实本领，增强驾驭风险本领",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "A、主动交代本人应当受到党纪处分的问题的",
+    "options": [],
+    "answer": "A、主动交代本人应当受到党纪处分的问题的",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、检举同案人或者其他人应当受到党纪处分或者法律追究的问题，经查证属实的",
+    "options": [],
+    "answer": "B、检举同案人或者其他人应当受到党纪处分或者法律追究的问题，经查证属实的",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "C、主动挽回损失、消除不良影响或者有效阻止危害结果发生的",
+    "options": [],
+    "answer": "C、主动挽回损失、消除不良影响或者有效阻止危害结果发生的",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "D、主动上交违纪所得的",
+    "options": [],
+    "answer": "D、主动上交违纪所得的",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "A、维护党的章程和其他党内法规",
+    "options": [],
+    "answer": "A、维护党的章程和其他党内法规",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、严肃党的纪律，纯洁党的组织",
+    "options": [],
+    "answer": "B、严肃党的纪律，纯洁党的组织",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "C、保证党的路线、方针、政策等的贯彻执行",
+    "options": [],
+    "answer": "C、保证党的路线、方针、政策等的贯彻执行",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "D、保障党员民主权利，教育党员遵纪守法，维护党的团结统一",
+    "options": [],
+    "answer": "D、保障党员民主权利，教育党员遵纪守法，维护党的团结统一",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "A、直接责任者，是指在其职责范围内，不履行或者不正确履行自己的职责，对造成的损失或者后果起决定性作用的党员或者党员领导干部",
+    "options": [],
+    "answer": "A、直接责任者，是指在其职责范围内，不履行或者不正确履行自己的职责，对造成的损失或者后果起决定性作用的党员或者党员领导干部",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、主要领导责任者，是指在其职责范围内，对直接主管的工作不履行或者不正确履行职责，对造成的损失或者后果负直接领导责任的党员领导干部",
+    "options": [],
+    "answer": "B、主要领导责任者，是指在其职责范围内，对直接主管的工作不履行或者不正确履行职责，对造成的损失或者后果负直接领导责任的党员领导干部",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "C、重要领导责任者，是指在其职责范围内，对应管的工作或者参与决定的工作不履行或者不正确履行职责，对造成的损失或者后果负次要领导责任的党员领导干部",
+    "options": [],
+    "answer": "C、重要领导责任者，是指在其职责范围内，对应管的工作或者参与决定的工作不履行或者不正确履行职责，对造成的损失或者后果负次要领导责任的党员领导干部",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "D、本条例所称领导责任者，包括主要领导责任者和重要领导责任者",
+    "options": [],
+    "answer": "D、本条例所称领导责任者，包括主要领导责任者和重要领导责任者",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  },
+  {
+    "type": "未知题型",
+    "content": "B、预备党员在预备期间认真履行党员义务，具备党员条件的，应当按期转为正式党员",
+    "options": [],
+    "answer": "B、预备党员在预备期间认真履行党员义务，具备党员条件的，应当按期转为正式党员",
+    "blanks": [],
+    "source": "platform",
+    "verified": true
+  }
+]
