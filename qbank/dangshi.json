@@ -1,0 +1,35 @@
+[
+  {
+    "type": "单选题",
+    "content": "中国共产党第一次全国代表大会召开的时间是：",
+    "options": [
+      {"alias": "A", "text": "1921年7月1日"},
+      {"alias": "B", "text": "1921年7月23日"},
+      {"alias": "C", "text": "1922年7月1日"},
+      {"alias": "D", "text": "1922年7月23日"}
+    ],
+    "answer": "B"
+  },
+  {
+    "type": "单选题",
+    "content": "中国共产党的根本宗旨是：",
+    "options": [
+      {"alias": "A", "text": "实现共产主义"},
+      {"alias": "B", "text": "全心全意为人民服务"},
+      {"alias": "C", "text": "坚持改革开放"},
+      {"alias": "D", "text": "发展社会主义市场经济"}
+    ],
+    "answer": "B"
+  },
+  {
+    "type": "单选题",
+    "content": "中国特色社会主义最本质的特征是：",
+    "options": [
+      {"alias": "A", "text": "人民当家作主"},
+      {"alias": "B", "text": "中国共产党领导"},
+      {"alias": "C", "text": "全面依法治国"},
+      {"alias": "D", "text": "社会主义市场经济"}
+    ],
+    "answer": "B"
+  }
+]
