@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.4.4
+// @version      1.4.5
 // @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传 — 始终自动运行/真人模拟/进度看门狗
 // @author       FieldLu
 // @license      MIT
@@ -1632,19 +1632,35 @@ let autoAnswerTimer = null;
 
     async function mergeAndPushQbank(questions) {
         try {
+            // 先拉取云端现有内容，合并后再推送（避免覆盖他人贡献）
+            let existingQuestions = [];
             let sha = null;
             const cr = await gmFetch(`${CLOUD.apiBase}/qbank.json?access_token=${CLOUD.giteeToken}&t=${Date.now()}`);
             if (cr.ok) {
                 const info = await cr.json();
                 if (info && typeof info === 'object' && !Array.isArray(info) && info.sha) {
                     sha = info.sha;
+                    // 解码云端现有内容
+                    try {
+                        const rawContent = atob(info.content || '');
+                        const parsed = JSON.parse(rawContent);
+                        if (Array.isArray(parsed)) existingQuestions = parsed;
+                    } catch(e) {}
                 }
             }
-            const body = { access_token: CLOUD.giteeToken, content: toBase64(JSON.stringify(questions, null, 2)), message: `自动合并题库：${questions.length} 题`, branch: 'master' };
+            // 三向合并：云端现有 + 新题，按 content 去重
+            const merged = [...existingQuestions, ...questions];
+            const seen = new Set();
+            const unique = merged.filter(q => {
+                const k = (q.content || '').replace(/\s+/g, '').substring(0, 40);
+                if (seen.has(k)) return false;
+                seen.add(k); return true;
+            });
+            const body = { access_token: CLOUD.giteeToken, content: toBase64(JSON.stringify(unique, null, 2)), message: `自动合并题库：${unique.length} 题`, branch: 'master' };
             if (sha) body.sha = sha;
             const method = sha ? 'PUT' : 'POST';
             const ur = await gmFetch(`${CLOUD.apiBase}/qbank.json`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-            if (ur.ok || ur.status === 201) qlog(`☁️ qbank.json 已同步`, 'ok');
+            if (ur.ok || ur.status === 201) qlog(`☁️ qbank.json 已同步 (${existingQuestions.length}+${questions.length}→${unique.length})`, 'ok');
         } catch(e) {}
     }
 
@@ -1705,37 +1721,44 @@ let autoAnswerTimer = null;
         }));
         if (!CLOUD.giteeToken) { if (!silent) qlog('⚠️ 未配置 Gitee Token'); return false; }
 
-        // 构建最终内容（新题 + 本地全库合并去重）
-        const allLocal = getDB().filter(q => q.source !== 'ai');
-        const merged = [...allLocal, ...cleanQuestions];
-        const seen = new Set();
-        const unique = merged.filter(q => {
-            const k = (q.content || '').replace(/\s+/g, '').substring(0, 30);
-            if (seen.has(k)) return false;
-            seen.add(k); return true;
-        });
-        const jsonStr = JSON.stringify(unique, null, 2);
-
-        // 先 GET 确认文件是否存在，获取 sha
+        // 先 GET 云端文件内容和 sha
         const getUrl = `${CLOUD.apiBase}/qbank.json?access_token=${CLOUD.giteeToken}&t=${Date.now()}`;
         const cr = await gmFetch(getUrl);
         if (!silent) qlog(`[Gitee GET] 状态=${cr.status}`, cr.ok ? 'ok' : 'warn');
 
         let sha = null;
+        let cloudQuestions = [];
         if (cr.ok) {
             const info = await cr.json();
-            // Gitee 对不存在的文件可能返回 []，需要排除
             if (info && typeof info === 'object' && !Array.isArray(info) && info.sha) {
                 sha = info.sha;
-                if (!silent) qlog(`[Gitee] 文件已存在 sha=${sha.substring(0, 8)}...`, 'ok');
+                // 解码云端现有内容，确保不会覆盖他人贡献
+                try {
+                    const rawContent = atob(info.content || '');
+                    const parsed = JSON.parse(rawContent);
+                    if (Array.isArray(parsed)) cloudQuestions = parsed;
+                } catch(e) {}
+                if (!silent) qlog(`[Gitee] 云端已有 ${cloudQuestions.length} 题 sha=${sha.substring(0, 8)}...`, 'ok');
             } else {
                 if (!silent) qlog('[Gitee] 文件不存在，将创建新文件');
             }
+        } else if (cr.status === 404) {
+            // 文件不存在，sha 保持 null
         } else if (cr.status === 0) {
             if (!silent) qlog('⚠️ Gitee API 网络不通，检查 @connect 或网络', 'warn');
             return false;
         }
-        // 404 = 文件不存在，sha 保持 null
+
+        // 三向合并去重：云端现有 + 本地已验证 + 本次新增
+        const allLocal = getDB().filter(q => q.source !== 'ai');
+        const merged = [...cloudQuestions, ...allLocal, ...cleanQuestions];
+        const seen = new Set();
+        const unique = merged.filter(q => {
+            const k = (q.content || '').replace(/\s+/g, '').substring(0, 40);
+            if (seen.has(k)) return false;
+            seen.add(k); return true;
+        });
+        const jsonStr = JSON.stringify(unique, null, 2);
 
         const body = {
             access_token: CLOUD.giteeToken,
@@ -1754,7 +1777,7 @@ let autoAnswerTimer = null;
         if (!silent) qlog(`[Gitee ${method}] 状态=${ur.status}`, (ur.ok || ur.status === 201) ? 'ok' : 'warn');
 
         if (ur.ok || ur.status === 201) {
-            if (!silent) qlog(`☁️ 上传成功！云端共 ${unique.length} 题`, 'ok');
+            if (!silent) qlog(`☁️ 上传成功！云端共 ${unique.length} 题 (云端${cloudQuestions.length}+本地${allLocal.length}+新增${cleanQuestions.length}→${unique.length})`, 'ok');
             cloudBank = null; return true;
         }
         const errText = await ur.text().catch(() => '');
