@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.4.1
+// @version      1.4.2
 // @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传 — 始终自动运行/真人模拟/进度看门狗
 // @author       FieldLu
 // @license      MIT
@@ -418,10 +418,11 @@ let autoAnswerTimer = null;
     hacked.add(video);
 
     // 不静音！国内党校平台反作弊会检测 muted=true 并停止计时
-    // 如需静音请在浏览器标签页上右键→"将此网站静音"
-    video.muted = false;
-    video.volume = 1.0;
+    // 但浏览器会拦截无用户手势的非静音播放 → 先静音起播，再取消静音
+    video.muted = true;
+    video.volume = 0;
     video.playbackRate = 1.0;
+    let unmutePending = true; // 等待取消静音
 
     // 智能计算跳播时长：处理 API 返回秒/分钟单位不一致
     let seekTo = finishedDuration;
@@ -456,39 +457,59 @@ let autoAnswerTimer = null;
 
     let lastMilestone = 0;
     let playFailCount = 0;
-    let playFailStart = 0;
     const forceTimer = setInterval(() => {
       if (video.ended) { clearInterval(forceTimer); return; }
       if (!seekDone) doSeek(); // 定时重试跳播
+      // 如果播放中且还在静音状态，尝试取消静音
+      if (!video.paused && unmutePending && video.muted) {
+        video.muted = false;
+        video.volume = 1.0;
+        unmutePending = false;
+        log('🔊 延迟取消静音完成', 'info');
+      }
       if (video.paused) {
-        // 浏览器可能拦截无用户手势的 play()，累计失败则换策略
-        if (playFailCount === 0) playFailStart = Date.now();
         const prom = video.play();
         if (prom && prom.catch) {
-          prom.then(() => { playFailCount = 0; playFailStart = 0; })
-              .catch(() => { playFailCount++; });
+          prom.then(() => {
+            playFailCount = 0;
+            // 暂停后恢复播放成功 → 取消静音
+            if (unmutePending && video.muted) {
+              setTimeout(() => {
+                if (!video.ended && !stopped) {
+                  video.muted = false;
+                  video.volume = 1.0;
+                  unmutePending = false;
+                  log('🔊 恢复播放后取消静音', 'info');
+                }
+              }, 1500);
+            }
+          }).catch(() => { playFailCount++; });
         }
-        // 连续失败 10 次（5秒）→ 模拟点击视频再试
-        if (playFailCount > 10 && playFailCount % 5 === 0) {
-          const r = video.getBoundingClientRect();
-          const cx = r.left + r.width / 2;
-          const cy = r.top + r.height / 2;
-          ['mousedown','mouseup','click'].forEach(t => {
-            video.dispatchEvent(new MouseEvent(t, { clientX: cx, clientY: cy, bubbles: true, cancelable: true, view: window, button: 0 }));
-          });
-          video.play().then(() => { playFailCount = 0; }).catch(() => {});
-          log('🔁 模拟点击唤醒视频(' + playFailCount + '次失败)', 'warn');
+        // 失败 6 次（3秒）→ 临时静音重试播放（绕过浏览器策略）
+        if (playFailCount === 6) {
+          video.muted = true; video.volume = 0;
+          unmutePending = true;
+          video.play().then(() => {
+            log('🔇 静音起播成功，即将取消静音', 'warn');
+            setTimeout(() => {
+              if (!video.ended && !stopped) {
+                video.muted = false; video.volume = 1.0;
+                unmutePending = false;
+                log('🔊 已取消静音', 'info');
+              }
+            }, 2000);
+            playFailCount = 0;
+          }).catch(() => {});
         }
-        // 连续失败 30 次（15秒）→ 强刷
-        if (playFailCount > 30) {
-          log('❌ 视频无法自动播放，强制刷新恢复', 'err');
+        // 失败 20 次（10秒）→ 强刷
+        if (playFailCount > 20) {
+          log('❌ 视频无法自动播放(' + playFailCount + '次失败)，强制刷新恢复', 'err');
           clearInterval(forceTimer);
           setTimeout(() => { saveStateForReload(); location.reload(); }, 500);
           return;
         }
       } else {
         playFailCount = 0;
-        playFailStart = 0;
         // 看门狗：视频在播放但 currentTime 变了才算有进展
         if (Math.abs(video.currentTime - watchdogLastCurrentTime) > 0.2) {
           watchdogLastCurrentTime = video.currentTime;
@@ -505,7 +526,22 @@ let autoAnswerTimer = null;
       updateVidProgress();
     }, 500);
 
-    video.play().catch(() => { });
+    video.play().then(() => {
+      log('▶ 视频自动起播成功', 'ok');
+      // 播放成功 → 延迟取消静音，避开浏览器自动播放策略
+      if (unmutePending && video.muted) {
+        setTimeout(() => {
+          if (!video.ended && !stopped) {
+            video.muted = false;
+            video.volume = 1.0;
+            unmutePending = false;
+            log('🔊 已取消静音，反作弊检测通过', 'info');
+          }
+        }, 1500);
+      }
+    }).catch(() => {
+      log('⚠ 视频自动播放被浏览器拦截，等待用户交互...', 'warn');
+    });
 
     video.addEventListener('play', () => { log('▶ 视频开始播放', 'info'); });
     video.addEventListener('pause', () => { log('⏸ 视频暂停', 'warn'); });
@@ -759,6 +795,9 @@ let autoAnswerTimer = null;
     navigating = true;
     currentCourse = courseList.shift();
     const name = currentCourse.courseName || currentCourse.name;
+    const remaining = courseList.length;
+    const done = (stats.completed|0) + (stats.scriptDone|0);
+    log('📚 第' + (done + 1) + '门: ' + name + ' | 剩余' + remaining + '门', 'ok');
     setStatus('进入课程', name);
     setState('play');
     updateCourseProgress();
@@ -808,6 +847,7 @@ let autoAnswerTimer = null;
 
   // ==================== 课程循环 ====================
   function startCourseLoop() {
+    log('🔄 课程循环已启动', 'ok');
     stats.startTime = Date.now();
     navigating = false;
     videoEndedHandled = false;
@@ -1200,11 +1240,14 @@ let autoAnswerTimer = null;
   let lastUrl = location.href;
   let urlWatcher = setInterval(() => {
     if (location.href !== lastUrl) {
+      const prevUrl = lastUrl;
       lastUrl = location.href;
+      log('📍 页面切换: ' + (isCoursePage() ? '课程页' : isDetailPage() ? '详情页' : '其他'), 'info');
       if (!stopped) {
         startHumanSimulator(); // 始终保活真人模拟
         if (isCoursePage()) {
           navigating = false;
+          log('📖 进入课程页面，等待视频加载...', 'info');
           // 从 loadState 恢复的数据渲染课程状态（不调 API，避免覆盖 scriptDone）
           renderCourseList();
           updateCourseProgress();
@@ -1217,6 +1260,7 @@ let autoAnswerTimer = null;
           }, 1000);
         } else if (isDetailPage()) {
           navigating = false;
+          log('📋 进入详情页，自动开始扫描...', 'info');
           scanRetryCount = 0;
           setTimeout(() => { if (!stopped && isDetailPage()) scanAndStart(); }, 1500);
         }
@@ -1233,6 +1277,7 @@ let autoAnswerTimer = null;
   let videoObserver = null;
 
   function init() {
+    log('🚀 脚本初始化 · 版本' + SCRIPT_VERSION + ' · ' + (isCoursePage() ? '课程页' : isDetailPage() ? '详情页' : '其他页面'), 'ok');
     createPanel();
     installProgressMonitor();
 
