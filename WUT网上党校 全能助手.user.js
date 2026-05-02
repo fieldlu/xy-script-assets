@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.4.0
+// @version      1.4.1
 // @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传 — 始终自动运行/真人模拟/进度看门狗
 // @author       FieldLu
 // @license      MIT
@@ -455,12 +455,40 @@ let autoAnswerTimer = null;
     if (video.readyState >= 2 && video.duration) doSeek();
 
     let lastMilestone = 0;
+    let playFailCount = 0;
+    let playFailStart = 0;
     const forceTimer = setInterval(() => {
       if (video.ended) { clearInterval(forceTimer); return; }
       if (!seekDone) doSeek(); // 定时重试跳播
       if (video.paused) {
-        video.play().catch(() => { });
+        // 浏览器可能拦截无用户手势的 play()，累计失败则换策略
+        if (playFailCount === 0) playFailStart = Date.now();
+        const prom = video.play();
+        if (prom && prom.catch) {
+          prom.then(() => { playFailCount = 0; playFailStart = 0; })
+              .catch(() => { playFailCount++; });
+        }
+        // 连续失败 10 次（5秒）→ 模拟点击视频再试
+        if (playFailCount > 10 && playFailCount % 5 === 0) {
+          const r = video.getBoundingClientRect();
+          const cx = r.left + r.width / 2;
+          const cy = r.top + r.height / 2;
+          ['mousedown','mouseup','click'].forEach(t => {
+            video.dispatchEvent(new MouseEvent(t, { clientX: cx, clientY: cy, bubbles: true, cancelable: true, view: window, button: 0 }));
+          });
+          video.play().then(() => { playFailCount = 0; }).catch(() => {});
+          log('🔁 模拟点击唤醒视频(' + playFailCount + '次失败)', 'warn');
+        }
+        // 连续失败 30 次（15秒）→ 强刷
+        if (playFailCount > 30) {
+          log('❌ 视频无法自动播放，强制刷新恢复', 'err');
+          clearInterval(forceTimer);
+          setTimeout(() => { saveStateForReload(); location.reload(); }, 500);
+          return;
+        }
       } else {
+        playFailCount = 0;
+        playFailStart = 0;
         // 看门狗：视频在播放但 currentTime 变了才算有进展
         if (Math.abs(video.currentTime - watchdogLastCurrentTime) > 0.2) {
           watchdogLastCurrentTime = video.currentTime;
@@ -633,17 +661,26 @@ let autoAnswerTimer = null;
     } catch(e) {}
   }
 
+  let scanRetryCount = 0;
   async function scanAndStart() {
     xmId = getXmId();
     if (!xmId) {
+      // 可能页面尚未渲染完毕，等待重试
+      scanRetryCount++;
+      if (scanRetryCount <= 5) {
+        log('等待页面渲染...(' + scanRetryCount + '/5)', 'info');
+        setTimeout(() => { if (!stopped && isDetailPage()) scanAndStart(); }, 1000);
+        return;
+      }
+      scanRetryCount = 0;
       setStatus('请先进入培训班详情页', '路径: 我的培训 → 选择培训班 → 点击进入');
       setState('err');
       log('未检测到培训班ID，请进入培训班详情页', 'err');
       log('当前页面: ' + location.href, 'warn');
-      log('正确地址示例: /#/myTrain/detail?id=培训班ID', 'warn');
       showXmIdInput();
       return;
     }
+    scanRetryCount = 0;
 
     setStatus('正在获取课程列表...', '请稍候');
     setState('scan');
@@ -1180,6 +1217,7 @@ let autoAnswerTimer = null;
           }, 1000);
         } else if (isDetailPage()) {
           navigating = false;
+          scanRetryCount = 0;
           setTimeout(() => { if (!stopped && isDetailPage()) scanAndStart(); }, 1500);
         }
       }
@@ -1278,9 +1316,18 @@ let autoAnswerTimer = null;
         log('检测到未完成任务，自动恢复...', 'ok');
         setTimeout(() => { if (isDetailPage()) scanAndStart(); }, 1000);
       } else {
-        // 始终自动开始，无需用户操作
+        // 始终自动开始，延迟确保 SPA 渲染完成
         log('自动开始学习...', 'ok');
-        setTimeout(() => { if (isDetailPage()) scanAndStart(); }, 800);
+        const tryStart = (delay, max) => {
+          setTimeout(() => {
+            if (!isDetailPage() || stopped) return;
+            xmId = getXmId();
+            if (xmId) { scanAndStart(); return; }
+            if (delay < max) tryStart(delay * 2, max);
+            else log('等待超时，页面可能未正确加载', 'warn');
+          }, delay);
+        };
+        tryStart(1000, 8000);
       }
     } else {
       setStatus('请进入培训班', '点击左侧「我的培训」→ 选择培训班');
