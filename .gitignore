@@ -1,21 +1,46 @@
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Node
-node_modules/
-
-# Temp
+# 桌面杂物
+*.pdf
+*.docx
+*.doc
+*.pptx
+*.ppt
+*.xlsx
+*.xls
+*.zip
+*.rar
+*.exe
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.ico
+*.ics
+*.py
+*.html
+*.xml
+*.json
+*.ini
+*.cfg
+*.lnk
+*.url
 *.tmp
-temp-*
-debug-*
-verify-*
-analyze-*
+*.temp
+desktop.ini
+~$*
+*.lnk
+
+# 目录
+教材/
+班会/
+理论宣讲/
+智能仿生材料/
+李林880/
+虚拟/
+liaotian/
 ex-girlfriend/
-whut-刷课.user.js
+temp/
+.accelerate/
+
+# 杂项
+合并上传云端题库.js
