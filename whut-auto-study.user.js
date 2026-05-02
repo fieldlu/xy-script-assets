@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/party-member-treasury
-// @version      1.2.0
-// @description  全自动学习+云端题库+AI答题：视频断点续播/智能跳课、云端查答案/自动答题/贡献答案/全网采集/DeepSeek AI答题
+// @version      1.3.0
+// @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传
 // @author       FieldLu
 // @license      MIT
 // @match        *://wsdx.whut.edu.cn/*
