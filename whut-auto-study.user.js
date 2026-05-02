@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/party-member-treasury
-// @version      1.1.1
+// @version      1.1.2
 // @description  全自动学习+云端题库：视频断点续播/智能跳课、云端查答案/自动答题/贡献答案/全网采集
 // @author       FieldLu
 // @license      MIT
@@ -244,7 +244,7 @@ let autoAnswerTimer = null;
       + '#__whut_panel .course-bar-inner{height:100%;background:linear-gradient(90deg,#cba6f7,#f5c2e7);border-radius:2px;transition:width .5s;width:0%}'
       // course list
       + '#__whut_panel .clist-label{font-size:10px;color:#585b70;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}'
-      + '#__whut_panel .clist{font-size:10px;color:#a6adc8;max-height:420px;overflow-y:auto;line-height:1.7;white-space:pre-wrap;background:#11111b;border-radius:6px;padding:6px 8px}'
+      + '#__whut_panel .clist{font-size:10px;color:#a6adc8;max-height:180px;overflow-y:auto;line-height:1.7;white-space:pre-wrap;background:#11111b;border-radius:6px;padding:6px 8px}'
       + '#__whut_panel .clist .done{color:#a6e3a1}'
       + '#__whut_panel .clist .half{color:#f9e2af}'
       + '#__whut_panel .clist .todo{color:#a6adc8}'
