@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.4.3
+// @version      1.4.4
 // @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传 — 始终自动运行/真人模拟/进度看门狗
 // @author       FieldLu
 // @license      MIT
@@ -903,13 +903,13 @@ let autoAnswerTimer = null;
       if (!v || v.ended || v.duration <= 0) return;
       // 视频播放了至少1分钟才算
       if (v.currentTime < 60) return;
-      // 如果2分钟内服务端进度没有任何更新
+      // 如果70秒内服务端进度没有任何更新
       const timeSinceUpdate = Date.now() - lastProgressUpdateTime;
-      if (timeSinceUpdate > 120000) {
+      if (timeSinceUpdate > 70000) {
         progressStuckCount++;
         const curPct = lastProgressPct >= 0 ? lastProgressPct.toFixed(1) + '%' : '未知';
         if (progressStuckCount === 1) {
-          log('⚠ 进度卡死: 服务端' + curPct + '，视频已到' + fmtTime(v.currentTime) + '，2分钟未更新，尝试强制上报...', 'warn');
+          log('⚠ 进度卡死: 服务端' + curPct + '，视频已到' + fmtTime(v.currentTime) + '，70秒未更新，强制上报...', 'warn');
           forceProgressSave();
         } else if (progressStuckCount === 2) {
           log('⚠ 进度仍卡死，再次强制上报 + 暂停重播...', 'warn');
@@ -926,10 +926,11 @@ let autoAnswerTimer = null;
     }
   }
 
-  // 强制调用进度保存 API
+  // 强制调用进度保存 API（双保险：save + getCourse 同步）
   function forceProgressSave() {
     if (!currentCourse || !xmId) return;
     const body = 'id=' + encodeURIComponent(currentCourse.resourceId) + '&flag=1&xmId=' + encodeURIComponent(xmId);
+    // 方案1: 直接调用进度保存接口
     fetch('/api/student/study/progress/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
@@ -941,6 +942,24 @@ let autoAnswerTimer = null;
         else log('⚠ 强制上报异常: ' + t.substring(0, 80), 'warn');
       } catch(e) { log('⚠ 强制上报解析失败', 'warn'); }
     }).catch(e => log('❌ 强制上报网络错误: ' + e.message, 'err'));
+    // 方案2: 同步调用 getCourse 获取服务端最新进度
+    fetch('/api/student/recommendCourse/getById?id=' + encodeURIComponent(currentCourse.resourceId) + '&xmId=' + encodeURIComponent(xmId))
+      .then(r => r.json()).then(j => {
+        if (j.code === 0 && j.data) {
+          const fd = j.data.finishDruation != null ? j.data.finishDruation
+            : (j.data.finishedDuration != null ? j.data.finishedDuration : 0);
+          const svrPct = j.data.progress != null ? parseFloat(j.data.progress) : 0;
+          if (fd > 0 || svrPct > 0) {
+            log('📡 服务端同步: 已看' + fmtTime(fd * 60) + ', 进度' + (svrPct * 100).toFixed(1) + '%', 'info');
+            // 如果服务端进度比本地记录新，同步更新
+            if (svrPct > 0 && svrPct * 100 > lastProgressPct) {
+              lastProgressPct = svrPct * 100;
+              lastProgressUpdateTime = Date.now();
+              progressStuckCount = 0;
+            }
+          }
+        }
+      }).catch(() => {});
   }
 
   // ==================== 真人模拟（增强版） ====================
@@ -1336,6 +1355,23 @@ let autoAnswerTimer = null;
         setStatus('后台运行中', currentCourse ? (currentCourse.courseName || currentCourse.name) : '');
         setState('play');
         startCourseLoop();
+      } else {
+        // xmId 缺失时延迟重试（页面可能尚未渲染完毕）
+        log('课程页 xmId 缺失，1.5s后重试...', 'warn');
+        setTimeout(() => {
+          if (!stopped && isCoursePage()) {
+            xmId = getXmId() || GM_getValue('whut_xmId', '');
+            if (xmId) {
+              log('xmId 重试成功，自动接管', 'ok');
+              fetchCourseStats();
+              setStatus('后台运行中', currentCourse ? (currentCourse.courseName || currentCourse.name) : '');
+              setState('play');
+              startCourseLoop();
+            } else {
+              log('课程页 xmId 重试失败，等待URL变化触发', 'warn');
+            }
+          }
+        }, 1500);
       }
     } else if (isDetailPage()) {
       xmId = getXmId() || xmId;
