@@ -1,12 +1,51 @@
-# WUT 网上党校 学习助手
+# WUT 网上党校 全能助手
 
-油猴脚本，用于辅助在线课程学习。
+武汉理工大学网上党校 (wsdx.whut.edu.cn) 全自动学习 + 云端题库 + AI 答题 油猴脚本。
+
+## 功能
+
+### 刷课区
+- **全自动学习** — 视频断点续播、智能跳课、看门狗防卡死、断网/断电后自动恢复
+- **智能进度扫描** — 自动跳过已完成课程，只处理 WLXX 模式未完成项
+- **视频劫持** — 自动静音、1x 速度、跳播已看部分
+
+### 题库区
+- **云端题库** — Gitee 托管 ()，自动合并上传、逐题比对查答案
+- **三级级联搜索** — 本地题库 → 云端批量 → AI 兜底
+- **多 Provider AI** — 支持 8 家主流大模型：
+  - DeepSeek / Kimi / ChatGPT / Claude / Gemini / 智谱GLM / 通义千问 / 自定义(OpenAI兼容)
+  - 兼容 OpenAI / Anthropic / Google 三种 API 格式
+- **强制自动捕获** — 交卷后网络拦截器自动提取正确答案并上传云端（不可关闭）
+- **网络拦截双引擎** — XHR + Fetch 拦截，自动抓取页面题目入库
+- **三步答题流程** — 获取答案 → 填充 → 提交
 
 ## 安装
 
-1. 安装 [Tampermonkey](https://www.tampermonkey.net/)
-2. 打开脚本原始链接自动安装，或手动粘贴
+1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
+2. 点击下方链接安装脚本：
+   - [WUT网上党校全能助手.user.js](https://gitee.com/fieldlu/whut-auto-study-dangxiao/raw/master/whut-auto-study.user.js)
+3. 进入 wsdx.whut.edu.cn 即可使用
 
-## 免责声明
+## 使用方法
 
-仅供学习交流使用。
+1. 进入「我的培训」→ 选择培训班 → 点击「全自动学习」
+2. 在考试/练习页面：使用左侧题库面板 → 获取答案 → 填充 → 提交
+3. 提交后自动捕获正确答案入库，形成良性循环
+
+## 项目文件
+
+| 文件 | 说明 |
+|------|------|
+|  | 主脚本（Tampermonkey 安装） |
+|  | 独立题库合并上传工具（控制台运行） |
+
+## AI 密钥说明
+
+- **密钥仅保存在本地浏览器**，不会泄露
+- 支持 8 个 AI Provider，每位用户独立设置自己的密钥
+- 密钥可单向上传到 Gitee 做记录（绝不从 Gitee 加载回脚本）
+
+## 相关仓库
+
+- 题库数据：[party-member-treasury](https://gitee.com/fieldlu/party-member-treasury) (qbank/)
+- AI 配置：[ai-config.json](https://gitee.com/fieldlu/party-member-treasury/raw/master/qbank/ai-config.json)
