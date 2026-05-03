@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.4.8
+// @version      1.4.9
 // @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传 — 始终自动运行/真人模拟/进度看门狗
 // @author       FieldLu
 // @license      MIT
@@ -32,8 +32,8 @@
 
 // ==================== 云端题库配置 ====================
 const CLOUD = {
-    rawBase: 'https://gitee.com/api/v5/repos/fieldlu/whut-auto-study-dangxiao/contents/qbank',
-    apiBase: 'https://gitee.com/api/v5/repos/fieldlu/whut-auto-study-dangxiao/contents/qbank',
+    rawBase: 'https://gitee.com/api/v5/repos/fieldlu/party-member-treasury/contents/qbank',
+    apiBase: 'https://gitee.com/api/v5/repos/fieldlu/party-member-treasury/contents/qbank',
     workerBase: 'https://whut-qbank-worker.tianye0126.workers.dev',
     giteeToken: (() => {
         const stored = GM_getValue('whut_gitee_token', '');
