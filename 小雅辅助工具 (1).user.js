@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.2.0
+// @version      3.3.0
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、智能排课优化、成就系统
 // @author       Gemini
 // @license      MIT
@@ -3336,11 +3336,12 @@
         if (!document.body) { requestAnimationFrame(createUI); return; }
 
         const wrapper = document.createElement('div'); wrapper.id = 'xy-super-console';
-        let pos = { x: window.innerWidth - 460, y: 50 }; 
+        let pos = { x: window.innerWidth - 400, y: 50 };
+        const savedWidth = GM_getValue('xy_panel_width', 360);
         try { const p = JSON.parse(GM_getValue('xy_ui_pos')); if(p && typeof p.x === 'number') pos = p; } catch(e){}
         
         wrapper.style.cssText = `
-            position: fixed; left: ${pos.x}px; top: ${pos.y}px; width: 420px; max-height: 94vh;
+            position: fixed; left: ${pos.x}px; top: ${pos.y}px; width: ${savedWidth}px; max-height: 94vh;
             background: rgba(15, 23, 42, 0.92); border-radius: 16px;
             border: 1px solid rgba(71, 85, 105, 0.4); box-shadow: 0 0 0 1px rgba(71, 85, 105, 0.15), 0 20px 60px rgba(0,0,0,0.5), 0 0 80px rgba(99, 102, 241, 0.06);
             z-index: 2147483640; backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2);
@@ -3451,6 +3452,8 @@
                 .xy-mini-btn { background: rgba(51,65,85,0.4); color: var(--xy-text2); border-radius: 7px; padding: 7px 11px; font-size: 12px; font-weight: 600; border: 1px solid var(--xy-border); cursor:pointer; transition: all 0.2s; }
                 .xy-mini-btn:hover { background: rgba(71,85,105,0.5); color: var(--xy-text); border-color: rgba(129,140,248,0.3); transform: translateY(-1px); }
                 .xy-stat-box { display: flex; justify-content: space-between; align-items: center; background: linear-gradient(145deg, rgba(52,211,153,0.08), rgba(16,185,129,0.04)); border: 1px solid rgba(52,211,153,0.18); padding: 14px 18px; border-radius: 12px; }
+                .xy-section-hdr { transition: all 0.2s; }
+                .xy-section-hdr:hover { color: var(--xy-text) !important; }
                 .xy-input-box { width: 100%; border: 1px solid var(--xy-border); border-radius: 8px; padding: 9px 13px; font-size: 13px; text-align: center; outline: none; background: rgba(15,23,42,0.6); color: var(--xy-text); transition: all 0.2s; }
                 .xy-input-box::placeholder { color: var(--xy-text-muted); }
                 .xy-input-box:focus { border-color: var(--xy-accent); box-shadow: 0 0 0 3px rgba(99,102,241,0.15); background: rgba(15,23,42,0.8); }
@@ -3468,9 +3471,10 @@
                          小雅辅助工具
                          <span class="xy-badge xy-badge-success">v${SCRIPT_VERSION}</span>
                     </div>
-                    <div style="display:flex; align-items:center; gap:4px;">
+                    <div style="display:flex; align-items:center; gap:2px;">
+                        <div id="xy-width-toggle" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 5px; border-radius: 6px; font-size: 13px; transition: 0.2s; font-weight:700;" title="切换面板宽度" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}';" onmouseout="this.style.background='transparent';">↔</div>
                         <div id="xy-theme-toggle" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 6px; border-radius: 6px; font-size: 14px; transition: 0.2s;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}';" onmouseout="this.style.background='transparent';">🌙</div>
-                        <div id="xy-minimize" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 8px; border-radius: 6px; font-size: 14px; transition: 0.2s;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}'; this.style.color='${T('#e2e8f0','#0f172a')}';" onmouseout="this.style.background='transparent'; this.style.color='${T('#64748b','#94a3b8')}';">─</div>
+                        <div id="xy-minimize" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 7px; border-radius: 6px; font-size: 14px; transition: 0.2s; font-weight:700;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}'; this.style.color='${T('#e2e8f0','#0f172a')}';" onmouseout="this.style.background='transparent'; this.style.color='${T('#64748b','#94a3b8')}';">⊟</div>
                     </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
@@ -3480,7 +3484,7 @@
                 </div>
             </div>
 
-            <div id="xy-main-body" style="padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; flex: 1; gap: 4px;">
+            <div id="xy-main-body" style="padding: 10px 12px; overflow-y: auto; display: flex; flex-direction: column; flex: 1; gap: 6px;">
 
                 <div class="xy-panel" style="padding: 0; overflow: hidden; border-color: ${T('rgba(129,140,248,0.15)','#c7d2fe')};">
                     <div id="xy-bc-toggle" style="background: ${T('rgba(99,102,241,0.06)','#eef2ff')}; padding: 10px 16px; font-size: 12px; font-weight: 600; color: ${T('#a5b4fc','#3730a3')}; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
@@ -3525,54 +3529,68 @@
                     </div>
 
                     <div style="margin-bottom: 10px;">
-                        <div style="font-size:11px; font-weight:600; color:${T('#64748b','#94a3b8')}; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.8px;">核心功能</div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-                            <button class="xy-action-btn" id="xy-btn-dashboard" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')};">🌍 雷达</button>
-                            <button class="xy-action-btn" id="xy-btn-schedule" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')}; border-color:${T('rgba(251,191,36,0.25)','#fde68a')}; color:${T('#fcd34d','#92400e')};">📅 调度</button>
+                        <div class="xy-section-hdr" id="xy-hdr-actions" style="font-size:11px; font-weight:600; color:${T('#64748b','#94a3b8')}; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.8px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none;">
+                            <span>核心功能</span><span id="xy-arr-actions" style="font-size:10px; transition:transform 0.25s;">▼</span>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                            <button class="xy-action-btn" id="xy-btn-download-zone" style="background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; border-color:${T('rgba(52,211,153,0.2)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">📥 下载</button>
-                            <button class="xy-action-btn" id="xy-btn-quick-kill" style="background:${T('rgba(239,68,68,0.12)','#fef2f2')}; border-color:${T('rgba(239,68,68,0.25)','#fecaca')}; color:${T('#f87171','#dc2626')}; font-weight:700;">⚡ 极速秒交</button>
+                        <div id="xy-body-actions">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                                <button class="xy-action-btn" id="xy-btn-dashboard" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')};">🌍 雷达</button>
+                                <button class="xy-action-btn" id="xy-btn-schedule" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')}; border-color:${T('rgba(251,191,36,0.25)','#fde68a')}; color:${T('#fcd34d','#92400e')};">📅 调度</button>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                <button class="xy-action-btn" id="xy-btn-download-zone" style="background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; border-color:${T('rgba(52,211,153,0.2)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">📥 下载</button>
+                                <button class="xy-action-btn" id="xy-btn-quick-kill" style="background:${T('rgba(239,68,68,0.12)','#fef2f2')}; border-color:${T('rgba(239,68,68,0.25)','#fecaca')}; color:${T('#f87171','#dc2626')}; font-weight:700;">⚡ 秒交</button>
+                            </div>
                         </div>
                     </div>
-                    <div class="xy-panel" style="padding:12px 14px; margin-bottom:10px;">
-                        <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
-                            <span style="font-size:13px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🛡️ 防休眠</span>
+                    <div class="xy-panel" style="padding:10px 14px; margin-bottom:10px;">
+                        <div class="xy-section-hdr" id="xy-hdr-toggles" style="font-size:12px; font-weight:600; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
+                            <span>⚙️ 开关控制</span><span id="xy-arr-toggles" style="font-size:10px; transition:transform 0.25s;">▼</span>
+                        </div>
+                        <div id="xy-body-toggles" style="margin-top: 10px;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
+                                <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🛡️ 防休眠</span>
                             <button id="xy-btn-guard" style="font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.guardActive ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.guardActive ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${appState.guardActive ? 'ON' : 'OFF'}</button>
                         </div>
-                        <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
-                            <span style="font-size:13px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔇 强制静音</span>
-                            <button id="xy-btn-quick-mute" style="font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${appState.hardwareMute ? 'ON' : 'OFF'}</button>
+                        <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
+                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔇 强制静音</span>
+                            <button id="xy-btn-quick-mute" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${appState.hardwareMute ? 'ON' : 'OFF'}</button>
                         </div>
-                        <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
-                            <span style="font-size:13px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🖱️ 鼠标模拟</span>
-                            <button id="xy-btn-mouse-sim" style="font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.mouseSimActive ? T('rgba(236,72,153,0.2)','#fce7f3') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.mouseSimActive ? T('#f9a8d4','#be185d') : T('#94a3b8','#64748b')};">${appState.mouseSimActive ? 'ON' : 'OFF'}</button>
+                        <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
+                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🖱️ 鼠标模拟</span>
+                            <button id="xy-btn-mouse-sim" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.mouseSimActive ? T('rgba(236,72,153,0.2)','#fce7f3') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.mouseSimActive ? T('#f9a8d4','#be185d') : T('#94a3b8','#64748b')};">${appState.mouseSimActive ? 'ON' : 'OFF'}</button>
                         </div>
-                        <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
-                            <span style="font-size:13px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🕵️ 深度伪装</span>
-                            <button id="xy-btn-deep-camo" style="font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.deepCamouflage ? T('rgba(168,85,247,0.2)','#f3e8ff') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.deepCamouflage ? T('#c4b5fd','#7c3aed') : T('#94a3b8','#64748b')};">${appState.deepCamouflage ? 'ON' : 'OFF'}</button>
+                        <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
+                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🕵️ 深度伪装</span>
+                            <button id="xy-btn-deep-camo" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.deepCamouflage ? T('rgba(168,85,247,0.2)','#f3e8ff') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.deepCamouflage ? T('#c4b5fd','#7c3aed') : T('#94a3b8','#64748b')};">${appState.deepCamouflage ? 'ON' : 'OFF'}</button>
                         </div>
-                        <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0;">
-                            <span style="font-size:13px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔄 页面重载</span>
-                            <button id="btn-manual-refresh" style="font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; cursor:pointer; border:1px solid ${T('rgba(129,140,248,0.25)','#c7d2fe')}; transition:0.2s; background:${T('rgba(99,102,241,0.12)','#eef2ff')}; color:${T('#a5b4fc','#4338ca')};">⚡ 刷新</button>
+                        <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0;">
+                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔄 页面重载</span>
+                            <button id="btn-manual-refresh" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:1px solid ${T('rgba(129,140,248,0.25)','#c7d2fe')}; transition:0.2s; background:${T('rgba(99,102,241,0.12)','#eef2ff')}; color:${T('#a5b4fc','#4338ca')};">⚡ 刷新</button>
+                        </div>
                         </div>
                     </div>
 
-                    <div class="xy-panel" style="padding: 14px;">
-                        <div style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                    <div class="xy-panel" style="padding: 12px;">
+                        <div class="xy-section-hdr" id="xy-hdr-engine" style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
                             <span>智能双引擎中枢</span>
-                            <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="toggle-ai-mode" ${appState.aiMode ? 'checked' : ''} style="width:13px; height:13px; accent-color:#818cf8; cursor:pointer;"> 自动运行</label>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label style="font-size:10px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;" onclick="event.stopPropagation()"><input type="checkbox" id="toggle-ai-mode" ${appState.aiMode ? 'checked' : ''} style="width:12px; height:12px; accent-color:#818cf8; cursor:pointer;"> 自动</label>
+                                <span id="xy-arr-engine" style="font-size:10px; transition:transform 0.25s;">▼</span>
+                            </div>
                         </div>
-                        <div style="display:flex; gap:8px;">
-                            <div id="xy-engine-video" style="flex:1; padding:12px; background:${T('rgba(52,211,153,0.05)','#f0fdf4')}; border:1px solid ${T('rgba(52,211,153,0.15)','#bbf7d0')}; border-radius:8px; transition: opacity 0.3s;">
-                                <div style="font-size:12px; font-weight:600; color:${T('#6ee7b7','#059669')}; margin-bottom:8px;">📺 视频 <span id="xy-video-status" style="font-weight:400; font-size:11px; color:${T('#94a3b8','#64748b')};">待命</span></div>
-                                <label style="font-size:11px; color:${T('#34d399','#059669')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="toggle-video-submit" ${appState.videoAutoSubmit ? 'checked' : ''} style="width:13px; height:13px; accent-color:#34d399; cursor:pointer;"> 播完跳课</label>
+                        <div id="xy-body-engine" style="margin-top: 10px;">
+                            <div style="display:flex; gap:8px;">
+                            <div id="xy-engine-video" style="flex:1; padding:10px; background:${T('rgba(52,211,153,0.05)','#f0fdf4')}; border:1px solid ${T('rgba(52,211,153,0.15)','#bbf7d0')}; border-radius:8px; transition: opacity 0.3s;">
+                                <div style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; margin-bottom:6px;">📺 视频 <span id="xy-video-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
+                                <label style="font-size:10px; color:${T('#34d399','#059669')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-video-submit" ${appState.videoAutoSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#34d399; cursor:pointer;"> 播完跳课</label>
                             </div>
-                            <div id="xy-engine-doc" style="flex:1; padding:12px; background:${T('rgba(168,85,247,0.05)','#faf5ff')}; border:1px solid ${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:8px; transition: opacity 0.3s;">
-                                <div style="font-size:12px; font-weight:600; color:${T('#c4b5fd','#7c3aed')}; margin-bottom:6px;">📄 文档 <span id="xy-doc-status" style="font-weight:400; font-size:11px; color:${T('#94a3b8','#64748b')};">待命</span></div>
-                                <div style="width:100%; height:4px; background:${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:2px; margin-bottom:8px; overflow:hidden;"><div id="xy-doc-progress" style="width:0%; height:100%; background:linear-gradient(90deg, #a855f7, #818cf8); transition:width 0.5s ease-out; border-radius:2px;"></div></div>
-                                <label style="font-size:11px; color:${T('#a78bfa','#7c3aed')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="toggle-doc-batch" ${appState.docBatchSubmit ? 'checked' : ''} style="width:13px; height:13px; accent-color:#a855f7; cursor:pointer;"> 达标连交</label>
+                            <div id="xy-engine-doc" style="flex:1; padding:10px; background:${T('rgba(168,85,247,0.05)','#faf5ff')}; border:1px solid ${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:8px; transition: opacity 0.3s;">
+                                <div style="font-size:11px; font-weight:600; color:${T('#c4b5fd','#7c3aed')}; margin-bottom:4px;">📄 文档 <span id="xy-doc-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
+                                <div style="width:100%; height:4px; background:${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:2px; margin-bottom:6px; overflow:hidden;"><div id="xy-doc-progress" style="width:0%; height:100%; background:linear-gradient(90deg, #a855f7, #818cf8); transition:width 0.5s ease-out; border-radius:2px;"></div></div>
+                                <label style="font-size:10px; color:${T('#a78bfa','#7c3aed')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-doc-batch" ${appState.docBatchSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#a855f7; cursor:pointer;"> 达标连交</label>
                             </div>
+                        </div>
                         </div>
                     </div>
                 </div>
@@ -3926,7 +3944,28 @@
         }
 
         const handle = document.getElementById('xy-drag-handle'), minBtn = document.getElementById('xy-minimize'), body = document.getElementById('xy-main-body');
-        let isMin = false; minBtn.onclick = () => { isMin = !isMin; body.style.display = isMin ? 'none' : 'flex'; minBtn.innerText = isMin ? '➕' : '➖'; };
+        let isMin = false; minBtn.onclick = () => { isMin = !isMin; body.style.display = isMin ? 'none' : 'flex'; minBtn.innerText = isMin ? '⊞' : '⊟'; };
+
+        // ── 宽度切换：360 → 300 → 420 循环 ──
+        const widthBtn = document.getElementById('xy-width-toggle');
+        const widths = [360, 300, 420];
+        let widthIdx = widths.indexOf(savedWidth);
+        if (widthIdx === -1) widthIdx = 0;
+        const applyWidth = () => { wrapper.style.width = widths[widthIdx] + 'px'; GM_setValue('xy_panel_width', widths[widthIdx]); };
+        widthBtn.onclick = () => { widthIdx = (widthIdx + 1) % widths.length; applyWidth(); showToast(widths[widthIdx] === 300 ? '📐 紧凑模式' : widths[widthIdx] === 420 ? '📐 宽屏模式' : '📐 标准模式', 'info'); };
+
+        // ── 折叠面板通用绑定 ──
+        const bindSection = (hdrId, bodyId, arrId) => {
+            const hdr = document.getElementById(hdrId), bd = document.getElementById(bodyId), arr = document.getElementById(arrId);
+            if (!hdr || !bd) return;
+            hdr.onclick = () => {
+                if (bd.style.display === 'none') { bd.style.display = ''; arr.style.transform = 'rotate(0deg)'; }
+                else { bd.style.display = 'none'; arr.style.transform = 'rotate(-90deg)'; }
+            };
+        };
+        bindSection('xy-hdr-actions', 'xy-body-actions', 'xy-arr-actions');
+        bindSection('xy-hdr-toggles', 'xy-body-toggles', 'xy-arr-toggles');
+        bindSection('xy-hdr-engine', 'xy-body-engine', 'xy-arr-engine');
 
         const themeBtn = document.getElementById('xy-theme-toggle');
         if (themeBtn) themeBtn.onclick = () => {
