@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WUT网上党校 全能助手
 // @namespace    https://gitee.com/fieldlu/whut-auto-study-dangxiao
-// @version      1.4.9
+// @version      1.5.0
 // @description  全自动学习+云端题库+多Provider AI答题(DeepSeek/Kimi/ChatGPT/Claude/Gemini/智谱/千问)：视频断点续播/智能跳课、云端查答案/自动答题/强制捕获上传 — 始终自动运行/真人模拟/进度看门狗
 // @author       FieldLu
 // @license      MIT
@@ -1577,7 +1577,7 @@ let autoAnswerTimer = null;
         });
     }
 
-    // 通过 API 获取文件内容（绕过 raw URL 的内容审查拦截）
+    // 通过 Gitee API 获取文件内容（base64 编码，绕过 raw URL 审查）
     async function fetchGiteeFile(path) {
         const token = CLOUD.giteeToken || '';
         const url = `${CLOUD.rawBase}/${path}?access_token=${token}&t=${Date.now()}`;
@@ -1585,17 +1585,13 @@ let autoAnswerTimer = null;
         if (!res.ok) return null;
         const info = await res.json().catch(() => null);
         if (!info || !info.content) return null;
-        try {
-            const decoded = atob(info.content);
-            return JSON.parse(decoded);
-        } catch(e) { return null; }
+        try { return JSON.parse(atob(info.content)); } catch(e) { return null; }
     }
 
-    // 加载云端全量题库：优先合并文件 → 回退逐课加载
+    // 加载云端全量题库
     async function loadCloudBank(forceRefresh = false) {
         if (cloudBank && !forceRefresh) return cloudBank;
 
-        // 尝试通过 API 加载已合并的 qbank.json
         const qbankData = await fetchGiteeFile('qbank.json');
         if (Array.isArray(qbankData) && qbankData.length > 0) {
             cloudBank = qbankData;
@@ -1604,16 +1600,11 @@ let autoAnswerTimer = null;
             return cloudBank;
         }
 
-        // 回退：逐课加载（通过 API 读 index.json + 逐课程文件）
         const index = await fetchGiteeFile('index.json');
         const courses = (index && index.courses) ? index.courses : [];
-        if (!courses.length) {
-            qlog('⚠️ 云端题库暂不可用', 'err');
-            updateCloudUI(0);
-            return [];
-        }
+        if (!courses.length) { qlog('⚠️ 云端题库暂不可用', 'err'); updateCloudUI(0); return []; }
 
-        qlog(`☁️ 通过API加载 ${courses.length} 门课程...`);
+        qlog(`☁️ 加载 ${courses.length} 门课程...`);
         const results = await Promise.all(courses.map(async (c) => {
             const data = await fetchGiteeFile(encodeURIComponent(c) + '.json');
             return Array.isArray(data) ? data : [];
@@ -1630,11 +1621,7 @@ let autoAnswerTimer = null;
         }
         qlog(`☁️ 云端题库已加载：${cloudBank.length} 题`, 'ok');
         updateCloudUI(cloudBank.length);
-
-        // 异步合并推送
-        if (CLOUD.giteeToken && cloudBank.length > 0) {
-            setTimeout(() => mergeAndPushQbank(cloudBank), 100);
-        }
+        if (CLOUD.giteeToken && cloudBank.length > 0) setTimeout(() => mergeAndPushQbank(cloudBank), 100);
         return cloudBank;
     }
 
@@ -1997,13 +1984,10 @@ let autoAnswerTimer = null;
     async function loadAIProviders() {
         if (CLOUD.aiProviders) return CLOUD.aiProviders;
         try {
-            const res = await gmFetch(`${CLOUD.rawBase}/ai-config.json?t=${Date.now()}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data && Array.isArray(data.providers) && data.providers.length > 0) {
-                    CLOUD.aiProviders = data.providers;
-                    return data.providers;
-                }
+            const data = await fetchGiteeFile('ai-config.json');
+            if (data && Array.isArray(data.providers) && data.providers.length > 0) {
+                CLOUD.aiProviders = data.providers;
+                return data.providers;
             }
         } catch(e) {}
         CLOUD.aiProviders = BUILTIN_AI_PROVIDERS;
