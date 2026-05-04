@@ -1,4 +1,4 @@
-# 桌面杂物
+# 桌面杂物 — 文档/压缩包/可执行文件
 *.pdf
 *.docx
 *.doc
@@ -19,7 +19,6 @@
 *.py
 *.html
 *.xml
-*.json
 *.ini
 *.cfg
 *.lnk
@@ -28,7 +27,6 @@
 *.temp
 desktop.ini
 ~$*
-*.lnk
 
 # 目录
 教材/
@@ -41,6 +39,11 @@ liaotian/
 ex-girlfriend/
 temp/
 .accelerate/
+专家意见_unpacked/
+虚拟机/
+论文_unpacked/
 
-# 杂项
-合并上传云端题库.js
+# 临时/无关文件
+新建文本文档.txt
+学习时长模拟模块.js
+qbank_temp/
