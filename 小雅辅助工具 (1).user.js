@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.3.0
-// @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、智能排课优化、成就系统
+// @version      3.4.0
+// @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入、成就系统
 // @author       Gemini
 // @license      MIT
 // @match        https://*.ai-augmented.com/*
@@ -133,6 +133,12 @@
         deepCamouflage: GM_getValue('xy_deep_camo', true),
         camoScrollActive: false,
         camoKeyboardActive: false,
+        // 🆕 后台保活 + 时长注入
+        keepaliveEnabled: GM_getValue('xy_keepalive', true),
+        keepaliveWatchdog: null,
+        injectActive: false,
+        injectTotal: 0,
+        injectCompleted: 0,
         camoClickActive: false
     };
 
@@ -1543,6 +1549,133 @@
     }
 
     // ==========================================
+    // 💓 后台保活引擎：防止浏览器节流导致心跳中断
+    // ==========================================
+    let keepaliveWatchdogTimer = null;
+    let keepaliveLastBeatTime = 0;
+
+    function startKeepaliveWatchdog() {
+        if (keepaliveWatchdogTimer) return;
+        keepaliveLastBeatTime = Date.now();
+        keepaliveWatchdogTimer = setInterval(() => {
+            if (!appState.keepaliveEnabled || appState.activeZone !== 'course') return;
+            // 看门狗：距离上次心跳超过 75s（2.5 个周期），强制补发
+            const gap = Date.now() - keepaliveLastBeatTime;
+            if (gap > 75000) {
+                logMsg('💓 [保活] 检测到心跳缺口 ' + Math.round(gap / 1000) + 's，强制补发', 'warning', true);
+                sendRecordRequest().then(() => { keepaliveLastBeatTime = Date.now(); });
+            }
+            // 如果心跳定时器丢失（被GC/节流回收），重新拉起
+            if (!recordIntervalTimer && appState.recordActive) {
+                logMsg('💓 [保活] 心跳定时器丢失，自动重建', 'warning', true);
+                recordIntervalTimer = setInterval(sendRecordRequest, 30000);
+            }
+        }, 10000);
+        logMsg('💓 后台保活看门狗已启动（10s巡检）', 'silent', true);
+    }
+
+    function stopKeepaliveWatchdog() {
+        if (keepaliveWatchdogTimer) { clearInterval(keepaliveWatchdogTimer); keepaliveWatchdogTimer = null; }
+    }
+
+    // 劫持 sendRecordRequest 成功后更新时间戳（用于看门狗判断）
+    const _origSendRecordRequest = sendRecordRequest;
+    sendRecordRequest = async function() {
+        const result = await _origSendRecordRequest();
+        if (result === undefined) keepaliveLastBeatTime = Date.now(); // 原函数无返回值，成功后内部直接 return
+        return result;
+    };
+    // 更精确的拦截：监听 recordCount 变化
+    let _watchRecordCount = appState.recordCount;
+    const _watchInterval = setInterval(() => {
+        if (appState.recordCount !== _watchRecordCount) {
+            _watchRecordCount = appState.recordCount;
+            keepaliveLastBeatTime = Date.now();
+        }
+    }, 1000);
+
+    // ==========================================
+    // ⏱️ 手动时长注入引擎
+    // ==========================================
+    async function injectDuration(minutes) {
+        if (!Number.isFinite(minutes) || minutes <= 0) {
+            logMsg('⏱️ 时长必须为正数（分钟）', 'error', false);
+            return;
+        }
+        if (appState.injectActive) {
+            logMsg('⏱️ 当前有注入任务正在执行，请等待完成或先点停止', 'warning', false);
+            return;
+        }
+        const groupId = getCourseGroupId();
+        const resourceId = getNodeId();
+        if (!groupId || !resourceId) {
+            logMsg('⏱️ 未识别课程/资源ID，请进入课程页面后再注入', 'error', false);
+            return;
+        }
+        const totalPackets = Math.ceil((minutes * 60) / 30);
+        appState.injectActive = true;
+        appState.injectTotal = totalPackets;
+        appState.injectCompleted = 0;
+
+        logMsg(`⏱️ 开始注入 ${minutes} 分钟时长（共 ${totalPackets} 包）`, 'success', false);
+        updateInjectUI();
+
+        const startTime = Date.now();
+        for (let i = 0; i < totalPackets; i++) {
+            if (!appState.injectActive) {
+                logMsg('⏱️ 注入已中断（已发 ' + appState.injectCompleted + '/' + totalPackets + ' 包）', 'warning', false);
+                break;
+            }
+            let ok = false;
+            for (let retry = 0; retry < 3; retry++) {
+                if (retry > 0) await sleep(Math.pow(2, retry) * 1000);
+                try {
+                    // 直接复用小雅核心心跳函数
+                    await _origSendRecordRequest();
+                    ok = true; break;
+                } catch(e) {}
+            }
+            if (ok) {
+                appState.injectCompleted++;
+                // recordCount/totalTime/sessionStorage 已由 sendRecordRequest 内部自动累加
+            }
+            if ((i + 1) % 10 === 0 || i === totalPackets - 1) {
+                updateInjectUI();
+                updateCourseUI();
+            }
+            if (i < totalPackets - 1 && appState.injectActive) {
+                await sleep(1500); // 每包间隔 1.5s，防止服务端限流
+            }
+        }
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        logMsg(`⏱️ 注入完成：${appState.injectCompleted}/${totalPackets} 成功，耗时 ${elapsed}s`, 'success', false);
+        appState.injectActive = false;
+        updateInjectUI();
+        updateCourseUI();
+    }
+
+    function stopInject() {
+        if (!appState.injectActive) return;
+        appState.injectActive = false;
+        logMsg('⏱️ 已发送停止信号...', 'warning', false);
+    }
+
+    function updateInjectUI() {
+        const progDiv = document.getElementById('xy-inject-progress');
+        const progText = document.getElementById('xy-inject-progress-text');
+        const progBar = document.getElementById('xy-inject-progress-bar');
+        if (!progDiv || !progText || !progBar) return;
+        if (appState.injectActive) {
+            progDiv.style.display = 'block';
+            const pct = appState.injectTotal > 0 ? Math.round(appState.injectCompleted / appState.injectTotal * 100) : 0;
+            progText.textContent = `进度：${appState.injectCompleted}/${appState.injectTotal} (${pct}%)`;
+            progBar.style.width = pct + '%';
+        } else {
+            progDiv.style.display = 'none';
+        }
+    }
+
+    // ==========================================
     // ⚙️ 双频驱动引擎：UI渲染(1秒) + 暴力操作(5秒)
     // ==========================================
 
@@ -2165,6 +2298,13 @@
             btnGuard.textContent = appState.guardActive ? 'ON' : 'OFF';
             btnGuard.style.background = appState.guardActive ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
             btnGuard.style.color = appState.guardActive ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
+        }
+
+        const btnKeepalive = document.getElementById('xy-btn-keepalive');
+        if(btnKeepalive) {
+            btnKeepalive.textContent = appState.keepaliveEnabled ? 'ON' : 'OFF';
+            btnKeepalive.style.background = appState.keepaliveEnabled ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
+            btnKeepalive.style.color = appState.keepaliveEnabled ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
         }
     }
 
@@ -3553,6 +3693,10 @@
                             <button id="xy-btn-guard" style="font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.guardActive ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.guardActive ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${appState.guardActive ? 'ON' : 'OFF'}</button>
                         </div>
                         <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
+                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">💓 后台保活</span>
+                            <button id="xy-btn-keepalive" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.keepaliveEnabled ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.keepaliveEnabled ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${appState.keepaliveEnabled ? 'ON' : 'OFF'}</button>
+                        </div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
                             <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔇 强制静音</span>
                             <button id="xy-btn-quick-mute" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${appState.hardwareMute ? 'ON' : 'OFF'}</button>
                         </div>
@@ -3568,6 +3712,26 @@
                             <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔄 页面重载</span>
                             <button id="btn-manual-refresh" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:1px solid ${T('rgba(129,140,248,0.25)','#c7d2fe')}; transition:0.2s; background:${T('rgba(99,102,241,0.12)','#eef2ff')}; color:${T('#a5b4fc','#4338ca')};">⚡ 刷新</button>
                         </div>
+                        </div>
+                    </div>
+
+                    <div class="xy-panel" style="padding:10px 14px; margin-bottom:10px;">
+                        <div class="xy-section-hdr" id="xy-hdr-inject" style="font-size:12px; font-weight:600; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
+                            <span>⏱️ 学时注入（测试中）</span><span id="xy-arr-inject" style="font-size:10px; transition:transform 0.25s;">▼</span>
+                        </div>
+                        <div id="xy-body-inject" style="margin-top: 10px;">
+                            <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
+                                <input type="number" id="xy-inject-minutes" value="120" min="1" max="1440" style="flex:1; padding:7px 10px; border-radius:8px; border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')}; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; font-size:13px; font-weight:600; text-align:center;" placeholder="分钟数">
+                                <span style="font-size:12px; font-weight:600; color:${T('#94a3b8','#64748b')}; white-space:nowrap;">分钟</span>
+                            </div>
+                            <div style="display:flex; gap:6px;">
+                                <button class="xy-action-btn" id="xy-btn-inject" style="flex:1; background:${T('rgba(52,211,153,0.12)','#ecfdf5')}; border-color:${T('rgba(52,211,153,0.25)','#a7f3d0')}; color:${T('#6ee7b7','#059669')}; font-size:12px; padding:8px;">▶ 注入时长</button>
+                                <button class="xy-mini-btn" id="xy-btn-inject-stop" style="color:#f87171; border-color:${T('rgba(248,113,113,0.2)','#fecaca')}; background:${T('rgba(248,113,113,0.08)','#fef2f2')}; font-size:11px;">⏹ 停止</button>
+                            </div>
+                            <div id="xy-inject-progress" style="display:none; margin-top:8px; padding:8px 10px; background:${T('rgba(52,211,153,0.06)','#f0fdf4')}; border-radius:8px; border:1px solid ${T('rgba(52,211,153,0.15)','#bbf7d0')};">
+                                <div style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; margin-bottom:4px;" id="xy-inject-progress-text">准备中...</div>
+                                <div style="width:100%; height:4px; background:${T('rgba(52,211,153,0.15)','#d1fae5')}; border-radius:2px; overflow:hidden;"><div id="xy-inject-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #34d399, #059669); transition:width 0.3s ease-out; border-radius:2px;"></div></div>
+                            </div>
                         </div>
                     </div>
 
@@ -3802,6 +3966,24 @@
         document.getElementById('btn-mode-seq').onclick = () => { if (xyScheduleState.isRunning) { document.getElementById('xy-sch-stop-btn')?.click(); } appState.mode = 'sequence'; GM_setValue('xy_play_mode', 'sequence'); logMsg('🚀 连播破壁引擎开启，特种规则接管文档与防拖拽', 'success'); updateCourseUI(); if (!getCourseGroupId()) tryJumpToNext(); else globalTaskStatusChecker(true); };
         
         document.getElementById('xy-btn-guard').onclick = () => { appState.guardActive = !appState.guardActive; GM_setValue('xy_guard_active', appState.guardActive); updateCourseUI(); logMsg(`🛡️ 防休眠${appState.guardActive ? '已开启':'已关闭'}`, 'info', true); };
+        document.getElementById('xy-btn-keepalive').onclick = () => {
+            appState.keepaliveEnabled = !appState.keepaliveEnabled;
+            GM_setValue('xy_keepalive', appState.keepaliveEnabled);
+            if (appState.keepaliveEnabled) {
+                startKeepaliveWatchdog();
+                if (appState.activeZone === 'course' && getNodeId() && !appState.recordActive) toggleRecord(true);
+            } else {
+                stopKeepaliveWatchdog();
+            }
+            updateCourseUI();
+            logMsg(`💓 后台保活${appState.keepaliveEnabled ? '已开启':'已关闭'}`, 'info', true);
+        };
+        document.getElementById('xy-btn-inject').onclick = () => {
+            const input = document.getElementById('xy-inject-minutes');
+            const minutes = parseInt(input?.value) || 120;
+            injectDuration(minutes);
+        };
+        document.getElementById('xy-btn-inject-stop').onclick = () => stopInject();
         document.getElementById('xy-btn-mouse-sim').onclick = () => {
             toggleMouseSim(!appState.mouseSimActive);
             const btn = document.getElementById('xy-btn-mouse-sim');
@@ -4028,10 +4210,15 @@
     // ==========================================
     function ensureUI() {
         if (!document.getElementById('xy-super-console')) { createUI(); appState.isTaskCompleted = false; applyThemeClasses(); }
-        
+
+        // 后台保活引擎初始化
+        if (appState.keepaliveEnabled && !keepaliveWatchdogTimer) {
+            startKeepaliveWatchdog();
+        }
+
         runLowLevelScanner().then(() => {
-            updateCourseUI(); 
-            updateDiscUI(); 
+            updateCourseUI();
+            updateDiscUI();
         });
     }
 
@@ -4045,6 +4232,16 @@
     if (document.readyState === "loading") {
         document.addEventListener('DOMContentLoaded', () => { ensureUI(); });
     } else {
-        ensureUI(); 
+        ensureUI();
     }
+
+    // 🆕 导出控制台快捷命令
+    window.xyInjectDuration = (mins) => injectDuration(mins);
+    window.xyStopInject = () => stopInject();
+    window.xyKeepaliveStatus = () => {
+        console.log('[小雅] 后台保活:', appState.keepaliveEnabled ? 'ON' : 'OFF');
+        console.log('[小雅] 看门狗:', keepaliveWatchdogTimer ? '运行中' : '未启动');
+        console.log('[小雅] 注入状态:', appState.injectActive ? `进行中 ${appState.injectCompleted}/${appState.injectTotal}` : '空闲');
+    };
+
 })();
