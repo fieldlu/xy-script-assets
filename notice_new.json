@@ -1,0 +1,9 @@
+{
+  "title": "📣 小雅辅助工具 情报站",
+  "items": [
+    "v3.4.0 新增：后台保活引擎 + 手动时长注入，详见 CHANGELOG",
+    "v3.3.0 UI 全面美化，紧凑可折叠面板",
+    "仓库已迁移至 https://gitee.com/fieldlu/xy-script-assets",
+    "如有问题请提交 Issue 或查看 README"
+  ]
+}
