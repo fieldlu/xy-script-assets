@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.4.0
+// @version      3.4.1
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入、成就系统
 // @author       Gemini
 // @license      MIT
 // @match        https://*.ai-augmented.com/*
 // @run-at       document-start
+// @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
+// @downloadURL  https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -100,7 +102,7 @@
         aiMode: GM_getValue('xy_ai_mode', true),
         videoAutoSubmit: GM_getValue('xy_video_submit', true),
         docBatchSubmit: GM_getValue('xy_doc_batch', true),
-        mouseSimActive: GM_getValue('xy_mouse_sim', false),
+        mouseSimActive: GM_getValue('xy_mouse_sim', true),
         showRefreshPanel: GM_getValue('xy_show_refresh_panel', true),
         showTerminal: GM_getValue('xy_show_terminal', false),
         theme: GM_getValue('xy_theme', 'auto'),
