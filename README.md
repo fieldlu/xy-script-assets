@@ -42,6 +42,23 @@
 1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
 2. [✨ 点我安装小雅辅助工具 ✨](https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js)
 
+## 🔒 隐私与免责声明
+
+### 数据收集
+- 本脚本**不收集、不上传、不存储**任何用户个人信息（账号、密码、手机号等）
+- 脚本仅在用户浏览器本地运行，所有数据（设置、学习时长记录）存储在浏览器本地 `GM_setValue` / `sessionStorage` 中
+- 网络请求仅用于与 `ai-augmented.com` 平台正常交互（课程查询、任务提交、讨论区操作等）
+
+### 第三方服务
+- 脚本通过 `https://gitee.com/fieldlu/xy-script-assets/raw/main/notice_new.json` 拉取公告信息（仅读取，不上传数据）
+- 脚本通过 `https://scriptcat.org` 提供安装与更新服务
+- 不依赖任何第三方统计、埋点、广告 SDK
+
+### 免责声明
+- 本脚本仅供**个人学习研究**使用，使用者应自行承担使用风险
+- 使用本脚本可能违反目标平台的用户协议，作者不对任何账号异常、课程数据丢失等后果负责
+- 请勿用于代刷、代挂、售卖等商业目的
+
 ## 📋 更新日志
 
 详见 [CHANGELOG.md](CHANGELOG.md) ～小雅每次成长都会记录在那里哦！
