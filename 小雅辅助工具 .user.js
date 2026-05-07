@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.4.3
+// @version      3.4.4
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入
 // @author       Confidential
 // @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
@@ -1669,15 +1669,61 @@
         isRecordSending = false;
     }
 
+    // 🕐 持久化定时器：防止浏览器后台节流导致定时器停摆
+    const _persistentIntervals = [];
+    function createPersistentInterval(fn, ms, maxCatchUp = 20) {
+        let lastTick = Date.now();
+        let timerId = null;
+        let running = true;
+
+        function tick() {
+            if (!running) return;
+            const now = Date.now();
+            const elapsed = now - lastTick;
+            if (elapsed >= ms) {
+                const missed = Math.min(Math.floor(elapsed / ms), maxCatchUp);
+                for (let i = 0; i < missed; i++) {
+                    try { fn(); } catch(e) {}
+                }
+                lastTick = now;
+            }
+        }
+
+        timerId = setInterval(tick, Math.max(ms / 4, 250));
+        _persistentIntervals.push({ fn, ms, maxCatchUp, lastTick: () => lastTick, tick, clear: () => { running = false; clearInterval(timerId); } });
+
+        return {
+            clear: () => { running = false; clearInterval(timerId); },
+            resetTimer: () => { lastTick = Date.now(); }
+        };
+    }
+
+    // 监听窗口切回前台，立即补偿所有持久化定时器
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            _persistentIntervals.forEach(p => {
+                const elapsed = Date.now() - p.lastTick();
+                if (elapsed >= p.ms * 1.2) {
+                    const missed = Math.min(Math.floor(elapsed / p.ms), p.maxCatchUp);
+                    for (let i = 0; i < missed; i++) {
+                        try { p.fn(); } catch(e) {}
+                    }
+                }
+            });
+        }
+    });
+
     function toggleRecord(start) {
         if (appState.recordActive === start) return;
         appState.recordActive = start;
         if (start) {
-            sendRecordRequest(); recordIntervalTimer = setInterval(sendRecordRequest, 30000); 
-            realTimeTimer = setInterval(() => { appState.realTime++; sessionStorage.setItem('xy_realTime', appState.realTime); updateCourseUI(); }, 1000);
+            sendRecordRequest();
+            recordIntervalTimer = createPersistentInterval(sendRecordRequest, 30000, 20);
+            realTimeTimer = createPersistentInterval(() => { appState.realTime++; sessionStorage.setItem('xy_realTime', appState.realTime); updateCourseUI(); }, 1000, 30);
             if (!appState.guardActive) { appState.guardActive = true; GM_setValue('xy_guard_active', true); }
         } else {
-            clearInterval(recordIntervalTimer); clearInterval(realTimeTimer); recordIntervalTimer = null; realTimeTimer = null;
+            if (recordIntervalTimer) { recordIntervalTimer.clear(); recordIntervalTimer = null; }
+            if (realTimeTimer) { realTimeTimer.clear(); realTimeTimer = null; }
         }
         updateCourseUI();
     }
@@ -1806,8 +1852,8 @@
     let watchdogLastActiveTime = Date.now();
     let lastAutoActionMinute = '';
 
-    // 频段1：1秒级状态维持（脚本进度隔离、文档计时、弹窗点击）
-    setInterval(async () => {
+    // 频段1：1秒级状态维持（脚本进度隔离、文档计时、弹窗点击）- 持久化防后台节流
+    createPersistentInterval(async () => {
         await runLowLevelScanner(); 
 
         checkDynamicRefresh();
@@ -1996,10 +2042,10 @@
 
         updateTitleBar();
         if (appState.theme === 'auto') applyTheme();
-    }, 1000);
+    }, 1000, 30);
 
-    // 频段2：5秒级跳课与连播模式的专属提交调度
-    setInterval(async () => {
+    // 频段2：5秒级跳课与连播模式的专属提交调度 - 持久化防后台节流
+    createPersistentInterval(async () => {
         if (!appState.aiMode || appState.activeZone !== 'course' || appState.mode !== 'sequence') return;
 
         if (Date.now() < appState.jumpSleepUntil) return;
@@ -2067,10 +2113,10 @@
                 }
             }
         }
-    }, 5000);
+    }, 5000, 10);
 
-    // 频段3：讨论区DOM智能扫描探测 (3秒一次，不影响主轴)
-    setInterval(() => {
+    // 频段3：讨论区DOM智能扫描探测 (3秒一次，不影响主轴) - 持久化防后台节流
+    createPersistentInterval(() => {
         if (appState.activeZone === 'disc' && appState.enableDomScan) {
             const domNames = scanDomForUserNames();
             let added = false;
@@ -2085,7 +2131,7 @@
                 renderTargetList(document.getElementById('xy-name-search')?.value || '');
             }
         }
-    }, 3000);
+    }, 3000, 10);
 
     // ==========================================
     // 🎯 讨论区点赞抓取模块：自动全页扫描
@@ -3498,8 +3544,8 @@
     // ==========================================
     // ⚙️ 计划调度器专属外挂 Timer
     // ==========================================
-    // 独立于双频引擎的调度专属1秒轮询
-    setInterval(async () => {
+    // 独立于双频引擎的调度专属1秒轮询 - 持久化防后台节流
+    createPersistentInterval(async () => {
         if (!xyScheduleState.isRunning || xyScheduleState.queue.length === 0) return;
 
         const currentTask = xyScheduleState.queue[xyScheduleState.currentIdx];
@@ -3594,7 +3640,7 @@
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
         }
         
-    }, 1000);
+    }, 1000, 30);
 
 
     function dismissSplash() {
