@@ -1,5 +1,29 @@
 # Changelog
 
+## 3.4.2 (2026-05-07)
+
+### 新增
+- **🌟 赛博朋克二次元启动画面**：冷启动专属 HUD 动画（星空、光环、菱形粒子、六边形、扫描线、脉冲波），刷新跳过
+- **智能跳转优化**：同课程按 node_id 顺序跳、跨课程优先清完一门再下一门
+- **雷达 API 缓存去重**：3 秒 TTL + 并发请求合并，大幅减少重复 API 调用
+- **跳转失败指数退避**：无任务 5s→10s→20s→40s→80s→10min，网络异常独立退避
+
+### 修复
+- **CRITICAL** `triggerDocBatchSniper()` 引用未定义 `token` → 文档批量清理功能永久失效 → 已修复
+- **CRITICAL** `autoLikeAction()` btn null 引用 → 点赞按钮缺失直接崩溃 → 已添加 null 守卫
+- **CRITICAL** `fetchGlobalTasks()` 空 catch 静默吞噬所有错误 → 已添加日志
+- **HIGH** `escapeHtml` 误用于正则转义 → 输入特殊字符直接崩溃 → 已新增 `escapeRegex()`
+- **HIGH** 键盘模拟 `keyCode` 短路 bug → 全部发送错误 keyCode → 已修复为映射表
+- **HIGH** 保活看门狗时间戳恒更新 → 看门狗完全失效 → 改为仅在真实成功后更新
+- **MEDIUM** 成就系统移除后残留 30 秒空 interval → 已删除
+- **MEDIUM** `close-dashboard`/`close-schedule` 等 onclick 缺 null 守卫 → 已添加
+
+### 优化
+- **学时注入**：升级为红色警告面板 + 二次确认弹窗 + 风险说明；默认 30min、最大 300min
+- **QQ 群**：面板快捷复制入口
+- **成就系统**：退役移除，界面更清爽
+- 移除开发草稿注释和重复分隔线
+
 ## 3.4.1 (2026-05-05)
 
 ### 修复
