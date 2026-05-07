@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.4.2
+// @version      3.4.3
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入
 // @author       Confidential
-// @license      MIT
+// @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
 // @match        https://*.ai-augmented.com/*
 // @run-at       document-start
 // @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
@@ -3849,14 +3849,14 @@
 
                     <div class="xy-panel" style="padding:10px 14px; margin-bottom:10px; border: 1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};">
                         <div class="xy-section-hdr" id="xy-hdr-inject" style="font-size:12px; font-weight:600; color:${T('#f87171','#dc2626')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
-                            <span>⚠️ 学时注入（高危 · 未测试）</span><span id="xy-arr-inject" style="font-size:10px; transition:transform 0.25s;">▼</span>
+                            <span>⚠️ 学时注入（高危 · 未测试）</span><span id="xy-arr-inject" style="font-size:10px; transition:transform 0.25s; transform:rotate(-90deg);">▼</span>
                         </div>
-                        <div id="xy-body-inject" style="margin-top: 8px;">
+                        <div id="xy-body-inject" style="margin-top: 8px; display:none;">
                             <div style="font-size:10px; color:${T('#f87171','#dc2626')}; margin-bottom:8px; line-height:1.5; padding:6px 8px; background:${T('rgba(239,68,68,0.06)','#fef2f2')}; border-radius:6px; border-left:3px solid ${T('#f87171','#ef4444')};">
                                 ⚡ 此功能通过高频发包模拟学习时长，可能触发平台风控机制导致<b>账号异常</b>。仅供紧急补救使用，切勿日常依赖。使用前请确认了解风险！
                             </div>
                             <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
-                                <input type="number" id="xy-inject-minutes" value="30" min="1" max="300" style="flex:1; padding:7px 10px; border-radius:8px; border:1px solid ${T('rgba(239,68,68,0.3)','#fecaca')}; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#fca5a5','#dc2626')}; font-size:13px; font-weight:600; text-align:center;" placeholder="分钟数">
+                                <input type="number" id="xy-inject-minutes" value="" min="1" max="300" style="flex:1; padding:7px 10px; border-radius:8px; border:1px solid ${T('rgba(239,68,68,0.3)','#fecaca')}; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#fca5a5','#dc2626')}; font-size:13px; font-weight:600; text-align:center;" placeholder="必须手动输入">
                                 <span style="font-size:12px; font-weight:600; color:${T('#f87171','#dc2626')}; white-space:nowrap;">分钟</span>
                             </div>
                             <div style="display:flex; gap:6px;">
@@ -4097,7 +4097,8 @@
         const injectBtn = document.getElementById('xy-btn-inject');
         if (injectBtn) injectBtn.onclick = () => {
             const input = document.getElementById('xy-inject-minutes');
-            const minutes = parseInt(input?.value) || 30;
+            const minutes = parseInt(input?.value);
+            if (!minutes || minutes < 1) { showToast('请先手动输入要注入的分钟数！', 'error'); return; }
             xyShowModal('⚠️ 高危操作确认',
                 `<div style="line-height:1.8; color:${T('#e2e8f0','#0f172a')};">
                     <p style="color:${T('#fca5a5','#dc2626')}; font-weight:bold; font-size:15px;">你即将注入 <span style="font-size:20px;">${minutes}</span> 分钟学习时长</p>
@@ -4107,9 +4108,17 @@
                         <li>可能导致账号功能受限</li>
                         <li>仅供紧急补救，切勿日常依赖</li>
                     </ul>
-                    <p style="font-size:11px; color:${T('#64748b','#94a3b8')};">如确认了解风险，请点击「确认执行」</p>
+                    <p style="font-size:12px; color:${T('#fca5a5','#dc2626')}; font-weight:bold;">请在下方重新输入 ${minutes} 以确认：</p>
+                    <input id="xy-inject-confirm" type="number" style="width:100%; padding:8px; border-radius:6px; border:2px solid ${T('#f87171','#ef4444')}; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; font-size:16px; text-align:center;" placeholder="输入 ${minutes} 确认">
                 </div>`,
-                () => { injectDuration(minutes); }
+                () => {
+                    const confirmInput = document.getElementById('xy-inject-confirm');
+                    if (confirmInput && parseInt(confirmInput.value) === minutes) {
+                        injectDuration(minutes);
+                    } else {
+                        showToast('❌ 确认数字不匹配，注入已取消', 'error');
+                    }
+                }
             );
         };
         document.getElementById('xy-btn-inject-stop').onclick = () => stopInject();

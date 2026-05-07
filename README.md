@@ -1,6 +1,6 @@
 # ⚡ 小雅辅助工具 — Cyberpunk 强化版 ✨
 
-[![version](https://img.shields.io/badge/version-3.4.1-pink)](https://gitee.com/fieldlu/xy-script-assets)
+[![version](https://img.shields.io/badge/version-3.4.3-pink)](https://gitee.com/fieldlu/xy-script-assets)
 [![license](https://img.shields.io/badge/license-自定义-red)](LICENSE)
 
 > 「主人～今天的学习任务就交给小雅吧！(｡･ω･｡)ﾉ♡」
@@ -23,10 +23,11 @@
 - ⚡ 全局任务雷达一键秒交 + 批量提交
 - 🔄 **雷达 API 缓存去重**（3s TTL），减少重复请求
 
-### ⚠️ 学时注入（高危 · 谨慎使用）
-- 🎛️ 红色警告面板 + 二次确认弹窗 + 风险说明
-- ⏱️ 默认 30 分钟，最大 300 分钟，自动拆分心跳包
-- 💻 控制台快捷命令：`xyInjectDuration(30)` / `xyStopInject()` / `xyKeepaliveStatus()`
+### ⚠️ 学时注入（高危 · 三重防护）
+- 🔒 面板默认折叠隐藏，需手动展开才可见
+- 🎛️ 红色警告面板 + 二次确认弹窗 + 数字匹配验证
+- ⏱️ 必须手动输入分钟数，默认无值，杜绝误触
+- 💻 控制台快捷命令：`xyInjectDuration(60)` / `xyStopInject()` / `xyKeepaliveStatus()`
 - 📊 实时进度条，支持随时中断，失败自动重试
 
 ### 💬 讨论区
