@@ -1,7 +1,7 @@
 # ⚡ 小雅辅助工具 — Cyberpunk 强化版 ✨
 
 [![version](https://img.shields.io/badge/version-3.4.1-pink)](https://gitee.com/fieldlu/xy-script-assets)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![license](https://img.shields.io/badge/license-自定义-red)](LICENSE)
 
 > 「主人～今天的学习任务就交给小雅吧！(｡･ω･｡)ﾉ♡」
 
