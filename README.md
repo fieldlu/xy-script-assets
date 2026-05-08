@@ -1,6 +1,6 @@
 # 🌸 小雅辅助工具 — 主人sama的学习小助手 ✨
 
-[![version](https://img.shields.io/badge/version-3.4.1-pink)](https://gitee.com/fieldlu/xy-script-assets)
+[![version](https://img.shields.io/badge/version-3.4.5-pink)](https://gitee.com/fieldlu/xy-script-assets)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 > 「主人～今天的学习任务就交给小雅吧！(｡･ω･｡)ﾉ♡」
@@ -26,8 +26,11 @@
 - 👍 抓包批量点赞 / 自定义回复
 - 📝 智能语料库
 
-### 📥 课件
-- 📦 课件批量下载
+### 📥 课件下载区（v3.4.5 全面进化）
+- 🔍 **搜索框**：实时过滤文件名，全选智能适配搜索结果
+- 📊 **进度条**：批量下载实时显示百分比，绿紫渐变可视化
+- ⏯️ **暂停/终止**：随时暂停继续，一键终止，已下载文件不丢失
+- 🛡️ 鉴权下载 + 加密链接自动解密，再也不怕下载失败啦
 
 ## 🔧 安装指南
 

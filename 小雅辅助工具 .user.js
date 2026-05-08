@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.4.1
-// @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入、成就系统
-// @author       Gemini
-// @license      MIT
+// @version      3.4.5
+// @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入
+// @author       Confidential
+// @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
 // @match        https://*.ai-augmented.com/*
 // @run-at       document-start
 // @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
@@ -13,6 +13,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @icon         data:image/png;base64,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
 
 // ==/UserScript==
@@ -24,6 +25,199 @@
     const SCRIPT_VERSION = typeof GM_info !== 'undefined' ? GM_info.script.version : '未知';
 
     const domain = window.location.hostname;
+
+    // ⚡ 二次元启动程序 — 仅冷启动显示，刷新跳过
+    (function initSplash() {
+        try {
+            // 用 sessionStorage 判断：新标签页=显示，刷新/F5=跳过
+            if (sessionStorage.getItem('xy_splash_done')) return;
+            sessionStorage.setItem('xy_splash_done', '1');
+
+            function tryShow() {
+                if (!document.body) { requestAnimationFrame(tryShow); return; }
+                if (document.getElementById('xy-splash')) return;
+
+                const style = document.createElement('style');
+                style.textContent = `
+@keyframes xy-in{0%{opacity:0}100%{opacity:1}}
+@keyframes xy-out{0%{opacity:1;transform:scale(1);filter:blur(0)}100%{opacity:0;transform:scale(1.06);filter:blur(8px)}}
+@keyframes xy-tw{0%,100%{opacity:0.2}50%{opacity:1}}
+@keyframes xy-f1{0%{transform:translateY(0) translateX(0) rotate(0deg) scale(1);opacity:0}10%{opacity:1}90%{opacity:1}100%{transform:translateY(-100vh) translateX(50px) rotate(360deg) scale(0);opacity:0}}
+@keyframes xy-f2{0%{transform:translateY(0) translateX(0) rotate(0deg) scale(1);opacity:0}10%{opacity:1}90%{opacity:0.5}100%{transform:translateY(-100vh) translateX(-40px) rotate(-360deg) scale(0.2);opacity:0}}
+@keyframes xy-bp{0%,100%{box-shadow:0 0 15px rgba(124,58,237,0.3),0 0 30px rgba(6,182,212,0.15),inset 0 0 15px rgba(124,58,237,0.06)}50%{box-shadow:0 0 30px rgba(124,58,237,0.6),0 0 60px rgba(6,182,212,0.35),0 0 90px rgba(244,63,94,0.25),inset 0 0 30px rgba(124,58,237,0.15)}}
+@keyframes xy-tg{0%,100%{text-shadow:0 0 20px rgba(124,58,237,0.8),0 0 40px rgba(124,58,237,0.4),0 0 80px rgba(6,182,212,0.3),0 2px 4px rgba(0,0,0,0.9)}50%{text-shadow:0 0 30px rgba(244,63,94,0.9),0 0 60px rgba(124,58,237,0.6),0 0 100px rgba(6,182,212,0.5),0 2px 4px rgba(0,0,0,0.9)}}
+@keyframes xy-pf{0%{background-position:0% 50%}100%{background-position:300% 50%}}
+@keyframes xy-ps{0%{left:-100%}100%{left:100%}}
+@keyframes xy-ss{0%{top:-2px}100%{top:100%}}
+@keyframes xy-rs{0%{transform:translate(-50%,-50%) rotate(0deg)}100%{transform:translate(-50%,-50%) rotate(360deg)}}
+@keyframes xy-rsr{0%{transform:translate(-50%,-50%) rotate(0deg)}100%{transform:translate(-50%,-50%) rotate(-360deg)}}
+@keyframes xy-cp{0%,100%{opacity:0.4}50%{opacity:1}}
+@keyframes xy-pls{0%{transform:translate(-50%,-50%) scale(1);opacity:0.3}100%{transform:translate(-50%,-50%) scale(2.5);opacity:0}}
+@keyframes xy-typing{0%{opacity:0}20%{opacity:1}100%{opacity:1}}
+@keyframes xy-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes xy-grid-scroll{0%{background-position:0 0,0 0}100%{background-position:0 0,50px 50px}}
+@keyframes xy-hex-rotate{0%{transform:translate(-50%,-50%) rotate(0deg) scale(1)}50%{transform:translate(-50%,-50%) rotate(180deg) scale(1.15)}100%{transform:translate(-50%,-50%) rotate(360deg) scale(1)}}
+
+#xy-splash{
+    position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483647;
+    background:#08081a;
+    background-image:
+        linear-gradient(rgba(124,58,237,0.03) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(124,58,237,0.03) 1px,transparent 1px);
+    background-size:50px 50px;
+    animation:xy-in 0.5s ease-out,xy-grid-scroll 30s linear infinite;
+    display:flex;justify-content:center;align-items:center;
+    font-family:'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif;
+    overflow:hidden;
+}
+#xy-splash::before{
+    content:'';position:absolute;top:0;left:0;width:100%;height:100%;
+    background:radial-gradient(ellipse at 30% 20%,rgba(124,58,237,0.12) 0%,transparent 50%),
+               radial-gradient(ellipse at 70% 80%,rgba(6,182,212,0.08) 0%,transparent 50%),
+               radial-gradient(ellipse at 50% 50%,rgba(244,63,94,0.05) 0%,transparent 60%);
+    pointer-events:none;
+}
+#xy-splash::after{
+    content:'';position:absolute;top:0;left:0;width:100%;height:100%;
+    background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.04) 2px,rgba(0,0,0,0.04) 4px);
+    pointer-events:none;z-index:100;
+}
+#xy-splash.xy-out{animation:xy-out 0.5s ease-in forwards;pointer-events:none}
+
+#xy-splash .st{position:absolute;border-radius:50%;animation:xy-tw var(--d) ease-in-out infinite;animation-delay:var(--dl)}
+#xy-splash .pt{position:absolute;bottom:-20px;width:var(--s);height:var(--s);background:var(--c);animation:var(--a) var(--d) var(--dl) linear infinite}
+#xy-splash .pt.diamond{clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%)}
+#xy-splash .pt.circle{border-radius:50%}
+
+#xy-splash .ri{position:absolute;top:50%;left:50%;border-radius:50%;border:1px solid;transform:translate(-50%,-50%);pointer-events:none}
+#xy-splash .ri-1{width:300px;height:300px;border-color:rgba(124,58,237,0.18);animation:xy-rs 18s linear infinite}
+#xy-splash .ri-2{width:420px;height:420px;border-color:rgba(6,182,212,0.1);animation:xy-rsr 22s linear infinite}
+#xy-splash .ri-3{width:520px;height:520px;border-color:rgba(244,63,94,0.07);animation:xy-rs 28s linear infinite}
+
+#xy-splash .hex{
+    position:absolute;top:50%;left:50%;width:600px;height:600px;
+    background:radial-gradient(circle at center,transparent 30%,rgba(124,58,237,0.04) 60%,transparent 70%);
+    clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+    animation:xy-hex-rotate 35s ease-in-out infinite;pointer-events:none;
+}
+
+#xy-splash .pls{position:absolute;top:50%;left:50%;width:4px;height:4px;border-radius:50%;background:rgba(124,58,237,0.5);animation:xy-pls 3s ease-out infinite;pointer-events:none}
+#xy-splash .pls:nth-child(2){animation-delay:1s;background:rgba(6,182,212,0.4)}
+#xy-splash .pls:nth-child(3){animation-delay:2s;background:rgba(244,63,94,0.3)}
+
+#xy-splash .cd{
+    position:relative;z-index:10;
+    background:rgba(12,10,30,0.88);
+    border:1px solid rgba(124,58,237,0.3);
+    border-radius:24px;padding:44px 52px;text-align:center;
+    animation:xy-bp 3s ease-in-out infinite,xy-float 4s ease-in-out infinite;
+    backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+    min-width:340px;max-width:420px;
+    box-shadow:0 0 80px rgba(124,58,237,0.1);
+}
+
+#xy-splash .sc{position:absolute;top:-2px;left:5%;width:90%;height:2px;background:linear-gradient(90deg,transparent,rgba(6,182,212,0.5),transparent);animation:xy-ss 2.5s ease-in-out infinite;pointer-events:none;border-radius:2px;z-index:2}
+#xy-splash .cr{position:absolute;width:20px;height:20px;pointer-events:none;z-index:3;animation:xy-cp 2s ease-in-out infinite}
+#xy-splash .cr::before,#xy-splash .cr::after{content:'';position:absolute;background:rgba(124,58,237,0.6)}
+#xy-splash .cr-tl{top:10px;left:10px}
+#xy-splash .cr-tr{top:10px;right:10px;animation-delay:0.5s}
+#xy-splash .cr-bl{bottom:10px;left:10px;animation-delay:1s}
+#xy-splash .cr-br{bottom:10px;right:10px;animation-delay:1.5s}
+#xy-splash .cr-tl::before,#xy-splash .cr-tr::before{top:0;left:0;width:100%;height:1.5px}
+#xy-splash .cr-tl::after,#xy-splash .cr-bl::after{top:0;left:0;width:1.5px;height:100%}
+#xy-splash .cr-tr::after,#xy-splash .cr-br::after{top:0;right:0;width:1.5px;height:100%}
+#xy-splash .cr-bl::before,#xy-splash .cr-br::before{bottom:0;left:0;width:100%;height:1.5px}
+
+#xy-splash .icon{font-size:52px;filter:drop-shadow(0 0 24px rgba(124,58,237,0.6));line-height:1;margin-bottom:12px;animation:xy-tg 3s ease-in-out infinite}
+#xy-splash .title{font-size:30px;font-weight:900;letter-spacing:8px;color:#e2e8f0;animation:xy-tg 3s ease-in-out infinite;margin-bottom:8px}
+#xy-splash .sub{font-size:13px;color:rgba(167,139,250,0.7);letter-spacing:6px;margin-bottom:20px;font-weight:400}
+#xy-splash .ver{font-size:11px;color:rgba(6,182,212,0.6);letter-spacing:3px;margin-bottom:22px;font-family:'Consolas','SF Mono','Courier New',monospace}
+#xy-splash .po{position:relative;width:100%;height:3px;background:rgba(71,85,105,0.25);border-radius:2px;overflow:hidden}
+#xy-splash .pi{height:100%;border-radius:2px;width:0%;background:linear-gradient(90deg,#7C3AED,#A78BFA,#06B6D4,#F43F5E,#7C3AED);background-size:300% 100%;animation:xy-pf 2s linear infinite;transition:width 0.3s ease-out}
+#xy-splash .ps{position:absolute;top:0;left:-100%;width:50%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.25),transparent);animation:xy-ps 1.5s ease-in-out infinite}
+#xy-splash .ft{font-size:10px;color:rgba(100,116,139,0.45);letter-spacing:4px;margin-top:14px}`;
+
+                const el = document.createElement('div');
+                el.id = 'xy-splash';
+                el.appendChild(style);
+
+                // 网格背景已用 CSS 实现
+
+                // 扫描线已在 CSS ::after 伪元素中
+
+                // 脉冲点
+                for (let i = 0; i < 3; i++) {
+                    const pls = document.createElement('div');
+                    pls.className = 'pls';
+                    el.appendChild(pls);
+                }
+
+                // 六边形装饰
+                const hex = document.createElement('div');
+                hex.className = 'hex';
+                el.appendChild(hex);
+
+                // 星空
+                const stars = document.createElement('div');
+                for (let i = 0; i < 70; i++) {
+                    const s = document.createElement('div'); s.className = 'st';
+                    const sz = Math.random() * 2 + 0.8;
+                    const colors = ['rgba(255,255,255,0.9)','rgba(167,139,250,0.7)','rgba(6,182,212,0.6)','rgba(244,63,94,0.5)'];
+                    s.style.cssText = `left:${Math.random()*100}%;top:${Math.random()*100}%;width:${sz}px;height:${sz}px;background:${colors[Math.floor(Math.random()*colors.length)]};--d:${Math.random()*3+2}s;--dl:${Math.random()*4}s;box-shadow:0 0 ${sz*3}px ${colors[Math.floor(Math.random()*colors.length)]}`;
+                    stars.appendChild(s);
+                }
+                el.appendChild(stars);
+
+                // 光环
+                [1,2,3].forEach(i => {
+                    const r = document.createElement('div');
+                    r.className = `ri ri-${i}`;
+                    el.appendChild(r);
+                });
+
+                // 粒子 — 混合菱形和圆形
+                const parts = document.createElement('div');
+                const pcols = ['rgba(124,58,237,0.45)','rgba(167,139,250,0.35)','rgba(6,182,212,0.35)','rgba(244,63,94,0.35)','rgba(139,92,246,0.3)','rgba(129,140,248,0.25)'];
+                for (let i = 0; i < 24; i++) {
+                    const p = document.createElement('div');
+                    p.className = 'pt ' + (Math.random() > 0.5 ? 'diamond' : 'circle');
+                    p.style.cssText = `left:${Math.random()*100}%;--s:${Math.random()*6+3}px;--c:${pcols[Math.floor(Math.random()*pcols.length)]};--d:${Math.random()*10+6}s;--dl:${Math.random()*6}s;--a:${Math.random()>0.5?'xy-f2':'xy-f1'}`;
+                    parts.appendChild(p);
+                }
+                el.appendChild(parts);
+
+                // 中心 HUD 卡片
+                const card = document.createElement('div');
+                card.className = 'cd';
+                card.innerHTML = '<div class="sc"></div><div class="cr cr-tl"></div><div class="cr cr-tr"></div><div class="cr cr-bl"></div><div class="cr cr-br"></div><div class="icon">⚡</div><div class="title">小雅辅助工具</div><div class="sub">系 统 启 动 中</div><div class="ver">版本 ' + SCRIPT_VERSION + '</div><div class="po"><div class="pi" id="xy-sp"></div><div class="ps"></div></div><div class="ft">初 始 化 引 擎</div>';
+                el.appendChild(card);
+
+                document.body.appendChild(el);
+
+                // 进度条
+                const bar = document.getElementById('xy-sp');
+                let prog = 0;
+                const t = setInterval(() => {
+                    prog += Math.random() * 22 + 10;
+                    if (prog >= 100) { prog = 100; clearInterval(t); }
+                    if (bar) bar.style.width = Math.min(prog, 100) + '%';
+                }, 350);
+
+                let dismissed = false;
+                function dismiss() {
+                    if (dismissed) return; dismissed = true;
+                    clearInterval(t);
+                    if (bar) bar.style.width = '100%';
+                    el.classList.add('xy-out');
+                    setTimeout(() => { try { if (el.parentNode) el.parentNode.removeChild(el); } catch(e) {} }, 520);
+                }
+                setTimeout(dismiss, 2500);
+                el._xyDismiss = dismiss;
+                window._xySplashDismiss = dismiss;
+            }
+            requestAnimationFrame(tryShow);
+        } catch(e) { /* 不影响主脚本 */ }
+    })();
 
     (function injectStealthEngine() {
         const script = document.createElement('script');
@@ -99,6 +293,7 @@
         lastRecordDate: null,
         lastPopupClickTime: 0,
         isFreedomMode: false,
+        _lastCourseNodeId: null, // 智能重置：跟踪当前课程节点 ID
         aiMode: GM_getValue('xy_ai_mode', true),
         videoAutoSubmit: GM_getValue('xy_video_submit', true),
         docBatchSubmit: GM_getValue('xy_doc_batch', true),
@@ -130,6 +325,9 @@
         downloadFiles: [],
         downloadCourseName: '',
         downloadSelectedIds: new Set(),
+        downloadSearchKeyword: '',
+        downloadAbortController: null,
+        downloadPaused: false,
         prevZone: 'course',
         // 🆕 反检测深度伪装 2.0
         deepCamouflage: GM_getValue('xy_deep_camo', true),
@@ -233,6 +431,7 @@
     async function getAuthToken() { const token = getCookie(); if (token) return token; throw new Error('未找到Token'); }
     function cleanName(str) { if (!str) return ""; return str.replace(/[\u200B-\u200D\uFEFF]/g, '').trim(); }
     function escapeHtml(str) { if (!str) return ''; const div = document.createElement('div'); div.textContent = str; return div.innerHTML; }
+    function escapeRegex(str) { if (!str) return ''; return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
     async function getCourseNameFromAPI(groupId) {
         try {
@@ -440,11 +639,37 @@
         if (newZone === 'course') {
             ensureAutoRecord();
             globalTaskStatusChecker(true);
-            appState.docReadTime = 0;
-            appState.lastDocSubmitTime = 0;
-            appState.videoScriptProgress = undefined;
-            appState.isTaskCompleted = false;
+            // 智能重置：只在进入新节点时重置完成状态，避免已完成任务被重复提交
+            const currentNodeId = getNodeId();
+            if (!appState._lastCourseNodeId || appState._lastCourseNodeId !== currentNodeId) {
+                appState._lastCourseNodeId = currentNodeId;
+                appState.docReadTime = 0;
+                appState.lastDocSubmitTime = 0;
+                appState.videoScriptProgress = undefined;
+                appState.isTaskCompleted = false;
+            }
         }
+    }
+
+    // 雷达 API 缓存（3秒TTL，减少高频轮询中的重复请求）
+    let _radarCache = { data: null, time: 0, promise: null };
+    async function fetchRadarCached() {
+        const now = Date.now();
+        if (_radarCache.data && (now - _radarCache.time) < 3000) return _radarCache.data;
+        if (_radarCache.promise) return _radarCache.promise; // 合并并发请求
+        _radarCache.promise = (async () => {
+            try {
+                const token = await getAuthToken();
+                const res = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { headers: { "authorization": `Bearer ${token}` } });
+                const data = await res.json();
+                _radarCache.data = data;
+                _radarCache.time = Date.now();
+                return data;
+            } finally {
+                _radarCache.promise = null;
+            }
+        })();
+        return _radarCache.promise;
     }
 
     async function runLowLevelScanner() {
@@ -455,11 +680,9 @@
         if (!groupId || !nodeId) { switchToZone('standby'); return; }
 
         let taskType = -1;
-        
+
         try {
-            const token = await getAuthToken();
-            const radarRes = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { headers: { "authorization": `Bearer ${token}` } });
-            const radarData = await radarRes.json();
+            const radarData = await fetchRadarCached();
             if (radarData.success && radarData.data) {
                 const rTask = radarData.data.find(t => t.node_id == nodeId);
                 if (rTask) {
@@ -514,6 +737,30 @@
     // ==========================================
     // 📥 下载区核心引擎
     // ==========================================
+    function decryptFileUrl(encryptedUrl) {
+        try {
+            const key = "94374647";
+            const vector = "99526255";
+            const base64Str = encryptedUrl
+                .replace(/_/g, '+')
+                .replace(/\*/g, '/')
+                .replace(/-/g, '=');
+            const keyUtf8 = unsafeWindow.CryptoJS.enc.Utf8.parse(key);
+            const ivUtf8 = unsafeWindow.CryptoJS.enc.Utf8.parse(vector);
+            const decrypted = unsafeWindow.CryptoJS.DES.decrypt({
+                ciphertext: unsafeWindow.CryptoJS.enc.Base64.parse(base64Str)
+            }, keyUtf8, {
+                iv: ivUtf8,
+                mode: unsafeWindow.CryptoJS.mode.CBC,
+                padding: unsafeWindow.CryptoJS.pad.Pkcs7
+            });
+            return decrypted.toString(unsafeWindow.CryptoJS.enc.Utf8);
+        } catch (error) {
+            console.warn('[小雅] URL解密失败:', error);
+            return encryptedUrl;
+        }
+    }
+
     async function fetchDownloadResources(groupId) {
         if (!groupId) return [];
         try {
@@ -548,16 +795,34 @@
                     headers: { 'authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
-                if (data.success && data.data && data.data.url) return data.data.url;
+                if (data.success && data.data && data.data.url) {
+                    let fileUrl = data.data.url;
+                    if (data.data.is_encryption) {
+                        fileUrl = decryptFileUrl(fileUrl);
+                    }
+                    return fileUrl;
+                }
             } catch(e) { console.warn('[小雅] getDownloadUrl 失败', e); }
             await sleep(500);
         }
         return null;
     }
 
-    function downloadFile(url, filename) {
+    function downloadFile(url, filename, signal) {
         return new Promise((resolve, reject) => {
-            fetch(url).then(res => res.blob()).then(blob => {
+            const token = getCookie();
+            const abortHandler = () => reject(new DOMException('用户终止下载', 'AbortError'));
+            if (signal) {
+                if (signal.aborted) { abortHandler(); return; }
+                signal.addEventListener('abort', abortHandler, { once: true });
+            }
+            fetch(url, {
+                headers: { 'Authorization': `Bearer ${token}` },
+                signal: signal || undefined
+            }).then(res => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.blob();
+            }).then(blob => {
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
                 a.download = filename;
@@ -566,30 +831,125 @@
                 document.body.removeChild(a);
                 setTimeout(() => URL.revokeObjectURL(a.href), 5000);
                 resolve(true);
-            }).catch(reject);
+            }).catch(err => {
+                if (signal) signal.removeEventListener('abort', abortHandler);
+                reject(err);
+            });
         });
+    }
+
+    function updateDownloadProgress(done, total) {
+        const bar = document.getElementById('xy-dl-progress-bar');
+        const text = document.getElementById('xy-dl-progress-text');
+        if (bar) bar.style.width = total > 0 ? `${(done / total * 100).toFixed(0)}%` : '0%';
+        if (text) text.textContent = total > 0 ? `${done}/${total} (${(done/total*100).toFixed(0)}%)` : '';
+        const wrap = document.getElementById('xy-dl-progress-wrap');
+        if (wrap) wrap.style.display = total > 0 ? 'block' : 'none';
+    }
+
+    function setDownloadButtonsState(downloading, paused) {
+        const batchBtn = document.getElementById('xy-dl-batch-download');
+        const stopBtn = document.getElementById('xy-dl-stop');
+        const pauseBtn = document.getElementById('xy-dl-pause');
+        if (batchBtn) { batchBtn.style.display = downloading ? 'none' : ''; batchBtn.disabled = false; }
+        if (stopBtn) stopBtn.style.display = downloading ? '' : 'none';
+        if (pauseBtn) {
+            pauseBtn.style.display = downloading ? '' : 'none';
+            pauseBtn.textContent = paused ? '▶️ 继续' : '⏸️ 暂停';
+        }
+    }
+
+    function stopBatchDownload() {
+        if (appState.downloadAbortController) {
+            appState.downloadAbortController.abort();
+            appState.downloadAbortController = null;
+        }
+        appState.downloadPaused = false;
+        setDownloadButtonsState(false, false);
+        const btn = document.getElementById('xy-dl-batch-download');
+        if (btn) btn.innerText = '⬇️ 下载选中';
+        logMsg('⏹️ 用户终止了批量下载', 'info', true);
     }
 
     async function batchDownloadSelected() {
         const selected = appState.downloadFiles.filter(f => appState.downloadSelectedIds.has(f.id));
         if (selected.length === 0) { showToast('请先勾选要下载的文件', 'warning'); return; }
-        const btn = document.getElementById('xy-dl-batch-download');
-        const origText = btn ? btn.innerText : '';
-        let done = 0;
-        for (const file of selected) {
-            if (btn) { btn.innerText = `⬇️ 下载中 (${done+1}/${selected.length})`; btn.disabled = true; }
+        appState.downloadAbortController = new AbortController();
+        appState.downloadPaused = false;
+        const signal = appState.downloadAbortController.signal;
+        setDownloadButtonsState(true, false);
+        let done = 0, failed = 0;
+        const total = selected.length;
+        updateDownloadProgress(0, total);
+        for (let i = 0; i < selected.length; i++) {
+            // 检查终止
+            if (signal.aborted) {
+                updateDownloadProgress(done + failed, total);
+                setDownloadButtonsState(false, false);
+                const btn = document.getElementById('xy-dl-batch-download');
+                if (btn) btn.innerText = '⬇️ 下载选中';
+                showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
+                setTimeout(() => updateDownloadProgress(-1, 0), 3000);
+                return;
+            }
+            // 检查暂停
+            while (appState.downloadPaused && !signal.aborted) {
+                await sleep(300);
+            }
+            if (signal.aborted) {
+                updateDownloadProgress(done + failed, total);
+                setDownloadButtonsState(false, false);
+                const btn = document.getElementById('xy-dl-batch-download');
+                if (btn) btn.innerText = '⬇️ 下载选中';
+                showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
+                setTimeout(() => updateDownloadProgress(-1, 0), 3000);
+                return;
+            }
+            const file = selected[i];
             const url = await getDownloadUrl(file.quoteId);
+            if (signal.aborted) {
+                updateDownloadProgress(done + failed, total);
+                setDownloadButtonsState(false, false);
+                const btn = document.getElementById('xy-dl-batch-download');
+                if (btn) btn.innerText = '⬇️ 下载选中';
+                showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
+                setTimeout(() => updateDownloadProgress(-1, 0), 3000);
+                return;
+            }
             if (url) {
-                await downloadFile(url, file.name);
-                done++;
-                logMsg(`📥 已下载: ${file.name}`, 'success', true);
+                try {
+                    await downloadFile(url, file.name, signal);
+                    done++;
+                    logMsg(`📥 已下载: ${file.name}`, 'success', true);
+                } catch (e) {
+                    if (e.name === 'AbortError') {
+                        updateDownloadProgress(done + failed, total);
+                        setDownloadButtonsState(false, false);
+                        const btn = document.getElementById('xy-dl-batch-download');
+                        if (btn) btn.innerText = '⬇️ 下载选中';
+                        showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
+                        setTimeout(() => updateDownloadProgress(-1, 0), 3000);
+                        return;
+                    }
+                    failed++;
+                    logMsg(`❌ 下载失败: ${file.name}`, 'error', true);
+                }
             } else {
+                failed++;
                 logMsg(`❌ 获取失败: ${file.name}`, 'error', true);
             }
-            await sleep(500);
+            updateDownloadProgress(done + failed, total);
+            if (i < selected.length - 1 && !signal.aborted && !appState.downloadPaused) {
+                await sleep(500);
+            }
         }
-        if (btn) { btn.innerText = origText; btn.disabled = false; }
-        showToast(`下载完成: ${done}/${selected.length} 个文件`, 'success');
+        appState.downloadAbortController = null;
+        appState.downloadPaused = false;
+        setDownloadButtonsState(false, false);
+        const btn = document.getElementById('xy-dl-batch-download');
+        if (btn) btn.innerText = '⬇️ 下载选中';
+        showToast(`下载完成: ${done}/${total} 个文件` + (failed > 0 ? ` (${failed} 个失败)` : ''), 'success');
+        setTimeout(() => updateDownloadProgress(-1, 0), 3000);
     }
 
     function renderDownloadList() {
@@ -597,10 +957,22 @@
         if (!listDiv) return;
         if (appState.downloadFiles.length === 0) {
             listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">暂无课件资源</div>`;
+            const countEl = document.getElementById('xy-dl-file-count');
+            if (countEl) countEl.textContent = '0 个文件';
+            return;
+        }
+        const keyword = (appState.downloadSearchKeyword || '').toLowerCase().trim();
+        const filtered = keyword
+            ? appState.downloadFiles.filter(f => f.name.toLowerCase().includes(keyword))
+            : appState.downloadFiles;
+        const countEl = document.getElementById('xy-dl-file-count');
+        if (countEl) countEl.textContent = filtered.length + ' 个文件' + (keyword ? ' (已过滤)' : '');
+        if (filtered.length === 0) {
+            listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
             return;
         }
         let html = '';
-        appState.downloadFiles.forEach(f => {
+        filtered.forEach(f => {
             const checked = appState.downloadSelectedIds.has(f.id);
             const icon = f.type === 'video' ? '🎬' : '📄';
             const sizeStr = f.size ? (f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : (f.size/1024).toFixed(0)+'KB') : '';
@@ -624,6 +996,9 @@
 
         appState.downloadFiles = [];
         appState.downloadSelectedIds.clear();
+        appState.downloadSearchKeyword = '';
+        const searchInput = document.getElementById('xy-dl-search');
+        if (searchInput) searchInput.value = '';
         renderDownloadList();
 
         if (!groupId) {
@@ -1005,9 +1380,8 @@
             const token = await getAuthToken(); const groupId = getCourseGroupId(); const nodeId = getNodeId(); if (!groupId || !nodeId) return false;
             
             let taskId = null;
-            const radarRes = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { headers: { "authorization": `Bearer ${token}` } });
-            const radarData = await radarRes.json();
-            if (radarData.success && radarData.data) {
+            const radarData = await fetchRadarCached();
+            if (radarData && radarData.success && radarData.data) {
                 const rTask = radarData.data.find(t => t.node_id == nodeId);
                 if (rTask && rTask.finish !== 2) {
                     taskId = rTask.task_id || rTask.id;
@@ -1036,7 +1410,7 @@
             const finishData = await finishRes.json();
             
             if (finishData.success === true || finishData.code === 200 || finishData.code === 0) {
-                if (!silent) { logMsg('✅ [API] 任务时长达标，后端已成功确认！', 'success', false); bumpAchStat('tasksDone'); }
+                if (!silent) { logMsg('✅ [API] 任务时长达标，后端已成功确认！', 'success', false); }
                 return true;
             } else {
                 if (!silent) logMsg(`⚠️ 时长验证未通过，等待下一次提交心跳...`, 'warning', true);
@@ -1063,10 +1437,9 @@
             
             logMsg('🔄 正在通过【全局雷达】匹配下一项自主观看任务...', 'info', false);
             
-            const token = await getAuthToken(); 
-            const res = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { headers: { "authorization": `Bearer ${token}` } });
-            const unfinishData = await res.json();
-            const unfinishTasks = (unfinishData.success && unfinishData.data) ? unfinishData.data : [];
+            _radarCache.time = 0; // 跳转时强制刷新
+            const unfinishData = await fetchRadarCached();
+            const unfinishTasks = (unfinishData && unfinishData.success && unfinishData.data) ? unfinishData.data : [];
             const now = new Date();
             
             const watchTasks = unfinishTasks.filter(t => {
@@ -1080,7 +1453,18 @@
             let targetTask = null;
             if (watchTasks.length > 0) {
                 let courseTasks = watchTasks.filter(t => t.group_id == currentGroupId);
-                targetTask = courseTasks.length > 0 ? courseTasks[0] : watchTasks[0];
+                if (courseTasks.length > 0) {
+                    // 同课程内：按 node_id 升序排列，优先跳转到未访问的下一节点
+                    courseTasks.sort((a, b) => (parseInt(a.node_id) || 0) - (parseInt(b.node_id) || 0));
+                    // 优先选 node_id 大于当前节点的（往后跳），否则选最小的（从头开始）
+                    targetTask = courseTasks.find(t => (parseInt(t.node_id) || 0) > (parseInt(currentNodeId) || 0)) || courseTasks[0];
+                } else {
+                    // 跨课程：按同课程数量降序（优先清完一门课），再按 node_id 升序
+                    const courseCountMap = {};
+                    watchTasks.forEach(t => { courseCountMap[t.group_id] = (courseCountMap[t.group_id] || 0) + 1; });
+                    watchTasks.sort((a, b) => (courseCountMap[b.group_id] - courseCountMap[a.group_id]) || ((parseInt(a.node_id) || 0) - (parseInt(b.node_id) || 0)));
+                    targetTask = watchTasks[0];
+                }
             }
 
             if (targetTask) {
@@ -1100,28 +1484,38 @@
             }
             
             appState.jumpFailCount++;
-            if (appState.jumpFailCount >= 3) {
-                 logMsg('⏳ 连续3次探测无新任务，引擎进入休眠模式，10分钟后重载...', 'warning', false);
+            const failCount = appState.jumpFailCount;
+            // 指数退避：5s → 10s → 20s → 40s → 80s → 10min
+            const delays = [5000, 10000, 20000, 40000, 80000, 600000];
+            const delay = delays[Math.min(failCount - 1, delays.length - 1)];
+
+            if (failCount >= 6) {
+                 logMsg('⏳ 连续6次探测无新任务，引擎进入休眠模式，10分钟后重载...', 'warning', false);
                  appState.jumpSleepUntil = Date.now() + 10 * 60 * 1000;
                  appState.jumpFailCount = 0;
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
-                 logMsg(`⏳ 探测无新任务，5秒后重试 (第${appState.jumpFailCount}次)...`, 'warning', false);
-                 setTimeout(() => { isJumpingLock = false; }, 5000);
+                 const waitSec = Math.round(delay / 1000);
+                 logMsg(`⏳ 探测无新任务，${waitSec}秒后重试 (第${failCount}次，指数退避)...`, 'warning', false);
+                 setTimeout(() => { isJumpingLock = false; }, delay);
             }
 
         } catch(e) {
             appState.jumpFailCount++;
-            if (appState.jumpFailCount >= 3) {
-                 logMsg('⏳ 网络探测连续3次异常，进入深度休眠，10分钟后重新探测...', 'warning', false);
+            const failCount = appState.jumpFailCount;
+            const delays = [10000, 30000, 60000, 300000, 600000];
+            const delay = delays[Math.min(failCount - 1, delays.length - 1)];
+
+            if (failCount >= 5) {
+                 logMsg('⏳ 网络探测连续5次异常，进入深度休眠，10分钟后重新探测...', 'warning', false);
                  appState.jumpSleepUntil = Date.now() + 10 * 60 * 1000;
                  appState.jumpFailCount = 0;
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
-                 logMsg('雷达连通异常，5秒后重试跳转', 'error', false);
-                 setTimeout(() => { isJumpingLock = false; }, 5000);
+                 logMsg(`雷达连通异常，${Math.round(delay/1000)}秒后重试 (第${failCount}次)...`, 'error', false);
+                 setTimeout(() => { isJumpingLock = false; }, delay);
             }
         }
     }
@@ -1134,9 +1528,8 @@
         lastTaskCheck = Date.now();
         
         try {
-            const token = await getAuthToken(); const res = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { headers: { "authorization": `Bearer ${token}` } });
-            const data = await res.json();
-            if (data.success && data.data) {
+            const data = await fetchRadarCached();
+            if (data && data.success && data.data) {
                 const isStillUnfinished = data.data.filter(t => t.task_type === 1).some(t => t.node_id == nodeId);
                 if (!isStillUnfinished) {
                     if (!appState.isTaskCompleted) {
@@ -1292,11 +1685,13 @@
         const keys = ['Tab', 'ArrowDown', 'ArrowUp', 'PageDown', ' '];
         const key = keys[Math.floor(Math.random() * keys.length)];
         const target = document.activeElement || document.body;
+        const keyCodeMap = { Tab: 9, ArrowDown: 40, ArrowUp: 38, PageDown: 34, ' ': 32 };
+        const kc = keyCodeMap[key] || 9;
 
         ['keydown', 'keypress', 'keyup'].forEach(eventType => {
             target.dispatchEvent(new KeyboardEvent(eventType, {
-                key: key, code: key, keyCode: key.charCodeAt(0) || (key === 'ArrowDown' ? 40 : key === 'ArrowUp' ? 38 : 9),
-                which: key.charCodeAt(0) || 40, bubbles: true, cancelable: true, view: window
+                key: key, code: key, keyCode: kc, which: kc,
+                bubbles: true, cancelable: true, view: window
             }));
         });
         scheduleDeepCamo('keyboard');
@@ -1356,114 +1751,12 @@
         }, 3000);
     }
 
-    // ==========================================
-    // 🏆 成就系统
-    // ==========================================
-    const ACHIEVEMENTS = [
-        { id: 'first_hour',   name: '初出茅庐',   desc: '累计有效挂机达到 1 小时',           icon: '🌟', check: s => s.totalMinutes >= 60 },
-        { id: 'ten_hours',    name: '时间管理大师', desc: '累计有效挂机达到 10 小时',          icon: '⏰', check: s => s.totalMinutes >= 600 },
-        { id: 'hundred_hours',name: '挂机传说',    desc: '累计有效挂机达到 100 小时',         icon: '👑', check: s => s.totalMinutes >= 6000 },
-        { id: 'day8hours',    name: '肝帝',        desc: '单日挂机超过 8 小时',             icon: '🔥', check: s => s.maxDailyMinutes >= 480 },
-        { id: 'likes100',     name: '社交达人',    desc: '累计点赞达到 100 次',              icon: '💖', check: s => s.totalLikes >= 100 },
-        { id: 'schedule_clear',name:'计划通',       desc: '完成一轮计划调度（3个以上任务）',    icon: '📋', check: s => s.scheduleRounds >= 1 },
-        { id: 'all_courses',  name: '全图鉴',      desc: '探测过 10 门以上不同课程',          icon: '🗺️', check: s => s.courseCount >= 10 },
-        { id: 'hundred_tasks',name:'任务收割机',    desc: '累计完成 100 个任务',              icon: '🎯', check: s => s.tasksCompleted >= 100 },
-    ];
-
-    let achStats = (() => {
-        try { return JSON.parse(GM_getValue('xy_ach_stats', '{}')); } catch(e) { return {}; }
-    })();
-    let achUnlocked = (() => {
-        try { return new Set(JSON.parse(GM_getValue('xy_ach_unlocked', '[]'))); } catch(e) { return new Set(); }
-    })();
-
-    function saveAchData() {
-        GM_setValue('xy_ach_stats', JSON.stringify(achStats));
-        GM_setValue('xy_ach_unlocked', JSON.stringify(Array.from(achUnlocked)));
-    }
-
-    function bumpAchStat(key, delta = 1) {
-        if (!achStats._firstDate) achStats._firstDate = Date.now();
-        achStats[key] = (achStats[key] || 0) + delta;
-        const today = new Date().toLocaleDateString('zh-CN');
-        const dailyKey = `daily_${key}_${today}`;
-        achStats[dailyKey] = (achStats[dailyKey] || 0) + delta;
-        if (key === 'minutes') {
-            let maxDaily = 0;
-            Object.keys(achStats).forEach(k => {
-                if (k.startsWith('daily_minutes_')) maxDaily = Math.max(maxDaily, achStats[k]);
-            });
-            achStats._maxDailyMinutes = maxDaily;
-        }
-        if (key === 'course_ids') {
-            let ids;
-            try { ids = JSON.parse(GM_getValue('xy_course_map', '{}')); } catch(e) { ids = {}; }
-            achStats._courseCount = Object.keys(ids).length;
-        }
-    }
-
-    function getAchStats() {
-        return {
-            totalMinutes: Math.floor((achStats.minutes || 0) / 60),
-            maxDailyMinutes: achStats._maxDailyMinutes || 0,
-            totalLikes: achStats.likes || 0,
-            scheduleRounds: achStats.scheduleRounds || 0,
-            courseCount: achStats._courseCount || 0,
-            tasksCompleted: achStats.tasksDone || 0,
-        };
-    }
-
-    function checkAchievements() {
-        const stats = getAchStats();
-        ACHIEVEMENTS.forEach(ach => {
-            if (achUnlocked.has(ach.id)) return;
-            if (ach.check(stats)) {
-                achUnlocked.add(ach.id);
-                saveAchData();
-                // 特殊成就弹窗
-                setTimeout(() => {
-                    showAchievementToast(ach);
-                }, 500);
-            }
-        });
-    }
-
-    function showAchievementToast(ach) {
-        if (!document.body) return;
-        let container = document.getElementById('xy-toast-box');
-        if (!container) { container = document.createElement('div'); container.id = 'xy-toast-box'; container.style.cssText = `position:fixed; top:32px; left:50%; transform:translateX(-50%); z-index:9999999; display:flex; flex-direction:column; gap:16px; pointer-events:none;`; document.body.appendChild(container); }
-        const toast = document.createElement('div');
-        toast.style.cssText = `background:linear-gradient(135deg, #fbbf24, #f59e0b); color:#1c1917; padding:20px 28px; border-radius:16px; font-weight:bold; font-size:16px; box-shadow:0 16px 40px rgba(245,158,11,0.4), 0 0 0 3px rgba(251,191,36,0.3); transition:all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-40px) scale(0.8); backdrop-filter: blur(10px); display:flex; align-items:center; gap:14px; animation: xy-ach-glow 1.5s ease-in-out infinite alternate;`;
-        toast.innerHTML = `<span style="font-size:36px;">${ach.icon}</span><div><div style="font-size:14px; color:#1c1917; opacity:0.9;">🏆 成就解锁！</div><div style="font-size:18px; letter-spacing:1px;">${ach.name}</div><div style="font-size:12px; color:#292524; font-weight:500; margin-top:2px;">${ach.desc}</div></div>`;
-        container.appendChild(toast);
-
-        if (!document.getElementById('xy-ach-glow-style')) {
-            const s = document.createElement('style'); s.id = 'xy-ach-glow-style';
-            s.innerHTML = `@keyframes xy-ach-glow { from { box-shadow: 0 16px 40px rgba(245,158,11,0.4), 0 0 0 3px rgba(251,191,36,0.3); } to { box-shadow: 0 20px 50px rgba(245,158,11,0.6), 0 0 20px rgba(251,191,36,0.5), 0 0 0 6px rgba(251,191,36,0.15); } }`;
-            document.head.appendChild(s);
-        }
-
-        requestAnimationFrame(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0) scale(1)'; });
-        setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(-20px) scale(0.9)'; setTimeout(() => toast.remove(), 500); }, 5000);
-    }
-
-    // 采集周期：每30秒累加0.5分钟 + 检查成就
-    setInterval(() => {
-        if (appState.recordActive) {
-            bumpAchStat('minutes', 0.5);
-        }
-        if (appState.activeZone === 'course') {
-            bumpAchStat('course_ids', 0);
-        }
-        checkAchievements();
-    }, 30000);
-
     async function triggerDocBatchSniper() {
         appState.batchDocSubmitting = true; logMsg('🔄 启动【全局文档清理】，静默完成阅读...', 'warning', false);
         try {
-            const token = await getAuthToken(); const res = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { headers: { "authorization": `Bearer ${token}` } });
-            const data = await res.json();
-            if (data.success && data.data) {
+            const token = await getAuthToken();
+            const data = await fetchRadarCached();
+            if (data && data.success && data.data) {
                 const docTasks = data.data.filter(t => t.task_type === 1 && t.finish !== 2);
                 if (docTasks.length > 0) {
                     for (let i = 0; i < docTasks.length; i++) {
@@ -1515,6 +1808,7 @@
                     appState.totalTime += 30;
                     sessionStorage.setItem('xy_recordCount', appState.recordCount); sessionStorage.setItem('xy_totalTime', appState.totalTime); updateCourseUI();
                     recordFailCount = 0;
+                    keepaliveLastBeatTime = Date.now(); // 仅在真实成功后更新时间戳
                     isRecordSending = false;
                     return;
                 }
@@ -1531,15 +1825,61 @@
         isRecordSending = false;
     }
 
+    // 🕐 持久化定时器：防止浏览器后台节流导致定时器停摆
+    const _persistentIntervals = [];
+    function createPersistentInterval(fn, ms, maxCatchUp = 20) {
+        let lastTick = Date.now();
+        let timerId = null;
+        let running = true;
+
+        function tick() {
+            if (!running) return;
+            const now = Date.now();
+            const elapsed = now - lastTick;
+            if (elapsed >= ms) {
+                const missed = Math.min(Math.floor(elapsed / ms), maxCatchUp);
+                for (let i = 0; i < missed; i++) {
+                    try { fn(); } catch(e) {}
+                }
+                lastTick = now;
+            }
+        }
+
+        timerId = setInterval(tick, Math.max(ms / 4, 250));
+        _persistentIntervals.push({ fn, ms, maxCatchUp, lastTick: () => lastTick, tick, clear: () => { running = false; clearInterval(timerId); } });
+
+        return {
+            clear: () => { running = false; clearInterval(timerId); },
+            resetTimer: () => { lastTick = Date.now(); }
+        };
+    }
+
+    // 监听窗口切回前台，立即补偿所有持久化定时器
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            _persistentIntervals.forEach(p => {
+                const elapsed = Date.now() - p.lastTick();
+                if (elapsed >= p.ms * 1.2) {
+                    const missed = Math.min(Math.floor(elapsed / p.ms), p.maxCatchUp);
+                    for (let i = 0; i < missed; i++) {
+                        try { p.fn(); } catch(e) {}
+                    }
+                }
+            });
+        }
+    });
+
     function toggleRecord(start) {
         if (appState.recordActive === start) return;
         appState.recordActive = start;
         if (start) {
-            sendRecordRequest(); recordIntervalTimer = setInterval(sendRecordRequest, 30000); 
-            realTimeTimer = setInterval(() => { appState.realTime++; sessionStorage.setItem('xy_realTime', appState.realTime); updateCourseUI(); }, 1000);
+            sendRecordRequest();
+            recordIntervalTimer = createPersistentInterval(sendRecordRequest, 30000, 20);
+            realTimeTimer = createPersistentInterval(() => { appState.realTime++; sessionStorage.setItem('xy_realTime', appState.realTime); updateCourseUI(); }, 1000, 30);
             if (!appState.guardActive) { appState.guardActive = true; GM_setValue('xy_guard_active', true); }
         } else {
-            clearInterval(recordIntervalTimer); clearInterval(realTimeTimer); recordIntervalTimer = null; realTimeTimer = null;
+            if (recordIntervalTimer) { recordIntervalTimer.clear(); recordIntervalTimer = null; }
+            if (realTimeTimer) { realTimeTimer.clear(); realTimeTimer = null; }
         }
         updateCourseUI();
     }
@@ -1579,22 +1919,6 @@
     function stopKeepaliveWatchdog() {
         if (keepaliveWatchdogTimer) { clearInterval(keepaliveWatchdogTimer); keepaliveWatchdogTimer = null; }
     }
-
-    // 劫持 sendRecordRequest 成功后更新时间戳（用于看门狗判断）
-    const _origSendRecordRequest = sendRecordRequest;
-    sendRecordRequest = async function() {
-        const result = await _origSendRecordRequest();
-        if (result === undefined) keepaliveLastBeatTime = Date.now(); // 原函数无返回值，成功后内部直接 return
-        return result;
-    };
-    // 更精确的拦截：监听 recordCount 变化
-    let _watchRecordCount = appState.recordCount;
-    const _watchInterval = setInterval(() => {
-        if (appState.recordCount !== _watchRecordCount) {
-            _watchRecordCount = appState.recordCount;
-            keepaliveLastBeatTime = Date.now();
-        }
-    }, 1000);
 
     // ==========================================
     // ⏱️ 手动时长注入引擎
@@ -1684,8 +2008,8 @@
     let watchdogLastActiveTime = Date.now();
     let lastAutoActionMinute = '';
 
-    // 频段1：1秒级状态维持（脚本进度隔离、文档计时、弹窗点击）
-    setInterval(async () => {
+    // 频段1：1秒级状态维持（脚本进度隔离、文档计时、弹窗点击）- 持久化防后台节流
+    createPersistentInterval(async () => {
         await runLowLevelScanner(); 
 
         checkDynamicRefresh();
@@ -1874,10 +2198,10 @@
 
         updateTitleBar();
         if (appState.theme === 'auto') applyTheme();
-    }, 1000);
+    }, 1000, 30);
 
-    // 频段2：5秒级跳课与连播模式的专属提交调度
-    setInterval(async () => {
+    // 频段2：5秒级跳课与连播模式的专属提交调度 - 持久化防后台节流
+    createPersistentInterval(async () => {
         if (!appState.aiMode || appState.activeZone !== 'course' || appState.mode !== 'sequence') return;
 
         if (Date.now() < appState.jumpSleepUntil) return;
@@ -1945,10 +2269,10 @@
                 }
             }
         }
-    }, 5000);
+    }, 5000, 10);
 
-    // 频段3：讨论区DOM智能扫描探测 (3秒一次，不影响主轴)
-    setInterval(() => {
+    // 频段3：讨论区DOM智能扫描探测 (3秒一次，不影响主轴) - 持久化防后台节流
+    createPersistentInterval(() => {
         if (appState.activeZone === 'disc' && appState.enableDomScan) {
             const domNames = scanDomForUserNames();
             let added = false;
@@ -1963,7 +2287,7 @@
                 renderTargetList(document.getElementById('xy-name-search')?.value || '');
             }
         }
-    }, 3000);
+    }, 3000, 10);
 
     // ==========================================
     // 🎯 讨论区点赞抓取模块：自动全页扫描
@@ -2030,8 +2354,10 @@
         const checkedNames = isTargeted ? getCheckedTargetNames() : [];
         if (isTargeted && checkedNames.length === 0) { logMsg('请先勾选目标人物', 'warning'); return; }
 
-        const btn = document.getElementById(isTargeted ? 'xy-btn-target-like' : 'xy-btn-like'); const originalText = btn.innerText;
-        btn.disabled = true; 
+        const btn = document.getElementById(isTargeted ? 'xy-btn-target-like' : 'xy-btn-like');
+        if (!btn) { logMsg('UI 按钮未就绪，请刷新页面', 'error'); return; }
+        const originalText = btn.innerText;
+        btn.disabled = true;
 
         try {
             let targets = []; const MAX_LIKES = 15; 
@@ -2069,7 +2395,7 @@
                 const item = uniqueTargets[i]; const payload = { discussion_id: appState.discussionId, group_id: appState.discGroupId, point_id: item.id, like: 1 };
                 try {
                     const likeRes = await fetch(`https://${domain}/api/jx-iresource/discussion/like`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify(payload) });
-                    const likeData = await likeRes.json(); if (likeData.success || likeData.code === 200 || likeData.code === 0) { successCount++; bumpAchStat('likes'); }
+                    const likeData = await likeRes.json(); if (likeData.success || likeData.code === 200 || likeData.code === 0) { successCount++; }
                 } catch(e) { console.warn('[小雅] 讨论点赞失败', e); } await sleep(Math.floor(Math.random() * 700) + 800); 
             }
             logMsg(`🎉 点赞任务结束！成功点赞 ${successCount} 次！即将刷新页面...`, 'success'); setTimeout(() => { window.location.reload(); }, 1500);
@@ -2347,7 +2673,8 @@
                 if (cnt) cnt.textContent = ta.value.split(/[\n\r]+/).filter(s => s.trim()).length + ' 条';
             });
         }
-        document.getElementById('xy-reply-reset-btn').onclick = () => {
+        const resetBtn = document.getElementById('xy-reply-reset-btn');
+        if (resetBtn) resetBtn.onclick = () => {
             const defaults = [
                 "非常赞同你的观点，这种思路确实能给我们带来很多新的启发和思考！",
                 "同学说得太对了，我也一直有这个想法，按照这个方法去做肯定会有很大收获。",
@@ -2362,7 +2689,8 @@
             ];
             if (ta) { ta.value = defaults.join('\n'); ta.dispatchEvent(new Event('input')); }
         };
-        document.getElementById('xy-reply-save-btn').onclick = () => {
+        const saveBtn = document.getElementById('xy-reply-save-btn');
+        if (saveBtn) saveBtn.onclick = () => {
             const lines = ta.value.split(/[\n\r]+/).map(s => s.trim()).filter(s => s.length > 0);
             appState.customReplies = lines;
             GM_setValue('xy_custom_replies', JSON.stringify(lines));
@@ -2371,7 +2699,6 @@
         };
     }
 
-    // （保留所有其它辅助UI函数，如 renderTargetList, updateDiscUI, openReplySettingsModal 等）
     function updateDiscUI() {
         if (appState.activeZone !== 'disc') return;
         const statusEl = document.getElementById('xy-disc-status');
@@ -2415,7 +2742,7 @@
             let displayNameHtml = safeName;
             if (terms.length > 0) {
                 terms.forEach(term => {
-                    const regex = new RegExp(`(${escapeHtml(term)})`, 'gi');
+                    const regex = new RegExp(`(${escapeRegex(term)})`, 'gi');
                     displayNameHtml = displayNameHtml.replace(regex, `<span style="background-color: #fde047; color: #854d0e; font-weight: bold; border-radius: 4px; padding: 0 4px;">$1</span>`);
                 });
             }
@@ -2516,7 +2843,7 @@
                     }
                 });
             }
-        } catch (error) {} 
+        } catch (error) { console.warn('[小雅] fetchGlobalTasks 失败', error); }
         return allTasks;
     }
 
@@ -2883,8 +3210,7 @@
                 showToast('秒交成功！', 'success');
                 appState.isTaskCompleted = true;
                 updateCourseUI();
-                bumpAchStat('tasksDone');
-                checkAchievements();
+        
             } else {
                 logMsg('❌ 秒交失败：可能需要先挂机积累时长', 'warning', false);
                 showToast('秒交失败，请先挂机积累时长', 'warning');
@@ -3374,15 +3700,15 @@
     // ==========================================
     // ⚙️ 计划调度器专属外挂 Timer
     // ==========================================
-    // 独立于双频引擎的调度专属1秒轮询
-    setInterval(async () => {
+    // 独立于双频引擎的调度专属1秒轮询 - 持久化防后台节流
+    createPersistentInterval(async () => {
         if (!xyScheduleState.isRunning || xyScheduleState.queue.length === 0) return;
 
         const currentTask = xyScheduleState.queue[xyScheduleState.currentIdx];
         
         if (!currentTask) {
             logMsg('✅ 所有计划调度任务已圆满完成！已自动切换为手动休眠。', 'success', false);
-            if (xyScheduleState.queue.length >= 3) bumpAchStat('scheduleRounds');
+
             xyScheduleState.isRunning = false;
             
             // 用户特别诉求：跑完后进入彻底手动暂停
@@ -3470,12 +3796,19 @@
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
         }
         
-    }, 1000);
+    }, 1000, 30);
+
+
+    function dismissSplash() {
+        try { if (window._xySplashDismiss) window._xySplashDismiss(); } catch(e) {}
+    }
 
 
     function createUI() {
         if (document.getElementById('xy-super-console')) return;
         if (!document.body) { requestAnimationFrame(createUI); return; }
+
+        dismissSplash();
 
         const wrapper = document.createElement('div'); wrapper.id = 'xy-super-console';
         let pos = { x: window.innerWidth - 400, y: 50 };
@@ -3621,8 +3954,7 @@
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <div id="xy-zone-badge" class="xy-badge xy-badge-info"></div>
-                    <span id="xy-qq-group" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s;" title="点击复制QQ群号" onmouseover="this.style.background='${T('rgba(129,140,248,0.25)','#c7d2fe')}';" onmouseout="this.style.background='${T('rgba(129,140,248,0.15)','#e0e7ff')}';">QQ: 1095232169</span>
-                    <span id="xy-ach-badge" class="xy-badge xy-badge-warning" style="cursor:pointer; transition:all 0.2s;" title="查看成就" onmouseover="this.style.background='${T('rgba(251,191,36,0.22)','#fde68a')}';" onmouseout="this.style.background='${T('rgba(251,191,36,0.12)','#fef3c7')}';">🏆 ${achUnlocked.size}/${ACHIEVEMENTS.length}</span>
+                    <span id="xy-qq-group" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s;" title="点击复制QQ群号" onmouseover="this.style.background='${T('rgba(129,140,248,0.25)','#c7d2fe')}';" onmouseout="this.style.background='${T('rgba(129,140,248,0.15)','#e0e7ff')}';">QQ群: 1095232169</span>
                 </div>
             </div>
 
@@ -3717,22 +4049,25 @@
                         </div>
                     </div>
 
-                    <div class="xy-panel" style="padding:10px 14px; margin-bottom:10px;">
-                        <div class="xy-section-hdr" id="xy-hdr-inject" style="font-size:12px; font-weight:600; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
-                            <span>⏱️ 学时注入（测试中）</span><span id="xy-arr-inject" style="font-size:10px; transition:transform 0.25s;">▼</span>
+                    <div class="xy-panel" style="padding:10px 14px; margin-bottom:10px; border: 1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};">
+                        <div class="xy-section-hdr" id="xy-hdr-inject" style="font-size:12px; font-weight:600; color:${T('#f87171','#dc2626')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
+                            <span>⚠️ 学时注入（高危 · 未测试）</span><span id="xy-arr-inject" style="font-size:10px; transition:transform 0.25s; transform:rotate(-90deg);">▼</span>
                         </div>
-                        <div id="xy-body-inject" style="margin-top: 10px;">
+                        <div id="xy-body-inject" style="margin-top: 8px; display:none;">
+                            <div style="font-size:10px; color:${T('#f87171','#dc2626')}; margin-bottom:8px; line-height:1.5; padding:6px 8px; background:${T('rgba(239,68,68,0.06)','#fef2f2')}; border-radius:6px; border-left:3px solid ${T('#f87171','#ef4444')};">
+                                ⚡ 此功能通过高频发包模拟学习时长，可能触发平台风控机制导致<b>账号异常</b>。仅供紧急补救使用，切勿日常依赖。使用前请确认了解风险！
+                            </div>
                             <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
-                                <input type="number" id="xy-inject-minutes" value="120" min="1" max="1440" style="flex:1; padding:7px 10px; border-radius:8px; border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')}; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; font-size:13px; font-weight:600; text-align:center;" placeholder="分钟数">
-                                <span style="font-size:12px; font-weight:600; color:${T('#94a3b8','#64748b')}; white-space:nowrap;">分钟</span>
+                                <input type="number" id="xy-inject-minutes" value="" min="1" max="300" style="flex:1; padding:7px 10px; border-radius:8px; border:1px solid ${T('rgba(239,68,68,0.3)','#fecaca')}; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#fca5a5','#dc2626')}; font-size:13px; font-weight:600; text-align:center;" placeholder="必须手动输入">
+                                <span style="font-size:12px; font-weight:600; color:${T('#f87171','#dc2626')}; white-space:nowrap;">分钟</span>
                             </div>
                             <div style="display:flex; gap:6px;">
-                                <button class="xy-action-btn" id="xy-btn-inject" style="flex:1; background:${T('rgba(52,211,153,0.12)','#ecfdf5')}; border-color:${T('rgba(52,211,153,0.25)','#a7f3d0')}; color:${T('#6ee7b7','#059669')}; font-size:12px; padding:8px;">▶ 注入时长</button>
-                                <button class="xy-mini-btn" id="xy-btn-inject-stop" style="color:#f87171; border-color:${T('rgba(248,113,113,0.2)','#fecaca')}; background:${T('rgba(248,113,113,0.08)','#fef2f2')}; font-size:11px;">⏹ 停止</button>
+                                <button class="xy-action-btn" id="xy-btn-inject" style="flex:1; background:${T('rgba(239,68,68,0.12)','#fef2f2')}; border-color:${T('rgba(239,68,68,0.3)','#fecaca')}; color:${T('#fca5a5','#dc2626')}; font-size:12px; padding:8px;">⚠️ 确认注入</button>
+                                <button class="xy-mini-btn" id="xy-btn-inject-stop" style="color:${T('#94a3b8','#64748b')}; border-color:${T('rgba(71,85,105,0.2)','#e2e8f0')}; background:${T('rgba(71,85,105,0.08)','#f8fafc')}; font-size:11px;">⏹ 停止</button>
                             </div>
-                            <div id="xy-inject-progress" style="display:none; margin-top:8px; padding:8px 10px; background:${T('rgba(52,211,153,0.06)','#f0fdf4')}; border-radius:8px; border:1px solid ${T('rgba(52,211,153,0.15)','#bbf7d0')};">
-                                <div style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; margin-bottom:4px;" id="xy-inject-progress-text">准备中...</div>
-                                <div style="width:100%; height:4px; background:${T('rgba(52,211,153,0.15)','#d1fae5')}; border-radius:2px; overflow:hidden;"><div id="xy-inject-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #34d399, #059669); transition:width 0.3s ease-out; border-radius:2px;"></div></div>
+                            <div id="xy-inject-progress" style="display:none; margin-top:8px; padding:8px 10px; background:${T('rgba(239,68,68,0.06)','#fef2f2')}; border-radius:8px; border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};">
+                                <div style="font-size:11px; font-weight:600; color:${T('#fca5a5','#dc2626')}; margin-bottom:4px;" id="xy-inject-progress-text">准备中...</div>
+                                <div style="width:100%; height:4px; background:${T('rgba(239,68,68,0.15)','#fee2e2')}; border-radius:2px; overflow:hidden;"><div id="xy-inject-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #f87171, #ef4444); transition:width 0.3s ease-out; border-radius:2px;"></div></div>
                             </div>
                         </div>
                     </div>
@@ -3822,8 +4157,26 @@
                             <button class="xy-mini-btn" id="xy-dl-refresh" style="padding:3px 10px; font-size:11px;">🔄 刷新</button>
                         </div>
                     </div>
-                    <div style="max-height:240px; overflow-y:auto; margin-bottom:12px;" id="xy-dl-file-list">
+                    <div style="margin-bottom: 10px;">
+                        <input type="text" id="xy-dl-search" class="xy-input-box" placeholder="🔍 搜索文件名..." style="text-align: left; padding: 8px 12px; width: 100%; box-sizing: border-box;">
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 11px; color: ${T('#94a3b8','#64748b')};">
+                        <span id="xy-dl-file-count">0 个文件</span>
+                    </div>
+                    <div style="max-height:200px; overflow-y:auto; margin-bottom:8px;" id="xy-dl-file-list">
                         <div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">暂无课件资源</div>
+                    </div>
+                    <div id="xy-dl-progress-wrap" style="display:none; margin-bottom: 10px;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                            <span id="xy-dl-progress-text" style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; white-space:nowrap;"></span>
+                            <div style="display:flex; gap:4px; margin-left:auto;">
+                                <button class="xy-mini-btn" id="xy-dl-pause" style="display:none; padding:2px 8px; font-size:11px;">⏸️ 暂停</button>
+                                <button class="xy-mini-btn" id="xy-dl-stop" style="display:none; padding:2px 8px; font-size:11px; color:#f87171; border-color:${T('rgba(248,113,113,0.25)','#fecaca')}; background:${T('rgba(248,113,113,0.08)','#fef2f2')};">⏹️ 终止</button>
+                            </div>
+                        </div>
+                        <div style="width:100%; height:8px; background:${T('rgba(71,85,105,0.2)','#e2e8f0')}; border-radius:4px; overflow:hidden;">
+                            <div id="xy-dl-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #34d399, #818cf8); border-radius:4px; transition: width 0.3s ease;"></div>
+                        </div>
                     </div>
                     <div style="display:flex; gap:8px;">
                         <button class="xy-mini-btn" id="xy-dl-select-all" style="flex:1;">全选</button>
@@ -3881,25 +4234,6 @@
                     await navigator.clipboard.writeText('1095232169');
                     showToast('🎉 QQ群号 1095232169 已成功复制到剪贴板！', 'success');
                 } catch(err) { showToast('请手动复制 QQ群号: 1095232169', 'error'); }
-            };
-        }
-
-        const achBadge = document.getElementById('xy-ach-badge');
-        if (achBadge) {
-            achBadge.onclick = (e) => {
-                e.stopPropagation();
-                const stats = getAchStats();
-                let html = '<div style="max-height:50vh; overflow-y:auto;">';
-                ACHIEVEMENTS.forEach(ach => {
-                    const unlocked = achUnlocked.has(ach.id);
-                    html += '<div style="display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid ' + T('rgba(71,85,105,0.15)','#e2e8f0') + '; opacity:' + (unlocked ? '1' : '0.35') + ';">' +
-                        '<span style="font-size:28px;">' + (unlocked ? ach.icon : '🔒') + '</span>' +
-                        '<div><div style="font-weight:bold; color:' + T('#e2e8f0','#0f172a') + ';">' + ach.name + '</div><div style="font-size:12px; color:' + T('#94a3b8','#64748b') + ';">' + ach.desc + '</div></div>' +
-                        (unlocked ? '<span style="margin-left:auto; color:#f59e0b; font-size:20px;">⭐</span>' : '') +
-                    '</div>';
-                });
-                html += '</div>';
-                xyShowModal('🏆 成就殿堂', html);
             };
         }
 
@@ -3980,10 +4314,32 @@
             updateCourseUI();
             logMsg(`💓 后台保活${appState.keepaliveEnabled ? '已开启':'已关闭'}`, 'info', true);
         };
-        document.getElementById('xy-btn-inject').onclick = () => {
+        const injectBtn = document.getElementById('xy-btn-inject');
+        if (injectBtn) injectBtn.onclick = () => {
             const input = document.getElementById('xy-inject-minutes');
-            const minutes = parseInt(input?.value) || 120;
-            injectDuration(minutes);
+            const minutes = parseInt(input?.value);
+            if (!minutes || minutes < 1) { showToast('请先手动输入要注入的分钟数！', 'error'); return; }
+            xyShowModal('⚠️ 高危操作确认',
+                `<div style="line-height:1.8; color:${T('#e2e8f0','#0f172a')};">
+                    <p style="color:${T('#fca5a5','#dc2626')}; font-weight:bold; font-size:15px;">你即将注入 <span style="font-size:20px;">${minutes}</span> 分钟学习时长</p>
+                    <p style="font-size:12px; color:${T('#94a3b8','#64748b')};">此操作会以高频发包方式模拟学习记录，存在以下风险：</p>
+                    <ul style="font-size:12px; color:${T('#f87171','#dc2626')}; padding-left:16px; margin:8px 0;">
+                        <li>可能触发平台风控系统</li>
+                        <li>可能导致账号功能受限</li>
+                        <li>仅供紧急补救，切勿日常依赖</li>
+                    </ul>
+                    <p style="font-size:12px; color:${T('#fca5a5','#dc2626')}; font-weight:bold;">请在下方重新输入 ${minutes} 以确认：</p>
+                    <input id="xy-inject-confirm" type="number" style="width:100%; padding:8px; border-radius:6px; border:2px solid ${T('#f87171','#ef4444')}; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; font-size:16px; text-align:center;" placeholder="输入 ${minutes} 确认">
+                </div>`,
+                () => {
+                    const confirmInput = document.getElementById('xy-inject-confirm');
+                    if (confirmInput && parseInt(confirmInput.value) === minutes) {
+                        injectDuration(minutes);
+                    } else {
+                        showToast('❌ 确认数字不匹配，注入已取消', 'error');
+                    }
+                }
+            );
         };
         document.getElementById('xy-btn-inject-stop').onclick = () => stopInject();
         document.getElementById('xy-btn-mouse-sim').onclick = () => {
@@ -4030,8 +4386,19 @@
         if (btnEditReply) btnEditReply.onclick = openReplySettingsModal;
 
         // ── 下载区事件 ──
+        const dlSearchInput = document.getElementById('xy-dl-search');
+        if (dlSearchInput) {
+            dlSearchInput.addEventListener('input', () => {
+                appState.downloadSearchKeyword = dlSearchInput.value;
+                renderDownloadList();
+            });
+        }
         document.getElementById('xy-dl-select-all').onclick = () => {
-            appState.downloadFiles.forEach(f => appState.downloadSelectedIds.add(f.id));
+            const keyword = (appState.downloadSearchKeyword || '').toLowerCase().trim();
+            const targets = keyword
+                ? appState.downloadFiles.filter(f => f.name.toLowerCase().includes(keyword))
+                : appState.downloadFiles;
+            targets.forEach(f => appState.downloadSelectedIds.add(f.id));
             renderDownloadList();
         };
         document.getElementById('xy-dl-deselect-all').onclick = () => {
@@ -4039,6 +4406,12 @@
             renderDownloadList();
         };
         document.getElementById('xy-dl-batch-download').onclick = () => batchDownloadSelected();
+        document.getElementById('xy-dl-stop').onclick = () => stopBatchDownload();
+        document.getElementById('xy-dl-pause').onclick = () => {
+            appState.downloadPaused = !appState.downloadPaused;
+            setDownloadButtonsState(true, appState.downloadPaused);
+            logMsg(appState.downloadPaused ? '⏸️ 下载已暂停' : '▶️ 下载已继续', 'info', true);
+        };
         document.getElementById('xy-dl-back').onclick = () => {
             switchToZone(appState.prevZone || 'course');
         };
@@ -4149,6 +4522,7 @@
         };
         bindSection('xy-hdr-actions', 'xy-body-actions', 'xy-arr-actions');
         bindSection('xy-hdr-toggles', 'xy-body-toggles', 'xy-arr-toggles');
+        bindSection('xy-hdr-inject', 'xy-body-inject', 'xy-arr-inject');
         bindSection('xy-hdr-engine', 'xy-body-engine', 'xy-arr-engine');
 
         const themeBtn = document.getElementById('xy-theme-toggle');
@@ -4225,7 +4599,7 @@
     }
 
     const observer = new MutationObserver(() => ensureUI());
-    observer.observe(document.body, { childList: true, subtree: false });
+    try { observer.observe(document.body, { childList: true, subtree: false }); } catch(e) { /* body 暂未就绪，由 DOMContentLoaded 兜底 */ }
 
     const pushState = history.pushState; history.pushState = function () { pushState.apply(history, arguments); setTimeout(ensureUI, 100); };
     const replaceState = history.replaceState; history.replaceState = function () { replaceState.apply(history, arguments); setTimeout(ensureUI, 100); };
