@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.4.6 (2026-05-08)
+
+### 修复
+- **致命** `injectDuration` 调用未定义的 `_origSendRecordRequest` → 时长注入功能完全不可用 → 已修复
+- **中** 看门狗重建定时器用原始 `setInterval` → 浏览器可节流 + `.clear()` 类型错误 → 已修复
+- **中** 注入循环嵌套重试无效 → `sendRecordRequest` 从不 throw，失败包仍计为成功 → 已修复
+- **低** `injectDuration` 无上限 → 控制台可恶意发包 → 已加 300 分钟上限
+- **低** 注入未检查 `activeZone` → 与正常心跳防护不一致 → 已补齐
+
+### 加强
+- 注入期间占用 `isRecordSending` 锁，阻止正常心跳并发重复发包
+- `_origSendRecordRequest` 重构为独立核心发包函数，`sendRecordRequest` 薄包装复用
+- 注入清理逻辑用 `try-finally` 保证锁和状态在任何退出路径下正确释放
+- 新增 `inject-test.js` 独立测试脚本，支持 `--dry` 干跑和 `--verbose` 详细模式
+
 ## 3.4.5 (2026-05-08)
 
 ### 修复

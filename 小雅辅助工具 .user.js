@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.4.5
+// @version      3.4.6
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入
 // @author       Confidential
 // @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
@@ -1777,23 +1777,22 @@
         appState.docPreviewDoneNodeId = nodeId; 
     }
 
-    async function sendRecordRequest() {
-        if (appState.activeZone !== 'course') return;
-        if (isRecordSending) return;
-        const groupId = getCourseGroupId(); const resourceId = getNodeId(); if (!groupId || !resourceId) return;
+    // 核心发包：无 isRecordSending 守卫，失败会 throw（供 injectDuration 直接调用）
+    async function _origSendRecordRequest() {
+        const groupId = getCourseGroupId(); const resourceId = getNodeId();
+        if (!groupId || !resourceId) throw new Error('no resource');
 
-        isRecordSending = true;
-        let token = null;
-        try { token = await getAuthToken(); } catch (e) { console.warn('[小雅] sendRecord: 获取Token失败', e); isRecordSending = false; return; }
+        let token = await getAuthToken();
 
         const maxRetries = 3;
+        let lastError = null;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
                 if (attempt > 0) await sleep(Math.pow(3, attempt) * 1000);
 
                 const uRes = await fetch(`https://${domain}/api/jx-auth/oauth2/info`, { headers: { "authorization": `Bearer ${token}` }});
-                if (!uRes.ok) { console.warn(`[小雅] sendRecord: oauth2/info HTTP ${uRes.status}`); continue; }
-                const uData = await uRes.json(); const userId = uData?.data?.info?.id; if (!userId) { console.warn('[小雅] sendRecord: 无法获取userId'); continue; }
+                if (!uRes.ok) { lastError = new Error(`oauth2/info HTTP ${uRes.status}`); continue; }
+                const uData = await uRes.json(); const userId = uData?.data?.info?.id; if (!userId) { lastError = new Error('no userId'); continue; }
 
                 const msgObj = { user_id: userId, group_id: groupId, clientType: 1, roleType: 1, resourceId: resourceId };
                 const message = JSON.stringify(msgObj); const timestamp = Date.now().toString(); const nonce = generateUUID();
@@ -1808,13 +1807,12 @@
                     appState.totalTime += 30;
                     sessionStorage.setItem('xy_recordCount', appState.recordCount); sessionStorage.setItem('xy_totalTime', appState.totalTime); updateCourseUI();
                     recordFailCount = 0;
-                    keepaliveLastBeatTime = Date.now(); // 仅在真实成功后更新时间戳
-                    isRecordSending = false;
-                    return;
+                    keepaliveLastBeatTime = Date.now();
+                    return; // success
                 }
-                console.warn(`[小雅] sendRecord: 服务端返回非成功 code=${result.code} msg=${result.message}`);
+                lastError = new Error(`code=${result.code} msg=${result.message}`);
             } catch (e) {
-                console.warn(`[小雅] sendRecord: 第${attempt + 1}次失败`, e.message || e);
+                lastError = e;
             }
         }
         recordFailCount++;
@@ -1822,6 +1820,15 @@
             logMsg('⚠️ 学习记录连续失败10次，请检查网络或Token是否过期', 'error', false);
             recordFailCount = 0;
         }
+        throw lastError || new Error('sendRecord failed');
+    }
+
+    async function sendRecordRequest() {
+        if (appState.activeZone !== 'course') return;
+        if (isRecordSending) return;
+        const groupId = getCourseGroupId(); const resourceId = getNodeId(); if (!groupId || !resourceId) return;
+        isRecordSending = true;
+        try { await _origSendRecordRequest(); } catch (e) { console.warn('[小雅] sendRecord 失败', e.message || e); }
         isRecordSending = false;
     }
 
@@ -1910,7 +1917,8 @@
             // 如果心跳定时器丢失（被GC/节流回收），重新拉起
             if (!recordIntervalTimer && appState.recordActive) {
                 logMsg('💓 [保活] 心跳定时器丢失，自动重建', 'warning', true);
-                recordIntervalTimer = setInterval(sendRecordRequest, 30000);
+                if (recordIntervalTimer) recordIntervalTimer.clear();
+                recordIntervalTimer = createPersistentInterval(sendRecordRequest, 30000, 20);
             }
         }, 10000);
         logMsg('💓 后台保活看门狗已启动（10s巡检）', 'silent', true);
@@ -1928,8 +1936,17 @@
             logMsg('⏱️ 时长必须为正数（分钟）', 'error', false);
             return;
         }
+        const MAX_INJECT_MINUTES = 300;
+        if (minutes > MAX_INJECT_MINUTES) {
+            logMsg(`⏱️ 单次最多注入 ${MAX_INJECT_MINUTES} 分钟`, 'error', false);
+            return;
+        }
         if (appState.injectActive) {
             logMsg('⏱️ 当前有注入任务正在执行，请等待完成或先点停止', 'warning', false);
+            return;
+        }
+        if (appState.activeZone !== 'course') {
+            logMsg('⏱️ 请先进入课程内容页面', 'error', false);
             return;
         }
         const groupId = getCourseGroupId();
@@ -1939,6 +1956,7 @@
             return;
         }
         const totalPackets = Math.ceil((minutes * 60) / 30);
+        isRecordSending = true; // 抢占锁，阻止正常心跳并发
         appState.injectActive = true;
         appState.injectTotal = totalPackets;
         appState.injectCompleted = 0;
@@ -1947,37 +1965,34 @@
         updateInjectUI();
 
         const startTime = Date.now();
-        for (let i = 0; i < totalPackets; i++) {
-            if (!appState.injectActive) {
-                logMsg('⏱️ 注入已中断（已发 ' + appState.injectCompleted + '/' + totalPackets + ' 包）', 'warning', false);
-                break;
-            }
-            let ok = false;
-            for (let retry = 0; retry < 3; retry++) {
-                if (retry > 0) await sleep(Math.pow(2, retry) * 1000);
+        try {
+            for (let i = 0; i < totalPackets; i++) {
+                if (!appState.injectActive) {
+                    logMsg('⏱️ 注入已中断（已发 ' + appState.injectCompleted + '/' + totalPackets + ' 包）', 'warning', false);
+                    break;
+                }
                 try {
-                    // 直接复用小雅核心心跳函数
                     await _origSendRecordRequest();
-                    ok = true; break;
-                } catch(e) {}
+                    appState.injectCompleted++;
+                } catch(e) {
+                    // _origSendRecordRequest 内部已重试3次，此处跳过失败包
+                }
+                if ((i + 1) % 10 === 0 || i === totalPackets - 1) {
+                    updateInjectUI();
+                    updateCourseUI();
+                }
+                if (i < totalPackets - 1 && appState.injectActive) {
+                    await sleep(1500); // 每包间隔 1.5s，防止服务端限流
+                }
             }
-            if (ok) {
-                appState.injectCompleted++;
-                // recordCount/totalTime/sessionStorage 已由 sendRecordRequest 内部自动累加
-            }
-            if ((i + 1) % 10 === 0 || i === totalPackets - 1) {
-                updateInjectUI();
-                updateCourseUI();
-            }
-            if (i < totalPackets - 1 && appState.injectActive) {
-                await sleep(1500); // 每包间隔 1.5s，防止服务端限流
-            }
+            const elapsed = Math.round((Date.now() - startTime) / 1000);
+            logMsg(`⏱️ 注入完成：${appState.injectCompleted}/${totalPackets} 成功，耗时 ${elapsed}s`, 'success', false);
+        } finally {
+            isRecordSending = false; // 释放锁
+            appState.injectActive = false;
+            updateInjectUI();
+            updateCourseUI();
         }
-        const elapsed = Math.round((Date.now() - startTime) / 1000);
-        logMsg(`⏱️ 注入完成：${appState.injectCompleted}/${totalPackets} 成功，耗时 ${elapsed}s`, 'success', false);
-        appState.injectActive = false;
-        updateInjectUI();
-        updateCourseUI();
     }
 
     function stopInject() {
