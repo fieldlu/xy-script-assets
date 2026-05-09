@@ -2546,6 +2546,10 @@
                     ${(data.items || []).map(item => `<li style="margin-bottom:8px;">${escapeHtml(item)}</li>`).join('')}
                 </ul>
             </div>`;
+        // 自动展开情报站，用户打开就能看见
+        contentBox.style.display = 'block';
+        const arrow = document.getElementById('xy-bc-arrow');
+        if (arrow) arrow.style.transform = 'rotate(180deg)';
     }
 
     function fetchCloudIntelligence() {
