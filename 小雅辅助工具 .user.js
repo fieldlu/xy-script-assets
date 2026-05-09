@@ -1082,7 +1082,7 @@
         toast.style.cssText = `background:${currentType.bg}; color:${currentType.text}; padding:14px 22px; border-radius:10px; font-weight:600; font-size:14px; box-shadow:${T('0 12px 30px rgba(0,0,0,0.4)','0 8px 24px rgba(0,0,0,0.08)')}, 0 0 0 1px ${currentType.border}; transition:all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-30px) scale(0.9); backdrop-filter: ${T('blur(12px)','none')}; display:flex; align-items:center; overflow:hidden; position:relative;`;
         toast.innerHTML = `<span style="margin-right:10px; font-size:18px;">${currentType.icon}</span><span style="flex:1; z-index:1; line-height: 1.4;">${msg}</span><div style="position:absolute; bottom:0; left:0; height:3px; background:${currentType.accent}; width:100%; transform-origin:left; animation: xy-toast-progress 3s linear forwards; opacity: 0.5;"></div>`;
         container.appendChild(toast);
-        if(!document.getElementById('xy-toast-style')) { const style = document.createElement('style'); style.id = 'xy-toast-style'; style.innerHTML = `@keyframes xy-toast-progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }`; document.head.appendChild(style); }
+        if(!document.getElementById('xy-toast-style')) { const style = document.createElement('style'); style.id = 'xy-toast-style'; style.innerHTML = `@keyframes xy-toast-progress{from{transform:scaleX(1)}to{transform:scaleX(0)}}@keyframes xy-spin{to{transform:rotate(360deg)}}@keyframes xy-indeterminate{0%{transform:translateX(-100%)}50%{transform:translateX(150%)}100%{transform:translateX(350%)}}`; document.head.appendChild(style); }
         requestAnimationFrame(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0) scale(1)'; });
         setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(-20px) scale(0.9)'; setTimeout(() => toast.remove(), 400); }, 3000);
     }
@@ -3983,8 +3983,12 @@
                         <span id="xy-bc-arrow" style="transition: transform 0.3s; font-size: 10px; color: ${T('#818cf8','#4f46e5')};">▼</span>
                     </div>
                     <div id="xy-bc-content" style="font-size: 12px; color: ${T('#94a3b8','#475569')}; line-height: 1.7; display: none; background: ${T('rgba(15,23,42,0.4)','#f8fafc')}; border-top: 1px solid var(--xy-border); max-height: 180px; overflow-y: auto;">
-                        <div style="padding: 12px 16px;">
-                            <span style="color:${T('#64748b','#94a3b8')};">🔍 获取最新公告中…</span>
+                        <div style="padding: 12px 16px; display: flex; align-items: center; gap: 10px;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${T('#818cf8','#6366f1')}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: xy-spin 1s linear infinite;"><circle cx="12" cy="12" r="10" stroke-opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10" stroke="${T('#a5b4fc','#4f46e5')}"/></svg>
+                            <span style="color:${T('#94a3b8','#64748b')}; font-size:13px;">正在连接云端…</span>
+                            <div style="flex:1; height:3px; background:${T('rgba(99,102,241,0.1)','#e0e7ff')}; border-radius:2px; overflow:hidden; max-width:80px;">
+                                <div style="width:40%; height:100%; background:linear-gradient(90deg, ${T('#818cf8','#6366f1')}, ${T('#a5b4fc','#818cf8')}); border-radius:2px; animation: xy-indeterminate 1.4s ease-in-out infinite;"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
