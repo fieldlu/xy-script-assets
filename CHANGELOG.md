@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.5.0 (2026-05-10) — 3.4 系列结档
+
+### 新增
+- **课程页调度进度卡片**：模式按钮下方独立区域，实时显示任务进度和快捷操作
+- **关闭浏览器清空调度**：刷新保留，关浏览器自动清空
+- **后台防节流振荡器**：静默音频保持页面活跃，切后台定时器不降频
+- 调度卡片 addEventListener 替代 onclick，Tampermonkey 沙箱兼容
+
+### 修复
+- **致命** 调度跳转自动重置：sessionStorage 会话标记替代心跳方案
+- **致命** 自动定时启停依赖 overlay DOM → 改用全局函数
+- **致命** 模式切换停止调度依赖 overlay DOM → 改用全局函数
+- **致命** JSON.parse / parseInt / sessionStorage 无保护 → 全量 try-catch
+- **中** duration ≤ 0 导致瞬间完成 → 迁移时强制最低 30min
+- **中** task.name 无保护 → 全量加 `||'未知'`
+- **中** overlay 启动时序错误 → updateCourseUI 移到 isRunning=true 之后
+- **中** overlay 启动缺防节流振荡器 → 补齐
+- **低** 暂停时状态栏仍显示运行中 → 区分"运行中"与"已暂停"
+- **低** 日夜间模式文字颜色不跟随 → updateSchCard 每次刷新 color
+
+### 架构
+- 5 个全局调度函数 `xySchStart/Pause/Stop/Skip/Restart` 统一卡片和 overlay
+- 调度卡片独立渲染 + addEventListener，按钮不依赖 onclick 沙箱跨域
+- 防后台节流：maxCatchUp 30→300 + visibilitychange 强制刷新卡片
+
 ## 3.4.8 (2026-05-09)
 
 ### 修复
