@@ -7,16 +7,16 @@
 
 <br>
 
-> 🎀 **「主人～今天的学习任务就交给小雅吧！(｡･ω･｡)ﾉ♡」**
+> 🎀 **「主人～今天的刷课任务就交给小雅辅助工具吧！(｡･ω･｡)ﾉ♡」**
 >
-> 基于 `ai-augmented.com` 的全自动学习助手油猴脚本。
+> 专为 **小雅平台**（`ai-augmented.com`）打造的全自动学习助手油猴脚本。
 > 赛博朋克 × 二次元风格 × 军工级稳定性 —— 让刷课变成一件优雅的事。
 
 <br>
 
 ---
 
-## ✨ 为什么选小雅？
+## ✨ 为什么选小雅辅助工具？
 
 <table>
 <tr>
@@ -103,7 +103,7 @@
 ### 第一步：安装油猴扩展
 前往 [Tampermonkey 官网](https://www.tampermonkey.net/) 安装浏览器扩展（支持 Chrome / Edge / Firefox）
 
-### 第二步：安装小雅
+### 第二步：安装小雅辅助工具
 
 <p align="center">
   <a href="https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js">
@@ -116,7 +116,7 @@
 https://gitee.com/fieldlu/xy-script-assets/raw/main/小雅辅助工具%20.user.js
 ```
 
-> 💡 安装后油猴会自动检测更新，小雅每次进化你都能第一时间收到！
+> 💡 安装后油猴自动检测更新，脚本每次升级你都能第一时间收到！
 
 ---
 
@@ -219,5 +219,5 @@ XY_GROUP_ID="12345" XY_RESOURCE_ID="67890" XY_TOKEN="t" \
 ---
 
 <p align="center">
-  <sub>Made with 💖 by 小雅 · 主人要好好加油哦～ (｡･ω･｡)ﾉ♡</sub>
+  <sub>Made with 💖 for 小雅平台 · 主人要好好加油哦～ (｡･ω･｡)ﾉ♡</sub>
 </p>
