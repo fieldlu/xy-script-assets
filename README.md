@@ -1,6 +1,6 @@
 # 小雅辅助工具
 
-[![version](https://img.shields.io/badge/version-3.4.7-ff69b4)](https://gitee.com/fieldlu/xy-script-assets)
+[![version](https://img.shields.io/badge/version-3.4.8-ff69b4)](https://gitee.com/fieldlu/xy-script-assets)
 [![license](https://img.shields.io/badge/license-%E8%87%AA%E5%AE%9A%E4%B9%89-red)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-%E5%B0%8F%E9%9B%85%E5%B9%B3%E5%8F%B0-8b5cf6)]()
 
@@ -73,18 +73,20 @@
 
 ---
 
-## v3.4.7 更新
+## v3.4.8 更新
 
-**安装不再弹跨域授权** — 公告获取改用 CORS 代理，移除 `@grant GM_xmlhttpRequest`。
+**调度跳转不再秒停** — 修复页面跳转后调度系统自动重置的致命 Bug。
 
 | 级别 | 内容 |
 |------|------|
-| 核心 | 公告获取从 `GM_xmlhttpRequest` 改为 `fetch` + CORS 代理，安装不再弹授权提示 |
-| 容错 | 双代理自动切换，主代理挂了自动换备用，公告不中断 |
-| 安全 | 公告渲染增加 `escapeHtml` 防护 |
+| 致命 | 调度跳转后 `isRunning` 被初始化逻辑误杀 → 新增跳转标记跳过重置 |
+| 新增 | 暂停/继续按钮：运行中随时暂停，队列进度保留，刷新不丢失 |
+| 优化 | 按钮状态统一管理，暂停态持久化到本地存储 |
 
 <details>
 <summary>历史更新</summary>
+
+**v3.4.7** — 公告 CORS 代理方案：安装不弹跨域授权 + 双代理容错 + XSS 防护
 
 **v3.4.6** — 时长注入引擎修复：核心函数未定义、并发锁、看门狗防节流、300 分钟上限
 

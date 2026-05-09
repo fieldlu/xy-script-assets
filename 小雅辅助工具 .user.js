@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.4.7
+// @version      3.4.8
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入
 // @author       Confidential
 // @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
@@ -347,6 +347,7 @@
     const xyScheduleState = {
         queue: JSON.parse(GM_getValue('xy_schedule_queue', '[]')),
         isRunning: GM_getValue('xy_schedule_running', false),
+        isPaused: GM_getValue('xy_schedule_paused', false),
         currentIdx: parseInt(GM_getValue('xy_schedule_idx', 0)),
         lastMode: GM_getValue('xy_schedule_last_mode', 'sequence'),
         autoStart: GM_getValue('xy_schedule_auto_start', ''),
@@ -364,12 +365,18 @@
         if (!q.strategy) q.strategy = 'until_done';
     });
 
-    // 每次启动默认不自动运行计划调度，防止浏览器重开时意外自动执行
-    if (xyScheduleState.isRunning) {
+    // 调度跳转标记：跳转时置 1，初始化后清除。有旗 = 调度主动跳转，不重置
+    const _schJumping = sessionStorage.getItem('xy_sch_jumping') === '1';
+    sessionStorage.removeItem('xy_sch_jumping');
+
+    if (xyScheduleState.isRunning && !_schJumping) {
+        // 非调度跳转的页面启动（浏览器重开/手动刷新）→ 安全重置
         xyScheduleState.isRunning = false;
+        xyScheduleState.isPaused = false;
         xyScheduleState.currentIdx = 0;
         xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; });
         GM_setValue('xy_schedule_running', false);
+        GM_setValue('xy_schedule_paused', false);
         GM_setValue('xy_schedule_idx', 0);
         GM_setValue('xy_schedule_queue', JSON.stringify(xyScheduleState.queue));
     }
@@ -377,6 +384,7 @@
     function saveScheduleState() {
         GM_setValue('xy_schedule_queue', JSON.stringify(xyScheduleState.queue));
         GM_setValue('xy_schedule_running', xyScheduleState.isRunning);
+        GM_setValue('xy_schedule_paused', xyScheduleState.isPaused);
         GM_setValue('xy_schedule_idx', xyScheduleState.currentIdx);
         GM_setValue('xy_schedule_last_mode', xyScheduleState.lastMode);
     }
@@ -3621,9 +3629,10 @@
                             <span style="font-size:11px; color:${T('#7c3aed','#6d28d9')}; flex:1; text-align:right; opacity:0.7;">留空 = 关闭</span>
                         </div>
                         <!-- 控制台 -->
-                        <div style="padding:20px 24px; background:${T('rgba(15,23,42,0.6)','#f8fafc')}; border-top:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; display:flex; gap:16px; box-shadow: ${T('0 -4px 20px rgba(0,0,0,0.15)','none')};">
-                            <button id="xy-sch-start-btn" style="flex:2; background:linear-gradient(135deg, #10b981, #059669); color:white; border:none; padding:16px; border-radius:14px; font-size:16px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(16,185,129,0.3); transition:0.2s;" ${xyScheduleState.isRunning ? 'disabled' : ''}>${xyScheduleState.isRunning ? '🚀 调度引擎已在运行...' : '🚀 启动计划调度'}</button>
-                            <button id="xy-sch-stop-btn" style="flex:1; background:linear-gradient(135deg, #ef4444, #dc2626); color:white; border:none; padding:16px; border-radius:14px; font-size:16px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(239,68,68,0.3); transition:0.2s;" ${!xyScheduleState.isRunning ? 'disabled' : ''}>🛑 强停交还主控</button>
+                        <div style="padding:20px 24px; background:${T('rgba(15,23,42,0.6)','#f8fafc')}; border-top:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; display:flex; gap:12px; box-shadow: ${T('0 -4px 20px rgba(0,0,0,0.15)','none')};">
+                            <button id="xy-sch-start-btn" style="flex:2; background:linear-gradient(135deg, #10b981, #059669); color:white; border:none; padding:14px; border-radius:14px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(16,185,129,0.3); transition:0.2s;" ${xyScheduleState.isRunning ? 'disabled' : ''}>${xyScheduleState.isRunning ? '⏳ 调度引擎运行中...' : '🚀 启动计划调度'}</button>
+                            <button id="xy-sch-pause-btn" style="flex:1; background:linear-gradient(135deg, #f59e0b, #d97706); color:white; border:none; padding:14px; border-radius:14px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(245,158,11,0.3); transition:0.2s; display:${xyScheduleState.isRunning ? 'block' : 'none'};" ${xyScheduleState.isPaused ? '' : ''}>${xyScheduleState.isPaused ? '▶ 继续调度' : '⏸ 暂停调度'}</button>
+                            <button id="xy-sch-stop-btn" style="flex:1; background:linear-gradient(135deg, #ef4444, #dc2626); color:white; border:none; padding:14px; border-radius:14px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(239,68,68,0.3); transition:0.2s;" ${!xyScheduleState.isRunning ? 'disabled' : ''}>🛑 强停</button>
                         </div>
                     </div>
                 </div>
@@ -3662,11 +3671,22 @@
         };
 
         const startBtn = document.getElementById('xy-sch-start-btn');
+        const pauseBtn = document.getElementById('xy-sch-pause-btn');
         const stopBtn = document.getElementById('xy-sch-stop-btn');
+
+        function updateSchButtons() {
+            const running = xyScheduleState.isRunning;
+            const paused = xyScheduleState.isPaused;
+            startBtn.disabled = running;
+            startBtn.innerText = running ? '⏳ 调度引擎运行中...' : '🚀 启动计划调度';
+            pauseBtn.style.display = running ? 'block' : 'none';
+            pauseBtn.innerText = paused ? '▶ 继续调度' : '⏸ 暂停调度';
+            stopBtn.disabled = !running;
+        }
 
         startBtn.onclick = () => {
             if (xyScheduleState.queue.length === 0) { showToast('队列为空，请先添加任务', 'warning'); return; }
-            
+
             const allDone = xyScheduleState.queue.every(q => q.status === 'completed');
             if (allDone) {
                 xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; q.actionDone = false; });
@@ -3674,32 +3694,39 @@
             }
 
             xyScheduleState.lastMode = appState.mode;
-            appState.mode = 'manual'; 
+            appState.mode = 'manual';
             GM_setValue('xy_play_mode', 'manual');
             updateCourseUI();
 
             xyScheduleState.isRunning = true;
+            xyScheduleState.isPaused = false;
             saveScheduleState();
-            
-            startBtn.disabled = true; startBtn.innerText = '🚀 调度引擎已在运行...';
-            stopBtn.disabled = false;
-            
+
+            updateSchButtons();
             renderQueueList();
             logMsg('📅 计划调度中心已接管引擎最高权限，准备跳跃！', 'success');
         };
 
+        pauseBtn.onclick = () => {
+            xyScheduleState.isPaused = !xyScheduleState.isPaused;
+            GM_setValue('xy_schedule_paused', xyScheduleState.isPaused);
+            saveScheduleState();
+            updateSchButtons();
+            logMsg(xyScheduleState.isPaused ? '⏸ 计划调度已暂停，任务进度已保存' : '▶ 计划调度已继续执行', 'success');
+        };
+
         stopBtn.onclick = () => {
             xyScheduleState.isRunning = false;
-            
+            xyScheduleState.isPaused = false;
+
             appState.mode = xyScheduleState.lastMode || 'sequence';
             GM_setValue('xy_play_mode', appState.mode);
             updateCourseUI();
 
+            GM_setValue('xy_schedule_paused', false);
             saveScheduleState();
-            
-            startBtn.disabled = false; startBtn.innerText = '🚀 启动计划调度';
-            stopBtn.disabled = true;
 
+            updateSchButtons();
             renderQueueList();
             logMsg('🛑 计划调度已强停，控制权已交还原生主引擎！', 'warning');
         };
@@ -3723,7 +3750,7 @@
     // ==========================================
     // 独立于双频引擎的调度专属1秒轮询 - 持久化防后台节流
     createPersistentInterval(async () => {
-        if (!xyScheduleState.isRunning || xyScheduleState.queue.length === 0) return;
+        if (!xyScheduleState.isRunning || xyScheduleState.isPaused || xyScheduleState.queue.length === 0) return;
 
         const currentTask = xyScheduleState.queue[xyScheduleState.currentIdx];
         
@@ -3738,12 +3765,14 @@
             updateCourseUI();
             
             saveScheduleState();
-            
+
             const startBtn = document.getElementById('xy-sch-start-btn');
             if(startBtn) { startBtn.disabled = false; startBtn.innerText = '🚀 重新启动计划'; }
+            const pauseBtn = document.getElementById('xy-sch-pause-btn');
+            if(pauseBtn) pauseBtn.style.display = 'none';
             const stopBtn = document.getElementById('xy-sch-stop-btn');
             if(stopBtn) { stopBtn.disabled = true; }
-            
+
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
             return;
         }
@@ -3769,6 +3798,7 @@
                 logMsg(`🚀 计划调度：跨空间跳跃前往【${currentTask.name.substring(0,10)}】...`, 'info', false);
                 
                 setTimeout(() => {
+                    sessionStorage.setItem('xy_sch_jumping', '1'); // 🔑 标记调度跳转，防止初始化时重置
                     window.location.href = `/app/jx-web/${pathPrefix}/${currentTask.groupId}/resource/${currentTask.resourceId}/${currentTask.nodeId}`;
                 }, 1500);
             }
