@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.4.7 (2026-05-09)
+
+### 修复
+- 移除 `@grant GM_xmlhttpRequest`，公告获取改用 CORS 代理方案，安装时不再弹出跨域授权提示
+- 双代理自动容错：主代理 (`allorigins.win`) 挂了自动切换备代理 (`codetabs.com`)
+- 公告渲染增加 `escapeHtml` 防护，杜绝 JSON 注入 XSS 风险
+
+### 优化
+- `fetchCloudIntelligence` 从 60 行双轨代码精简为 30 行纯 `fetch` 递归容错
+
 ## 3.4.6 (2026-05-08)
 
 ### 修复
