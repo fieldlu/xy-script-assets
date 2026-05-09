@@ -2534,16 +2534,33 @@
     }
 
     // ==========================================
-    // ☁️ 小雅辅助工具云端情报站 (系统公告) —— 双 CORS 代理自动容错
+    // ☁️ 小雅辅助工具云端情报站 (系统公告) —— 本地缓存秒开 + 双代理静默更新
     // ==========================================
+    function renderNotice(data) {
+        const contentBox = document.getElementById('xy-bc-content');
+        if (!contentBox) return;
+        contentBox.innerHTML =
+            `<div style="padding:16px 20px;">
+                <div style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:12px; font-size:14px;">${escapeHtml(data.title || '系统公告')}</div>
+                <ul style="margin:0; padding-left:18px; color:${T('#cbd5e1','#475569')}; line-height:1.6;">
+                    ${(data.items || []).map(item => `<li style="margin-bottom:8px;">${escapeHtml(item)}</li>`).join('')}
+                </ul>
+            </div>`;
+    }
+
     function fetchCloudIntelligence() {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
 
+        // 1. 优先读本地缓存，瞬间显示
+        try {
+            const cached = GM_getValue('xy_notice_cache', '');
+            if (cached) renderNotice(JSON.parse(cached));
+        } catch (e) { /* ignore */ }
+
+        // 2. 后台静默拉取最新公告
         const ts = Date.now();
         const rawUrl = `https://gitee.com/fieldlu/xy-script-assets/raw/main/notice_new.json?t=${ts}`;
-
-        // 双代理，主挂了自动换备
         const proxies = [
             'https://api.allorigins.win/raw?url=',
             'https://api.codetabs.com/v1/proxy?quest=',
@@ -2551,7 +2568,9 @@
 
         function tryFetch(idx) {
             if (idx >= proxies.length) {
-                contentBox.innerHTML = `<div style="padding:16px 20px; color:#f59e0b;">公告暂时无法加载，请检查网络后刷新页面。</div>`;
+                if (!GM_getValue('xy_notice_cache', '')) {
+                    contentBox.innerHTML = `<div style="padding:16px 20px; color:#f59e0b;">公告暂时无法加载，请检查网络后刷新页面。</div>`;
+                }
                 return;
             }
             const url = proxies[idx] + encodeURIComponent(rawUrl);
@@ -2561,13 +2580,8 @@
                     return res.json();
                 })
                 .then(data => {
-                    contentBox.innerHTML =
-                        `<div style="padding:16px 20px;">
-                            <div style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:12px; font-size:14px;">${escapeHtml(data.title || '系统公告')}</div>
-                            <ul style="margin:0; padding-left:18px; color:${T('#cbd5e1','#475569')}; line-height:1.6;">
-                                ${(data.items || []).map(item => `<li style="margin-bottom:8px;">${escapeHtml(item)}</li>`).join('')}
-                            </ul>
-                        </div>`;
+                    GM_setValue('xy_notice_cache', JSON.stringify(data));
+                    renderNotice(data);
                 })
                 .catch(() => tryFetch(idx + 1));
         }
@@ -3970,7 +3984,7 @@
                     </div>
                     <div id="xy-bc-content" style="font-size: 12px; color: ${T('#94a3b8','#475569')}; line-height: 1.7; display: none; background: ${T('rgba(15,23,42,0.4)','#f8fafc')}; border-top: 1px solid var(--xy-border); max-height: 180px; overflow-y: auto;">
                         <div style="padding: 12px 16px;">
-                            <span style="color:${T('#64748b','#94a3b8')};">正在解析云端通讯...</span>
+                            <span style="color:${T('#64748b','#94a3b8')};">🔍 获取最新公告中…</span>
                         </div>
                     </div>
                 </div>
