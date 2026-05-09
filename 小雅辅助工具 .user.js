@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.4.8
+// @version      3.5.0
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入
 // @author       Confidential
 // @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
@@ -272,6 +272,33 @@
                         media.muted = window._xy_hardware_mute;
                     });
                 });
+
+                // 3. 防后台节流：静默音频振荡器保持页面活跃
+                let _antiThrottleCtx = null;
+                let _antiThrottleOsc = null;
+                window._xyAntiThrottleStart = () => {
+                    if (_antiThrottleCtx) return;
+                    try {
+                        const Ctx = window.AudioContext || window.webkitAudioContext;
+                        if (!Ctx) return;
+                        _antiThrottleCtx = new Ctx();
+                        _antiThrottleOsc = _antiThrottleCtx.createOscillator();
+                        const gain = _antiThrottleCtx.createGain();
+                        gain.gain.value = 0.001; // 近乎无声，但浏览器认为在播音频
+                        _antiThrottleOsc.type = 'sine';
+                        _antiThrottleOsc.frequency.value = 20000; // 20kHz，人耳听不见
+                        _antiThrottleOsc.connect(gain);
+                        gain.connect(_antiThrottleCtx.destination);
+                        _antiThrottleOsc.start();
+                        _antiThrottleCtx.resume();
+                    } catch(e) {}
+                };
+                window._xyAntiThrottleStop = () => {
+                    try {
+                        if (_antiThrottleOsc) { _antiThrottleOsc.stop(); _antiThrottleOsc = null; }
+                        if (_antiThrottleCtx) { _antiThrottleCtx.close(); _antiThrottleCtx = null; }
+                    } catch(e) {}
+                };
             })();
         `;
         (document.head || document.documentElement).appendChild(script);
@@ -344,12 +371,19 @@
     // ==========================================
     // 🌟 全新外挂架构：计划调度中心状态
     // ==========================================
+    let _q, _r, _p, _i, _m;
+    try { _q = JSON.parse(GM_getValue('xy_schedule_queue', '[]')); if (!Array.isArray(_q)) _q = []; } catch(e) { _q = []; }
+    try { _r = GM_getValue('xy_schedule_running', false) === true; } catch(e) { _r = false; }
+    try { _p = GM_getValue('xy_schedule_paused', false) === true; } catch(e) { _p = false; }
+    try { _i = parseInt(GM_getValue('xy_schedule_idx', '0')) || 0; } catch(e) { _i = 0; }
+    try { _m = GM_getValue('xy_schedule_last_mode', 'sequence'); if (!_m) _m = 'sequence'; } catch(e) { _m = 'sequence'; }
+
     const xyScheduleState = {
-        queue: JSON.parse(GM_getValue('xy_schedule_queue', '[]')),
-        isRunning: GM_getValue('xy_schedule_running', false),
-        isPaused: GM_getValue('xy_schedule_paused', false),
-        currentIdx: parseInt(GM_getValue('xy_schedule_idx', 0)),
-        lastMode: GM_getValue('xy_schedule_last_mode', 'sequence'),
+        queue: _q,
+        isRunning: _r,
+        isPaused: _p,
+        currentIdx: _i,
+        lastMode: _m,
         autoStart: GM_getValue('xy_schedule_auto_start', ''),
         autoStop: GM_getValue('xy_schedule_auto_stop', '')
     };
@@ -363,22 +397,32 @@
             delete q.infinite;
         }
         if (!q.strategy) q.strategy = 'until_done';
+        // 防止 duration 为 0/负数导致瞬间完成
+        if (q.strategy === 'duration' && (!q.duration || q.duration < 1)) q.duration = 30;
     });
 
-    // 调度跳转标记：跳转时置 1，初始化后清除。有旗 = 调度主动跳转，不重置
-    const _schJumping = sessionStorage.getItem('xy_sch_jumping') === '1';
-    sessionStorage.removeItem('xy_sch_jumping');
+    // 调度跳转标记：跳转时置 1，初始化后清除
+    let _schJumping = false;
+    try { _schJumping = sessionStorage.getItem('xy_sch_jumping') === '1'; sessionStorage.removeItem('xy_sch_jumping'); } catch(e) {}
 
-    if (xyScheduleState.isRunning && !_schJumping) {
-        // 非调度跳转的页面启动（浏览器重开/手动刷新）→ 安全重置
+    // 会话检测：无 sessionStorage 标记 = 新浏览器会话 → 清空调度
+    let _schNewSession = true;
+    try { _schNewSession = !sessionStorage.getItem('xy_sch_session'); sessionStorage.setItem('xy_sch_session', '1'); } catch(e) {}
+
+    if (xyScheduleState.isRunning && !_schJumping && _schNewSession) {
         xyScheduleState.isRunning = false;
         xyScheduleState.isPaused = false;
         xyScheduleState.currentIdx = 0;
-        xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; });
+        xyScheduleState.queue = [];
         GM_setValue('xy_schedule_running', false);
         GM_setValue('xy_schedule_paused', false);
         GM_setValue('xy_schedule_idx', 0);
         GM_setValue('xy_schedule_queue', JSON.stringify(xyScheduleState.queue));
+    }
+
+    // 如果调度在运行中（刷新保留），启动防节流振荡器
+    if (xyScheduleState.isRunning) {
+        setTimeout(() => { try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {} }, 500);
     }
 
     function saveScheduleState() {
@@ -1880,6 +1924,9 @@
                     }
                 }
             });
+            // 切回前台后强制刷新调度卡片和状态栏
+            if (typeof updateSchCard === 'function') updateSchCard();
+            if (typeof updateCourseUI === 'function') updateCourseUI();
         }
     });
 
@@ -2206,14 +2253,12 @@
         if (nowHM !== lastAutoActionMinute) {
             if (!xyScheduleState.isRunning && xyScheduleState.autoStart && nowHM === xyScheduleState.autoStart && xyScheduleState.queue.length > 0) {
                 lastAutoActionMinute = nowHM;
-                const startBtn = document.getElementById('xy-sch-start-btn');
-                if (startBtn && !startBtn.disabled) startBtn.click();
+                if (typeof xySchStart === 'function') xySchStart();
                 logMsg(`⏰ 定时启动：${nowHM} 已触发计划调度！`, 'success');
             }
             if (xyScheduleState.isRunning && xyScheduleState.autoStop && nowHM === xyScheduleState.autoStop) {
                 lastAutoActionMinute = nowHM;
-                const stopBtn = document.getElementById('xy-sch-stop-btn');
-                if (stopBtn && !stopBtn.disabled) stopBtn.click();
+                if (typeof xySchStop === 'function') xySchStop();
                 logMsg(`⏰ 定时停止：${nowHM} 已触发停止并交还主控！`, 'warning');
             }
         }
@@ -2611,9 +2656,15 @@
         const statusBanner = document.getElementById('xy-status-banner');
         if (statusBanner) {
             if (xyScheduleState.isRunning) {
-                statusBanner.innerHTML = `<span style="color:${T('#fcd34d','#92400e')};">📅 计划调度中 (外挂托管)</span>`;
-                statusBanner.style.background = T('rgba(245,158,11,0.12)','#fffbeb');
-                statusBanner.style.borderColor = T('rgba(245,158,11,0.25)','#fde68a');
+                if (xyScheduleState.isPaused) {
+                    statusBanner.innerHTML = `<span style="color:${T('#fbbf24','#d97706')};">⏸ 计划调度已暂停</span>`;
+                    statusBanner.style.background = T('rgba(251,191,36,0.1)','#fffbeb');
+                    statusBanner.style.borderColor = T('rgba(251,191,36,0.25)','#fde68a');
+                } else {
+                    statusBanner.innerHTML = `<span style="color:${T('#fcd34d','#92400e')};">📅 计划调度中 (外挂托管)</span>`;
+                    statusBanner.style.background = T('rgba(245,158,11,0.12)','#fffbeb');
+                    statusBanner.style.borderColor = T('rgba(245,158,11,0.25)','#fde68a');
+                }
             }
             else if (appState.mode === 'manual') {
                 statusBanner.innerHTML = `<span style="color:${T('#94a3b8','#64748b')};">⏸️ 挂机休眠中</span>`;
@@ -3696,13 +3747,15 @@
             xyScheduleState.lastMode = appState.mode;
             appState.mode = 'manual';
             GM_setValue('xy_play_mode', 'manual');
-            updateCourseUI();
 
             xyScheduleState.isRunning = true;
             xyScheduleState.isPaused = false;
             saveScheduleState();
 
+            updateCourseUI();
             updateSchButtons();
+            updateSchCard();
+            try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
             renderQueueList();
             logMsg('📅 计划调度中心已接管引擎最高权限，准备跳跃！', 'success');
         };
@@ -3712,12 +3765,15 @@
             GM_setValue('xy_schedule_paused', xyScheduleState.isPaused);
             saveScheduleState();
             updateSchButtons();
+            updateSchCard();
+            updateCourseUI();
             logMsg(xyScheduleState.isPaused ? '⏸ 计划调度已暂停，任务进度已保存' : '▶ 计划调度已继续执行', 'success');
         };
 
         stopBtn.onclick = () => {
             xyScheduleState.isRunning = false;
             xyScheduleState.isPaused = false;
+            try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
             appState.mode = xyScheduleState.lastMode || 'sequence';
             GM_setValue('xy_play_mode', appState.mode);
@@ -3727,6 +3783,7 @@
             saveScheduleState();
 
             updateSchButtons();
+            updateSchCard();
             renderQueueList();
             logMsg('🛑 计划调度已强停，控制权已交还原生主引擎！', 'warning');
         };
@@ -3746,6 +3803,152 @@
     }
 
     // ==========================================
+    // 📟 课程页调度卡片 —— 用 addEventListener，不用 onclick
+    // ==========================================
+    function _bindSchCardButtons(card) {
+        if (!card) return;
+        const btns = card.querySelectorAll('button');
+        btns.forEach(btn => {
+            const action = btn.getAttribute('data-action');
+            if (!action) return;
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (action === 'pause') { if (typeof xySchPause === 'function') xySchPause(); }
+                else if (action === 'stop') { if (typeof xySchStop === 'function') xySchStop(); }
+                else if (action === 'skip') { if (typeof xySchSkip === 'function') xySchSkip(); }
+                else if (action === 'restart') { if (typeof xySchRestart === 'function') xySchRestart(); }
+            });
+        });
+    }
+
+    function updateSchCard() {
+        const card = document.getElementById('xy-sch-card');
+        if (!card) return;
+
+        if (!xyScheduleState.isRunning) { card.style.display = 'none'; return; }
+        card.style.display = 'block';
+        card.style.color = T('#e2e8f0','#0f172a'); // 跟进当前主题
+
+        const task = xyScheduleState.queue[xyScheduleState.currentIdx];
+        const total = xyScheduleState.queue.length;
+        let html = '';
+
+        // 全部完成
+        if (!task) {
+            card.style.borderLeftColor = T('#34d399','#059669');
+            card.style.background = T('rgba(52,211,153,0.06)','#ecfdf5');
+            html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;"><b style="color:${T('#34d399','#059669')};">✅ 全部完成 · ${total}/${total} 项已达标</b><button data-action="restart" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🔄 重新开始</button></div>`;
+        }
+        // 跳转中
+        else if (appState.isJumping) {
+            card.style.borderLeftColor = T('#f59e0b','#d97706');
+            card.style.background = T('rgba(251,191,36,0.06)','#fffbeb');
+            html = `<b style="color:${T('#fcd34d','#b45309')};">🚀 正在跳转至「${escapeHtml((task.name||'未知').substring(0,14))}」...</b>`;
+        }
+        else {
+            const idx = xyScheduleState.currentIdx + 1;
+            const name = escapeHtml((task.name || '未知').substring(0, 16));
+            const elapsed = task.elapsedSec || 0;
+            const elapStr = elapsed >= 3600 ? `${Math.floor(elapsed/3600)}h${Math.floor((elapsed%3600)/60)}m` : `${Math.floor(elapsed/60)}m${elapsed%60}s`;
+            const durStr = task.strategy === 'infinite' ? '∞' : task.strategy === 'until_done' ? '达标连播' : `刷${task.duration||30}min`;
+            const paused = xyScheduleState.isPaused;
+
+            if (paused) {
+                card.style.borderLeftColor = T('#f59e0b','#d97706');
+                card.style.background = T('rgba(251,191,36,0.06)','#fffbeb');
+                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b style="color:${T('#fbbf24','#d97706')};">⏸ 已暂停 · 第 ${idx}/${total} 项 · ${name}</b><span style="color:${T('#94a3b8','#64748b')};font-size:12px;">已刷 ${elapStr} / ${durStr}</span></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">▶ 继续</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏭ 跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🛑 停止</button></div>`;
+            } else {
+                card.style.borderLeftColor = T('#818cf8','#6366f1');
+                card.style.background = T('rgba(99,102,241,0.06)','#eef2ff');
+                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b>📅 第 ${idx}/${total} 项 · ${name} · ${durStr}</b><b style="color:${T('#34d399','#059669')};font-family:monospace;">⏱ ${elapStr}</b></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')};color:${T('#fcd34d','#92400e')};border:1px solid ${T('rgba(251,191,36,0.25)','#fde68a')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏸ 暂停</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏭ 跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🛑 停止</button></div>`;
+            }
+        }
+
+        card.innerHTML = html;
+        _bindSchCardButtons(card);
+    }
+
+    // 全局调度函数 —— 挂 window，供卡片 addEventListener 和 overlay 共用
+    window.xySchStart = () => {
+        if (xyScheduleState.queue.length === 0) { logMsg('队列为空，无法启动调度', 'warning'); return; }
+        if (xyScheduleState.isRunning) return;
+        const allDone = xyScheduleState.queue.every(q => q.status === 'completed');
+        if (allDone) {
+            xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; q.actionDone = false; });
+            xyScheduleState.currentIdx = 0;
+        }
+        xyScheduleState.lastMode = appState.mode;
+        appState.mode = 'manual';
+        GM_setValue('xy_play_mode', 'manual');
+        xyScheduleState.isRunning = true;
+        xyScheduleState.isPaused = false;
+        saveScheduleState();
+        updateCourseUI();
+        updateSchCard();
+        try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
+        if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+        logMsg('📅 计划调度已启动', 'success');
+    };
+
+    window.xySchPause = () => {
+        if (!xyScheduleState.isRunning) return;
+        xyScheduleState.isPaused = !xyScheduleState.isPaused;
+        GM_setValue('xy_schedule_paused', xyScheduleState.isPaused);
+        saveScheduleState();
+        updateCourseUI();
+        updateSchCard();
+        const pb = document.getElementById('xy-sch-pause-btn');
+        if (pb) pb.innerText = xyScheduleState.isPaused ? '▶ 继续调度' : '⏸ 暂停调度';
+        if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+        logMsg(xyScheduleState.isPaused ? '⏸ 计划调度已暂停' : '▶ 计划调度已继续', 'success');
+    };
+
+    window.xySchStop = () => {
+        if (!xyScheduleState.isRunning) return;
+        xyScheduleState.isRunning = false;
+        xyScheduleState.isPaused = false;
+        try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
+        appState.mode = xyScheduleState.lastMode || 'sequence';
+        GM_setValue('xy_play_mode', appState.mode);
+        GM_setValue('xy_schedule_paused', false);
+        saveScheduleState();
+        updateCourseUI();
+        updateSchCard();
+        if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+        logMsg('🛑 计划调度已强停', 'warning');
+    };
+
+    window.xySchSkip = () => {
+        if (!xyScheduleState.isRunning) return;
+        const t = xyScheduleState.queue[xyScheduleState.currentIdx];
+        if (t) { t.status = 'completed'; t.elapsedSec = t.elapsedSec || 0; }
+        xyScheduleState.currentIdx++;
+        appState.isJumping = false;
+        saveScheduleState();
+        updateCourseUI();
+        updateSchCard();
+        if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+        logMsg('⏭ 已跳过当前任务', 'info');
+    };
+
+    window.xySchRestart = () => {
+        if (xyScheduleState.queue.length === 0) { logMsg('队列为空', 'warning'); return; }
+        xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; q.actionDone = false; });
+        xyScheduleState.currentIdx = 0;
+        xyScheduleState.isRunning = true;
+        xyScheduleState.isPaused = false;
+        xyScheduleState.lastMode = appState.mode;
+        appState.mode = 'manual';
+        GM_setValue('xy_play_mode', 'manual');
+        saveScheduleState();
+        updateCourseUI();
+        updateSchCard();
+        try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
+        if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+        logMsg('📅 计划调度已重新启动', 'success');
+    };
+
+    // ==========================================
     // ⚙️ 计划调度器专属外挂 Timer
     // ==========================================
     // 独立于双频引擎的调度专属1秒轮询 - 持久化防后台节流
@@ -3758,7 +3961,8 @@
             logMsg('✅ 所有计划调度任务已圆满完成！已自动切换为手动休眠。', 'success', false);
 
             xyScheduleState.isRunning = false;
-            
+            try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
+
             // 用户特别诉求：跑完后进入彻底手动暂停
             appState.mode = 'manual'; 
             GM_setValue('xy_play_mode', 'manual');
@@ -3772,6 +3976,8 @@
             if(pauseBtn) pauseBtn.style.display = 'none';
             const stopBtn = document.getElementById('xy-sch-stop-btn');
             if(stopBtn) { stopBtn.disabled = true; }
+
+            updateSchCard();
 
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
             return;
@@ -3795,7 +4001,7 @@
                 currentTask.status = 'running';
                 saveScheduleState();
                 
-                logMsg(`🚀 计划调度：跨空间跳跃前往【${currentTask.name.substring(0,10)}】...`, 'info', false);
+                logMsg(`🚀 计划调度：跨空间跳跃前往【${(currentTask.name||'未知').substring(0,10)}】...`, 'info', false);
                 
                 setTimeout(() => {
                     sessionStorage.setItem('xy_sch_jumping', '1'); // 🔑 标记调度跳转，防止初始化时重置
@@ -3822,6 +4028,8 @@
 
         if (currentTask.elapsedSec % 5 === 0) saveScheduleState(); // 5秒存一次进度
 
+        updateSchCard(); // 刷新课程页调度卡片
+
         // 更新调度中心界面UI时间 (如果打开着)
         if (window.xyUpdateScheduleProgress) window.xyUpdateScheduleProgress(currentTask);
 
@@ -3841,13 +4049,13 @@
         // infinite 永远不会变成 isDone
 
         if (isDone) {
-            logMsg(`✅ 计划调度：任务【${currentTask.name.substring(0,8)}...】已达标！即将进行下一项。`, 'success', false);
+            logMsg(`✅ 计划调度：任务【${(currentTask.name||'未知').substring(0,8)}...】已达标！即将进行下一项。`, 'success', false);
             currentTask.status = 'completed';
             saveScheduleState();
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
         }
-        
-    }, 1000, 30);
+
+    }, 1000, 300); // maxCatchUp=300：切后台最长补 5 分钟
 
 
     function dismissSplash() {
@@ -4047,6 +4255,8 @@
                             <button class="xy-mode-btn" id="btn-mode-seq">雷达连播</button>
                         </div>
                     </div>
+
+                    <div id="xy-sch-card" style="display:none; margin-bottom:10px; padding:12px 14px; border-radius:10px; border-left:4px solid ${T('#818cf8','#6366f1')}; background:${T('rgba(99,102,241,0.06)','#eef2ff')}; font-size:13px; line-height:1.6;"></div>
 
                     <div class="xy-panel xy-stat-box" style="margin-bottom: 10px;">
                         <div style="display: flex; justify-content: center; align-items: center; width: 100%; text-align: center;">
@@ -4346,15 +4556,15 @@
         document.getElementById('btn-clear-progress').onclick = () => { appState.recordCount = 0; appState.totalTime = 0; appState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
 
         document.getElementById('btn-mode-man').onclick = () => { 
-            if (xyScheduleState.isRunning) { document.getElementById('xy-sch-stop-btn')?.click(); } // 联动关闭调度
+            if (xyScheduleState.isRunning) { xySchStop(); } // 联动关闭调度
             appState.mode = 'manual'; 
             GM_setValue('xy_play_mode', 'manual'); 
             clearDynamicRefresh(); 
             logMsg('已暂停，且已强制停止所有重载任务', 'success'); 
             updateCourseUI(); 
         };
-        document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { document.getElementById('xy-sch-stop-btn')?.click(); } appState.mode = 'loop'; GM_setValue('xy_play_mode', 'loop'); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
-        document.getElementById('btn-mode-seq').onclick = () => { if (xyScheduleState.isRunning) { document.getElementById('xy-sch-stop-btn')?.click(); } appState.mode = 'sequence'; GM_setValue('xy_play_mode', 'sequence'); logMsg('🚀 连播破壁引擎开启，特种规则接管文档与防拖拽', 'success'); updateCourseUI(); if (!getCourseGroupId()) tryJumpToNext(); else globalTaskStatusChecker(true); };
+        document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } appState.mode = 'loop'; GM_setValue('xy_play_mode', 'loop'); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
+        document.getElementById('btn-mode-seq').onclick = () => { if (xyScheduleState.isRunning) { xySchStop(); } appState.mode = 'sequence'; GM_setValue('xy_play_mode', 'sequence'); logMsg('🚀 连播破壁引擎开启，特种规则接管文档与防拖拽', 'success'); updateCourseUI(); if (!getCourseGroupId()) tryJumpToNext(); else globalTaskStatusChecker(true); };
         
         document.getElementById('xy-btn-guard').onclick = () => { appState.guardActive = !appState.guardActive; GM_setValue('xy_guard_active', appState.guardActive); updateCourseUI(); logMsg(`🛡️ 防休眠${appState.guardActive ? '已开启':'已关闭'}`, 'info', true); };
         document.getElementById('xy-btn-keepalive').onclick = () => {
