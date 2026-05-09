@@ -1,6 +1,6 @@
 # 小雅辅助工具
 
-[![version](https://img.shields.io/badge/version-3.4.6-ff69b4)](https://gitee.com/fieldlu/xy-script-assets)
+[![version](https://img.shields.io/badge/version-3.4.7-ff69b4)](https://gitee.com/fieldlu/xy-script-assets)
 [![license](https://img.shields.io/badge/license-%E8%87%AA%E5%AE%9A%E4%B9%89-red)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-%E5%B0%8F%E9%9B%85%E5%B9%B3%E5%8F%B0-8b5cf6)]()
 
@@ -73,19 +73,20 @@
 
 ---
 
-## v3.4.6 更新
+## v3.4.7 更新
 
-**时长注入引擎修复** — 此前因核心函数未定义，该功能一直不可用。
+**安装不再弹跨域授权** — 公告获取改用 CORS 代理，移除 `@grant GM_xmlhttpRequest`。
 
 | 级别 | 内容 |
 |------|------|
-| 致命 | `_origSendRecordRequest` 未定义，注入功能完全不可用 |
-| 并发 | 注入期间抢占 `isRecordSending` 锁，阻止心跳重复发包 |
-| 防节流 | 看门狗定时器重建改用持久化引擎 |
-| 安全 | 300 分钟单次上限、`activeZone` 校验、`try-finally` 锁释放 |
+| 核心 | 公告获取从 `GM_xmlhttpRequest` 改为 `fetch` + CORS 代理，安装不再弹授权提示 |
+| 容错 | 双代理自动切换，主代理挂了自动换备用，公告不中断 |
+| 安全 | 公告渲染增加 `escapeHtml` 防护 |
 
 <details>
 <summary>历史更新</summary>
+
+**v3.4.6** — 时长注入引擎修复：核心函数未定义、并发锁、看门狗防节流、300 分钟上限
 
 **v3.4.5** — 下载引擎全面修复：Token 鉴权 + 加密链接 DES 解密；新增搜索框、进度条、暂停/终止
 

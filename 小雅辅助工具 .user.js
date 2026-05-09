@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.4.6
+// @version      3.4.7
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入
 // @author       Confidential
 // @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
@@ -2534,35 +2534,45 @@
     }
 
     // ==========================================
-    // ☁️ 小雅辅助工具云端情报站 (系统公告) 
+    // ☁️ 小雅辅助工具云端情报站 (系统公告) —— 双 CORS 代理自动容错
     // ==========================================
     function fetchCloudIntelligence() {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
 
         const ts = Date.now();
-        // 通过 CORS 代理拉取 Gitee raw，不弹跨域授权
-        const CORS_PROXY = 'https://api.allorigins.win/raw?url=';
         const rawUrl = `https://gitee.com/fieldlu/xy-script-assets/raw/main/notice_new.json?t=${ts}`;
-        const url = CORS_PROXY + encodeURIComponent(rawUrl);
 
-        fetch(url, { cache: 'no-store' })
-            .then(res => {
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                return res.json();
-            })
-            .then(realData => {
-                contentBox.innerHTML =
-                    `<div style="padding:16px 20px;">
-                        <div style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:12px; font-size:14px;">${realData.title || '系统公告'}</div>
-                        <ul style="margin:0; padding-left:18px; color:${T('#cbd5e1','#475569')}; line-height:1.6;">
-                            ${(realData.items || []).map(item => `<li style="margin-bottom:8px;">${item}</li>`).join('')}
-                        </ul>
-                    </div>`;
-            })
-            .catch(() => {
+        // 双代理，主挂了自动换备
+        const proxies = [
+            'https://api.allorigins.win/raw?url=',
+            'https://api.codetabs.com/v1/proxy?quest=',
+        ];
+
+        function tryFetch(idx) {
+            if (idx >= proxies.length) {
                 contentBox.innerHTML = `<div style="padding:16px 20px; color:#f59e0b;">公告暂时无法加载，请检查网络后刷新页面。</div>`;
-            });
+                return;
+            }
+            const url = proxies[idx] + encodeURIComponent(rawUrl);
+            fetch(url, { cache: 'no-store' })
+                .then(res => {
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    return res.json();
+                })
+                .then(data => {
+                    contentBox.innerHTML =
+                        `<div style="padding:16px 20px;">
+                            <div style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:12px; font-size:14px;">${escapeHtml(data.title || '系统公告')}</div>
+                            <ul style="margin:0; padding-left:18px; color:${T('#cbd5e1','#475569')}; line-height:1.6;">
+                                ${(data.items || []).map(item => `<li style="margin-bottom:8px;">${escapeHtml(item)}</li>`).join('')}
+                            </ul>
+                        </div>`;
+                })
+                .catch(() => tryFetch(idx + 1));
+        }
+
+        tryFetch(0);
     }
 
     // ==========================================
