@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.5.0
-// @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流、手动时长注入
+// @version      3.5.1
+// @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流
 // @author       Confidential
 // @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
 // @match        https://*.ai-augmented.com/*
@@ -359,12 +359,9 @@
         deepCamouflage: GM_getValue('xy_deep_camo', true),
         camoScrollActive: false,
         camoKeyboardActive: false,
-        // 🆕 后台保活 + 时长注入
+        // 🆕 后台保活
         keepaliveEnabled: GM_getValue('xy_keepalive', true),
         keepaliveWatchdog: null,
-        injectActive: false,
-        injectTotal: 0,
-        injectCompleted: 0,
         camoClickActive: false
     };
 
@@ -1828,7 +1825,7 @@
         appState.docPreviewDoneNodeId = nodeId; 
     }
 
-    // 核心发包：无 isRecordSending 守卫，失败会 throw（供 injectDuration 直接调用）
+    // 核心发包：无 isRecordSending 守卫，失败会 throw
     async function _origSendRecordRequest() {
         const groupId = getCourseGroupId(); const resourceId = getNodeId();
         if (!groupId || !resourceId) throw new Error('no resource');
@@ -1980,94 +1977,6 @@
 
     function stopKeepaliveWatchdog() {
         if (keepaliveWatchdogTimer) { clearInterval(keepaliveWatchdogTimer); keepaliveWatchdogTimer = null; }
-    }
-
-    // ==========================================
-    // ⏱️ 手动时长注入引擎
-    // ==========================================
-    async function injectDuration(minutes) {
-        if (!Number.isFinite(minutes) || minutes <= 0) {
-            logMsg('⏱️ 时长必须为正数（分钟）', 'error', false);
-            return;
-        }
-        const MAX_INJECT_MINUTES = 300;
-        if (minutes > MAX_INJECT_MINUTES) {
-            logMsg(`⏱️ 单次最多注入 ${MAX_INJECT_MINUTES} 分钟`, 'error', false);
-            return;
-        }
-        if (appState.injectActive) {
-            logMsg('⏱️ 当前有注入任务正在执行，请等待完成或先点停止', 'warning', false);
-            return;
-        }
-        if (appState.activeZone !== 'course') {
-            logMsg('⏱️ 请先进入课程内容页面', 'error', false);
-            return;
-        }
-        const groupId = getCourseGroupId();
-        const resourceId = getNodeId();
-        if (!groupId || !resourceId) {
-            logMsg('⏱️ 未识别课程/资源ID，请进入课程页面后再注入', 'error', false);
-            return;
-        }
-        const totalPackets = Math.ceil((minutes * 60) / 30);
-        isRecordSending = true; // 抢占锁，阻止正常心跳并发
-        appState.injectActive = true;
-        appState.injectTotal = totalPackets;
-        appState.injectCompleted = 0;
-
-        logMsg(`⏱️ 开始注入 ${minutes} 分钟时长（共 ${totalPackets} 包）`, 'success', false);
-        updateInjectUI();
-
-        const startTime = Date.now();
-        try {
-            for (let i = 0; i < totalPackets; i++) {
-                if (!appState.injectActive) {
-                    logMsg('⏱️ 注入已中断（已发 ' + appState.injectCompleted + '/' + totalPackets + ' 包）', 'warning', false);
-                    break;
-                }
-                try {
-                    await _origSendRecordRequest();
-                    appState.injectCompleted++;
-                } catch(e) {
-                    // _origSendRecordRequest 内部已重试3次，此处跳过失败包
-                }
-                if ((i + 1) % 10 === 0 || i === totalPackets - 1) {
-                    updateInjectUI();
-                    updateCourseUI();
-                }
-                if (i < totalPackets - 1 && appState.injectActive) {
-                    await sleep(1500); // 每包间隔 1.5s，防止服务端限流
-                }
-            }
-            const elapsed = Math.round((Date.now() - startTime) / 1000);
-            logMsg(`⏱️ 注入完成：${appState.injectCompleted}/${totalPackets} 成功，耗时 ${elapsed}s`, 'success', false);
-        } finally {
-            isRecordSending = false; // 释放锁
-            appState.injectActive = false;
-            updateInjectUI();
-            updateCourseUI();
-        }
-    }
-
-    function stopInject() {
-        if (!appState.injectActive) return;
-        appState.injectActive = false;
-        logMsg('⏱️ 已发送停止信号...', 'warning', false);
-    }
-
-    function updateInjectUI() {
-        const progDiv = document.getElementById('xy-inject-progress');
-        const progText = document.getElementById('xy-inject-progress-text');
-        const progBar = document.getElementById('xy-inject-progress-bar');
-        if (!progDiv || !progText || !progBar) return;
-        if (appState.injectActive) {
-            progDiv.style.display = 'block';
-            const pct = appState.injectTotal > 0 ? Math.round(appState.injectCompleted / appState.injectTotal * 100) : 0;
-            progText.textContent = `进度：${appState.injectCompleted}/${appState.injectTotal} (${pct}%)`;
-            progBar.style.width = pct + '%';
-        } else {
-            progDiv.style.display = 'none';
-        }
     }
 
     // ==========================================
@@ -4314,29 +4223,6 @@
                         </div>
                     </div>
 
-                    <div class="xy-panel" style="padding:10px 14px; margin-bottom:10px; border: 1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};">
-                        <div class="xy-section-hdr" id="xy-hdr-inject" style="font-size:12px; font-weight:600; color:${T('#f87171','#dc2626')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
-                            <span>⚠️ 学时注入（高危 · 未测试）</span><span id="xy-arr-inject" style="font-size:10px; transition:transform 0.25s; transform:rotate(-90deg);">▼</span>
-                        </div>
-                        <div id="xy-body-inject" style="margin-top: 8px; display:none;">
-                            <div style="font-size:10px; color:${T('#f87171','#dc2626')}; margin-bottom:8px; line-height:1.5; padding:6px 8px; background:${T('rgba(239,68,68,0.06)','#fef2f2')}; border-radius:6px; border-left:3px solid ${T('#f87171','#ef4444')};">
-                                ⚡ 此功能通过高频发包模拟学习时长，可能触发平台风控机制导致<b>账号异常</b>。仅供紧急补救使用，切勿日常依赖。使用前请确认了解风险！
-                            </div>
-                            <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
-                                <input type="number" id="xy-inject-minutes" value="" min="1" max="300" style="flex:1; padding:7px 10px; border-radius:8px; border:1px solid ${T('rgba(239,68,68,0.3)','#fecaca')}; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#fca5a5','#dc2626')}; font-size:13px; font-weight:600; text-align:center;" placeholder="必须手动输入">
-                                <span style="font-size:12px; font-weight:600; color:${T('#f87171','#dc2626')}; white-space:nowrap;">分钟</span>
-                            </div>
-                            <div style="display:flex; gap:6px;">
-                                <button class="xy-action-btn" id="xy-btn-inject" style="flex:1; background:${T('rgba(239,68,68,0.12)','#fef2f2')}; border-color:${T('rgba(239,68,68,0.3)','#fecaca')}; color:${T('#fca5a5','#dc2626')}; font-size:12px; padding:8px;">⚠️ 确认注入</button>
-                                <button class="xy-mini-btn" id="xy-btn-inject-stop" style="color:${T('#94a3b8','#64748b')}; border-color:${T('rgba(71,85,105,0.2)','#e2e8f0')}; background:${T('rgba(71,85,105,0.08)','#f8fafc')}; font-size:11px;">⏹ 停止</button>
-                            </div>
-                            <div id="xy-inject-progress" style="display:none; margin-top:8px; padding:8px 10px; background:${T('rgba(239,68,68,0.06)','#fef2f2')}; border-radius:8px; border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};">
-                                <div style="font-size:11px; font-weight:600; color:${T('#fca5a5','#dc2626')}; margin-bottom:4px;" id="xy-inject-progress-text">准备中...</div>
-                                <div style="width:100%; height:4px; background:${T('rgba(239,68,68,0.15)','#fee2e2')}; border-radius:2px; overflow:hidden;"><div id="xy-inject-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #f87171, #ef4444); transition:width 0.3s ease-out; border-radius:2px;"></div></div>
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="xy-panel" style="padding: 12px;">
                         <div class="xy-section-hdr" id="xy-hdr-engine" style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
                             <span>智能双引擎中枢</span>
@@ -4579,34 +4465,6 @@
             updateCourseUI();
             logMsg(`💓 后台保活${appState.keepaliveEnabled ? '已开启':'已关闭'}`, 'info', true);
         };
-        const injectBtn = document.getElementById('xy-btn-inject');
-        if (injectBtn) injectBtn.onclick = () => {
-            const input = document.getElementById('xy-inject-minutes');
-            const minutes = parseInt(input?.value);
-            if (!minutes || minutes < 1) { showToast('请先手动输入要注入的分钟数！', 'error'); return; }
-            xyShowModal('⚠️ 高危操作确认',
-                `<div style="line-height:1.8; color:${T('#e2e8f0','#0f172a')};">
-                    <p style="color:${T('#fca5a5','#dc2626')}; font-weight:bold; font-size:15px;">你即将注入 <span style="font-size:20px;">${minutes}</span> 分钟学习时长</p>
-                    <p style="font-size:12px; color:${T('#94a3b8','#64748b')};">此操作会以高频发包方式模拟学习记录，存在以下风险：</p>
-                    <ul style="font-size:12px; color:${T('#f87171','#dc2626')}; padding-left:16px; margin:8px 0;">
-                        <li>可能触发平台风控系统</li>
-                        <li>可能导致账号功能受限</li>
-                        <li>仅供紧急补救，切勿日常依赖</li>
-                    </ul>
-                    <p style="font-size:12px; color:${T('#fca5a5','#dc2626')}; font-weight:bold;">请在下方重新输入 ${minutes} 以确认：</p>
-                    <input id="xy-inject-confirm" type="number" style="width:100%; padding:8px; border-radius:6px; border:2px solid ${T('#f87171','#ef4444')}; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; font-size:16px; text-align:center;" placeholder="输入 ${minutes} 确认">
-                </div>`,
-                () => {
-                    const confirmInput = document.getElementById('xy-inject-confirm');
-                    if (confirmInput && parseInt(confirmInput.value) === minutes) {
-                        injectDuration(minutes);
-                    } else {
-                        showToast('❌ 确认数字不匹配，注入已取消', 'error');
-                    }
-                }
-            );
-        };
-        document.getElementById('xy-btn-inject-stop').onclick = () => stopInject();
         document.getElementById('xy-btn-mouse-sim').onclick = () => {
             toggleMouseSim(!appState.mouseSimActive);
             const btn = document.getElementById('xy-btn-mouse-sim');
@@ -4787,7 +4645,6 @@
         };
         bindSection('xy-hdr-actions', 'xy-body-actions', 'xy-arr-actions');
         bindSection('xy-hdr-toggles', 'xy-body-toggles', 'xy-arr-toggles');
-        bindSection('xy-hdr-inject', 'xy-body-inject', 'xy-arr-inject');
         bindSection('xy-hdr-engine', 'xy-body-engine', 'xy-arr-engine');
 
         const themeBtn = document.getElementById('xy-theme-toggle');
@@ -4877,12 +4734,9 @@
     }
 
     // 🆕 导出控制台快捷命令
-    window.xyInjectDuration = (mins) => injectDuration(mins);
-    window.xyStopInject = () => stopInject();
     window.xyKeepaliveStatus = () => {
         console.log('[小雅] 后台保活:', appState.keepaliveEnabled ? 'ON' : 'OFF');
         console.log('[小雅] 看门狗:', keepaliveWatchdogTimer ? '运行中' : '未启动');
-        console.log('[小雅] 注入状态:', appState.injectActive ? `进行中 ${appState.injectCompleted}/${appState.injectTotal}` : '空闲');
     };
 
 })();
