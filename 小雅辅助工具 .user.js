@@ -325,7 +325,7 @@
         docBatchSubmit: GM_getValue('xy_doc_batch', true),
         mouseSimActive: GM_getValue('xy_mouse_sim', true),
         showRefreshPanel: GM_getValue('xy_show_refresh_panel', true),
-        showTerminal: GM_getValue('xy_show_terminal', true),
+        showTerminal: GM_getValue('xy_show_terminal', false),
         theme: GM_getValue('xy_theme', 'auto'),
         enableDomScan: true, 
         currentEngine: 'none',
@@ -346,7 +346,7 @@
         jumpSleepUntil: 0,
         isProcessingJump: false,
         isJumping: false,
-        useCustomReply: GM_getValue('xy_use_custom_reply', true),
+        useCustomReply: GM_getValue('xy_use_custom_reply', false),
         customReplies: [],
         downloadFiles: [],
         downloadCourseName: '',
@@ -4221,7 +4221,7 @@
                         <div class="xy-section-hdr" id="xy-hdr-engine" style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
                             <span>智能双引擎中枢</span>
                             <div style="display:flex; align-items:center; gap:8px;">
-                                <label style="font-size:10px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:none; align-items:center; gap:3px;" onclick="event.stopPropagation()"><input type="checkbox" id="toggle-ai-mode" ${appState.aiMode ? 'checked' : ''} style="width:12px; height:12px; accent-color:#818cf8; cursor:pointer;"> 自动</label>
+                                <label style="font-size:10px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;" onclick="event.stopPropagation()"><input type="checkbox" id="toggle-ai-mode" ${appState.aiMode ? 'checked' : ''} style="width:12px; height:12px; accent-color:#818cf8; cursor:pointer;"> 自动</label>
                                 <span id="xy-arr-engine" style="font-size:10px; transition:transform 0.25s;">▼</span>
                             </div>
                         </div>
@@ -4229,12 +4229,12 @@
                             <div style="display:flex; gap:8px;">
                             <div id="xy-engine-video" style="flex:1; padding:10px; background:${T('rgba(52,211,153,0.05)','#f0fdf4')}; border:1px solid ${T('rgba(52,211,153,0.15)','#bbf7d0')}; border-radius:8px; transition: opacity 0.3s;">
                                 <div style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; margin-bottom:6px;">📺 视频 <span id="xy-video-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
-                                <label style="font-size:10px; color:${T('#34d399','#059669')}; cursor:pointer; font-weight:600; display:none; align-items:center; gap:3px;"><input type="checkbox" id="toggle-video-submit" ${appState.videoAutoSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#34d399; cursor:pointer;"> 播完跳课</label>
+                                <label style="font-size:10px; color:${T('#34d399','#059669')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-video-submit" ${appState.videoAutoSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#34d399; cursor:pointer;"> 播完跳课</label>
                             </div>
                             <div id="xy-engine-doc" style="flex:1; padding:10px; background:${T('rgba(168,85,247,0.05)','#faf5ff')}; border:1px solid ${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:8px; transition: opacity 0.3s;">
                                 <div style="font-size:11px; font-weight:600; color:${T('#c4b5fd','#7c3aed')}; margin-bottom:4px;">📄 文档 <span id="xy-doc-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
                                 <div style="width:100%; height:4px; background:${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:2px; margin-bottom:6px; overflow:hidden;"><div id="xy-doc-progress" style="width:0%; height:100%; background:linear-gradient(90deg, #a855f7, #818cf8); transition:width 0.5s ease-out; border-radius:2px;"></div></div>
-                                <label style="font-size:10px; color:${T('#a78bfa','#7c3aed')}; cursor:pointer; font-weight:600; display:none; align-items:center; gap:3px;"><input type="checkbox" id="toggle-doc-batch" ${appState.docBatchSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#a855f7; cursor:pointer;"> 达标连交</label>
+                                <label style="font-size:10px; color:${T('#a78bfa','#7c3aed')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-doc-batch" ${appState.docBatchSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#a855f7; cursor:pointer;"> 达标连交</label>
                             </div>
                         </div>
                         </div>
@@ -4249,7 +4249,7 @@
                 <div class="xy-panel">
                     <div class="xy-panel-title">
                         <span>👥 互动名单</span>
-                        <label style="display:none; cursor: pointer; font-size: 11px; color: ${T('#a5b4fc','#3730a3')}; background: ${T('rgba(99,102,241,0.1)','#e0e7ff')}; padding: 3px 8px; border-radius: 6px; border: 1px solid ${T('rgba(129,140,248,0.2)','#c7d2fe')}; transition: 0.2s;">
+                        <label style="cursor: pointer; font-size: 11px; color: ${T('#a5b4fc','#3730a3')}; background: ${T('rgba(99,102,241,0.1)','#e0e7ff')}; padding: 3px 8px; border-radius: 6px; border: 1px solid ${T('rgba(129,140,248,0.2)','#c7d2fe')}; transition: 0.2s;">
                             <input type="checkbox" id="xy-toggle-dom-scan" ${appState.enableDomScan ? 'checked' : ''} style="accent-color: #818cf8; vertical-align: middle; margin-right: 3px; width: 11px; height: 11px;">智能DOM
                         </label>
                     </div>
@@ -4284,7 +4284,7 @@
                     </div>
 
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding: 10px 14px; background: ${T('rgba(99,102,241,0.04)','#eef2ff')}; border: 1px solid ${T('rgba(129,140,248,0.12)','#c7d2fe')}; border-radius: 8px;">
-                        <label style="font-size:12px; font-weight:600; color:${T('#a5b4fc','#3730a3')}; cursor:pointer; display:none; align-items:center; gap:6px;">
+                        <label style="font-size:12px; font-weight:600; color:${T('#a5b4fc','#3730a3')}; cursor:pointer; display:flex; align-items:center; gap:6px;">
                             <input type="checkbox" id="xy-toggle-custom-reply" ${appState.useCustomReply ? 'checked' : ''} style="accent-color:#818cf8; width:14px; height:14px; cursor:pointer;"> 自定义语料
                         </label>
                         <button class="xy-mini-btn" id="xy-btn-edit-reply" style="font-size:11px; padding: 5px 10px;">⚙️ 语料库</button>
@@ -4335,8 +4335,8 @@
                 <div style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
                     <span>系统控制</span>
                     <div style="display:flex; gap: 10px;">
-                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:none; align-items:center; gap:3px;"><input type="checkbox" id="toggle-refresh-panel" ${appState.showRefreshPanel ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 重载视窗</label>
-                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:none; align-items:center; gap:3px;"><input type="checkbox" id="toggle-terminal" ${appState.showTerminal ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 终端</label>
+                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-refresh-panel" ${appState.showRefreshPanel ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 重载视窗</label>
+                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-terminal" ${appState.showTerminal ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 终端</label>
                     </div>
                 </div>
                 <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end;">
