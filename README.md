@@ -1,6 +1,6 @@
 # 小雅辅助工具
 
-[![version](https://img.shields.io/badge/version-3.5.2-ff69b4)](https://gitee.com/fieldlu/xy-script-assets)
+[![version](https://img.shields.io/badge/version-3.5.3-ff69b4)](https://gitee.com/fieldlu/xy-script-assets)
 [![license](https://img.shields.io/badge/license-%E8%87%AA%E5%AE%9A%E4%B9%89-red)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-%E5%B0%8F%E9%9B%85%E5%B9%B3%E5%8F%B0-8b5cf6)]()
 
@@ -63,7 +63,7 @@
 
 ---
 
-## v3.5.2 更新 — 视频断点续播修复
+## v3.5.3 更新 — 精简开关面板
 
 **调度全面进化** — 课程页进度卡片 + 关浏览器清空 + 后台不掉速。
 
