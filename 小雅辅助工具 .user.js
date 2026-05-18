@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.5.1
+// @version      3.5.2
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流
 // @author       Confidential
 // @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
@@ -2036,19 +2036,13 @@
 
                     if (appState.mode === 'sequence') {
                         if (appState.videoScriptProgress === undefined) {
-                            appState.videoScriptProgress = 0;
+                            appState.videoScriptProgress = Math.round(video.currentTime);
                             appState.videoLastTime = video.currentTime;
-                            if (video.currentTime > 2) {
-                                logMsg('🔄 强制视频从头开始播放...', 'warning', true);
-                                video.currentTime = 0;
-                                appState.videoLastTime = 0;
-                            }
                         }
 
                         if (video.currentTime - appState.videoLastTime > 3) {
-                            logMsg('❌ 检测到违规拖动进度条，强制刷新重试！', 'error');
-                            appState.videoLastTime = video.currentTime;
-                            setTimeout(() => window.location.reload(), 500);
+                            logMsg('⚠️ 检测到拖动进度条，已弹回原位', 'warning', true);
+                            video.currentTime = appState.videoLastTime;
                             return;
                         }
 
