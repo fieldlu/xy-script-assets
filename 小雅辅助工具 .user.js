@@ -4422,11 +4422,11 @@
 
                     <div style="display:flex; gap:8px; margin-bottom: 8px;">
                         <button class="xy-action-btn disc-btn" id="xy-btn-like" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1; font-size:12px;">👍 全局盲赞</button>
-                        <button class="xy-action-btn disc-btn" id="xy-btn-target-like" style="background:rgba(139,92,246,0.2); border-color:rgba(139,92,246,0.3); color:#c4b5fd; flex:1.5; font-size:12px;">⚡ 点赞选中</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-target-like" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1.5; font-size:12px;">⚡ 点赞选中</button>
                     </div>
                     <div style="display:flex; gap:8px;">
-                        <button class="xy-action-btn disc-btn" id="xy-btn-reply" style="background:rgba(14,165,233,0.15); border-color:rgba(14,165,233,0.25); color:#7dd3fc; flex:1; font-size:12px;">💬 全局盲回</button>
-                        <button class="xy-action-btn disc-btn" id="xy-btn-target-reply" style="background:rgba(2,132,199,0.15); border-color:rgba(2,132,199,0.25); color:#67e8f9; flex:1.5; font-size:12px;">🎯 回复选中</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-reply" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1; font-size:12px;">💬 全局盲回</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-target-reply" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1.5; font-size:12px;">🎯 回复选中</button>
                     </div>
 
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding: 10px 14px; background: ${T('rgba(99,102,241,0.04)','#eef2ff')}; border: 1px solid ${T('rgba(129,140,248,0.12)','#c7d2fe')}; border-radius: 8px;">
