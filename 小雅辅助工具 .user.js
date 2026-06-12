@@ -4774,7 +4774,7 @@
             body.style.display = isMin ? 'none' : 'flex';
             if (handleRow2) handleRow2.style.display = isMin ? 'none' : 'flex';
             if (sysCtrl) sysCtrl.style.display = isMin ? 'none' : '';
-            if (bottomContainers) bottomContainers.style.display = isMin ? 'none' : '';
+            if (bottomContainers) bottomContainers.style.display = isMin ? 'none' : 'flex';
             handle.style.padding = isMin ? '8px 18px' : '14px 18px 12px 18px';
             handle.style.cursor = isMin ? 'default' : 'grab';
             minBtn.innerText = isMin ? '⊞' : '⊟';
