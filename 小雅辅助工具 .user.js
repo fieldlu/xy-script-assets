@@ -4301,7 +4301,11 @@
                     <div id="xy-status-banner" style="text-align: center; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--xy-border); background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; font-size: 12px; margin-bottom: 10px; font-weight: 600; color: ${T('#94a3b8','#64748b')};">初始化中...</div>
 
                     <div class="xy-panel" style="padding: 12px;">
-                        <button class="xy-mode-btn active" id="btn-mode-seq" style="width:100%;">雷达连播</button>
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                            <button class="xy-mode-btn" id="btn-mode-man">手动休眠</button>
+                            <button class="xy-mode-btn" id="btn-mode-loop">安全循环</button>
+                            <button class="xy-mode-btn" id="btn-mode-seq">雷达连播</button>
+                        </div>
                     </div>
 
                     <div id="xy-sch-card" style="display:none; margin-bottom:10px; padding:12px 14px; border-radius:10px; border-left:4px solid ${T('#818cf8','#6366f1')}; background:${T('rgba(99,102,241,0.06)','#eef2ff')}; font-size:13px; line-height:1.6;"></div>
@@ -4580,6 +4584,15 @@
         document.getElementById('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
         document.getElementById('btn-clear-progress').onclick = () => { appState.recordCount = 0; appState.totalTime = 0; appState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
 
+        document.getElementById('btn-mode-man').onclick = () => {
+            if (xyScheduleState.isRunning) { xySchStop(); }
+            appState.mode = 'manual';
+            GM_setValue('xy_play_mode', 'manual');
+            clearDynamicRefresh();
+            logMsg('已暂停，且已强制停止所有重载任务', 'success');
+            updateCourseUI();
+        };
+        document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } appState.mode = 'loop'; GM_setValue('xy_play_mode', 'loop'); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
         document.getElementById('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
         
         document.getElementById('xy-btn-guard').onclick = () => { appState.guardActive = !appState.guardActive; GM_setValue('xy_guard_active', appState.guardActive); updateCourseUI(); logMsg(`🛡️ 防休眠${appState.guardActive ? '已开启':'已关闭'}`, 'info', true); };
