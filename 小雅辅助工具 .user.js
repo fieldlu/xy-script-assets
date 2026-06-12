@@ -9,6 +9,7 @@
 // @run-at       document-start
 // @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
 // @downloadURL  https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
+// @connect      gitee.com
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
