@@ -4291,9 +4291,9 @@
                     <div style="font-size: 14px; font-weight: 600; color: ${T('#94a3b8','#64748b')}; margin-bottom: 8px;">系统休眠中</div>
                     <div style="font-size: 12px; color: ${T('#64748b','#475569')}; line-height: 1.7; margin-bottom: 24px;">当前位于不可自动化的区域<br>进入<span style="color:${T('#34d399','#059669')};">视频/文档/讨论区</span>自动激活引擎</div>
                     <div style="display:flex; gap:10px; width:85%; margin: 0 auto;">
-                        <button class="xy-action-btn" id="xy-btn-radarplay-standby" style="background:${T('rgba(16,185,129,0.15)','#ecfdf5')}; border-color:${T('rgba(16,185,129,0.3)','#a7f3d0')}; color:${T('#34d399','#059669')}; flex:1; padding: 12px; font-size: 13px; font-weight:700;">🔊 一键连播</button>
-                        <button class="xy-action-btn" id="xy-btn-dashboard-standby" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')}; flex:1; padding: 12px; font-size: 13px;">🌍 全局雷达</button>
-                        <button class="xy-action-btn" id="xy-btn-schedule-standby" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')}; border-color:${T('rgba(251,191,36,0.25)','#fde68a')}; color:${T('#fcd34d','#92400e')}; flex:1; padding: 12px; font-size: 13px;">📅 计划调度</button>
+                        <button class="xy-action-btn" id="xy-btn-radarplay-standby" style="background:${T('rgba(16,185,129,0.15)','#ecfdf5')}; border-color:${T('rgba(16,185,129,0.3)','#a7f3d0')}; color:${T('#34d399','#059669')}; flex:1; padding: 12px; font-size: 13px; font-weight:700;">一键连播</button>
+                        <button class="xy-action-btn" id="xy-btn-dashboard-standby" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')}; flex:1; padding: 12px; font-size: 13px;">全局雷达</button>
+                        <button class="xy-action-btn" id="xy-btn-schedule-standby" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')}; border-color:${T('rgba(251,191,36,0.25)','#fde68a')}; color:${T('#fcd34d','#92400e')}; flex:1; padding: 12px; font-size: 13px;">计划调度</button>
                     </div>
                 </div>
 
