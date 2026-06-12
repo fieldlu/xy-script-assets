@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.5.3
+// @version      3.5.4
 // @description  小雅平台全自动辅助：视频/文档智能连播挂机、讨论区抓包批量点赞/自定义回复、计划调度中心跨课编排、全局任务雷达一键秒交、课件批量下载、深度伪装反检测、后台保活防节流
 // @author       Confidential
 // @license      仅供个人使用与传播，禁止修改、复制、售卖、代刷
@@ -12,6 +12,7 @@
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @icon         https://www.ai-augmented.com/static/logo3.1dbbea8f.png
 
@@ -2490,8 +2491,45 @@
     }
 
     // ==========================================
-    // ☁️ 小雅辅助工具云端情报站 (系统公告) —— 本地缓存秒开 + 双代理静默更新
+    // ☁️ 小雅辅助工具云端情报站 (系统公告) —— 嵌入式秒开 + GM_xhr 静默实时更新
     // ==========================================
+    const EMBEDDED_NOTICE = {
+        "title": "🎉 v3.5.4 一键雷达连播 · 情报站实时同步",
+        "items": [
+            "🔮 更新链接：https://scriptcat.org/zh-CN/script-show-page/5881",
+            "🔒 隐私声明：本脚本不收集任何个人信息，数据仅存本地浏览器",
+            "⚠️ 免责声明：仅供个人学习使用，禁止代刷代挂售卖，使用者自负风险",
+            "",
+            "🔥 === v3.5.4 更新 ===",
+            "🔊 一键雷达连播：休眠区/刷课区一键扫描全网未完成任务，按DDL智能排序后自动连播",
+            "📡 情报站实时同步：GM_xhr 直连 Gitee Raw，不走浏览器 CORS，不依赖第三方代理",
+            "",
+            "📟 === v3.5.3 更新 ===",
+            "🧹 面板精简：隐藏防休眠/保活/鼠标/伪装开关（默认开启）",
+            "",
+            "📟 === v3.5.2 更新 ===",
+            "▶️ 视频从小雅断点续播，不再每次强制从头播放",
+            "🖱️ 拖动进度条弹回原位，不再刷新整个页面",
+            "",
+            "📟 === v3.5.1 更新 ===",
+            "🗑️ 移除学时注入功能（实测不可用，删减 150+ 行代码）",
+            "",
+            "📟 === v3.5.0 调度全面进化 ===",
+            "📟 课程页调度进度卡片：实时任务进度 + 暂停/跳过/停止",
+            "🔌 关浏览器自动清空调度，刷新保留",
+            "🔊 后台防节流振荡器：切后台不掉速",
+            "🐛 修复 10+ 处致命/中危 Bug",
+            "",
+            "📋 === 3.4 系列遗产 ===",
+            "✅ 调度暂停/继续 + 跳转不秒停",
+            "✅ 安装不弹跨域授权 + 公告秒开",
+            "✅ 下载区搜索框/进度条/暂停终止",
+            "✅ 持久化定时器：切后台不掉线",
+            "",
+            "💬 有 bug 随时提 Issue！"
+        ]
+    };
+
     function renderNotice(data) {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
@@ -2502,7 +2540,6 @@
                     ${(data.items || []).map(item => `<li style="margin-bottom:8px;">${escapeHtml(item)}</li>`).join('')}
                 </ul>
             </div>`;
-        // 自动展开情报站，用户打开就能看见
         contentBox.style.display = 'block';
         const arrow = document.getElementById('xy-bc-arrow');
         if (arrow) arrow.style.transform = 'rotate(180deg)';
@@ -2513,40 +2550,38 @@
         if (!contentBox) return;
 
         // 1. 优先读本地缓存，瞬间显示
+        let hasCache = false;
         try {
             const cached = GM_getValue('xy_notice_cache', '');
-            if (cached) renderNotice(JSON.parse(cached));
+            if (cached) { renderNotice(JSON.parse(cached)); hasCache = true; }
         } catch (e) { /* ignore */ }
 
-        // 2. 后台静默拉取最新公告
-        const ts = Date.now();
-        const rawUrl = `https://gitee.com/fieldlu/xy-script-assets/raw/main/notice_new.json?t=${ts}`;
-        const proxies = [
-            'https://api.allorigins.win/raw?url=',
-            'https://api.codetabs.com/v1/proxy?quest=',
-        ];
-
-        function tryFetch(idx) {
-            if (idx >= proxies.length) {
-                if (!GM_getValue('xy_notice_cache', '')) {
-                    contentBox.innerHTML = `<div style="padding:16px 20px; color:#f59e0b;">公告暂时无法加载，请检查网络后刷新页面。</div>`;
-                }
-                return;
-            }
-            const url = proxies[idx] + encodeURIComponent(rawUrl);
-            fetch(url, { cache: 'no-store' })
-                .then(res => {
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
-                    return res.json();
-                })
-                .then(data => {
-                    GM_setValue('xy_notice_cache', JSON.stringify(data));
-                    renderNotice(data);
-                })
-                .catch(() => tryFetch(idx + 1));
+        // 2. 无缓存时用嵌入式公告兜底
+        if (!hasCache) {
+            try {
+                renderNotice(EMBEDDED_NOTICE);
+                GM_setValue('xy_notice_cache', JSON.stringify(EMBEDDED_NOTICE));
+            } catch (e) { /* ignore */ }
         }
 
-        tryFetch(0);
+        // 3. 后台 GM_xhr 静默拉取最新公告（Tampermonkey 特权 API，不走浏览器 CORS）
+        const rawUrl = `https://gitee.com/fieldlu/xy-script-assets/raw/main/notice_new.json?t=${Date.now()}`;
+        try {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: rawUrl,
+                timeout: 8000,
+                onload: function(resp) {
+                    try {
+                        const data = JSON.parse(resp.responseText);
+                        GM_setValue('xy_notice_cache', JSON.stringify(data));
+                        renderNotice(data);
+                    } catch (e) { /* 解析失败，保持当前显示 */ }
+                },
+                onerror: function() { /* 网络不通，嵌入式/缓存已兜底 */ },
+                ontimeout: function() { /* 超时，保持当前显示 */ }
+            });
+        } catch (e) { /* GM_xhr 不可用时静默降级 */ }
     }
 
     // ==========================================
@@ -3164,6 +3199,103 @@
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
         logMsg(`🧠 智能排课完成：${xyScheduleState.queue.length} 个任务已按 DDL紧迫度×类型交错 优化排序`, 'success', false);
         showToast(`已优化导入 ${xyScheduleState.queue.length} 个任务`, 'success');
+    }
+
+    // ==========================================
+    // 🔊 一键雷达连播：休眠区 / 刷课区通用
+    // ==========================================
+    async function oneClickRadarPlay() {
+        if (xyScheduleState.isRunning) {
+            showToast('计划调度正在运行中，请先停止后再一键连播', 'warning');
+            return;
+        }
+
+        logMsg('🔊 一键雷达连播：正在扫描全网未完成任务...', 'info', false);
+        showToast('正在扫描全网任务...', 'info');
+
+        const allTasks = await fetchGlobalTasks();
+        const now = new Date();
+
+        // 筛选：只保留未完成的视频/文档任务，排除已完成(finish===2)和未开始(start_time>now)的
+        const pendingTasks = allTasks.filter(t => {
+            const name = (t.name || '').toLowerCase();
+            const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
+            const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+            if (!(isVideo || isDoc)) return false;
+            if (t.finish === 2) return false; // 排除已完成
+            if (t.start_time && new Date(t.start_time) > now) return false; // 排除未开始
+            return true;
+        });
+
+        if (pendingTasks.length === 0) {
+            logMsg('🔊 一键连播：全网未发现可挂机的待完成任务', 'warning', false);
+            showToast('未发现待完成的视频/文档任务', 'warning');
+            return;
+        }
+
+        // 按截止时间智能排序（最紧迫的在前）
+        pendingTasks.sort((a, b) => {
+            const aEnd = new Date(a.end_time || '2099-12-31').getTime();
+            const bEnd = new Date(b.end_time || '2099-12-31').getTime();
+            if (aEnd !== bEnd) return aEnd - bEnd;
+            // 同截止时间，未完成的排在已完成刷时长的前面
+            if (a.finish !== b.finish) return (a.finish || 0) - (b.finish || 0);
+            // 同课程分组
+            if (a.group_id !== b.group_id) return (parseInt(a.group_id) || 0) - (parseInt(b.group_id) || 0);
+            return (parseInt(a.node_id) || 0) - (parseInt(b.node_id) || 0);
+        });
+
+        // 清空当前队列
+        xyScheduleState.queue = [];
+        xyScheduleState.currentIdx = 0;
+
+        // 一键导入
+        for (const task of pendingTasks) {
+            const resId = await getTaskResourceId(task);
+            xyScheduleState.queue.push({
+                uuid: generateUUID(),
+                taskId: task.task_id || task.id,
+                nodeId: task.node_id,
+                groupId: task.group_id,
+                resourceId: resId,
+                name: task.name,
+                type: 1,
+                strategy: 'until_done', // 全部达标即跳(连播)
+                duration: 30,
+                elapsedSec: 0,
+                actionDone: false,
+                status: 'pending'
+            });
+        }
+
+        saveScheduleState();
+        if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+
+        logMsg(`🔊 一键连播：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
+        showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动连播`, 'success');
+
+        // 立即启动调度
+        xyScheduleState.lastMode = appState.mode;
+        appState.mode = 'manual';
+        GM_setValue('xy_play_mode', 'manual');
+
+        xyScheduleState.isRunning = true;
+        xyScheduleState.isPaused = false;
+        saveScheduleState();
+
+        updateCourseUI();
+        updateSchCard();
+        try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
+
+        // 跳转到第一个任务
+        const firstTask = xyScheduleState.queue[0];
+        if (firstTask) {
+            const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
+            logMsg(`🔊 一键连播：正在跳转至首个任务「${(firstTask.name||'未知').substring(0,12)}」...`, 'success', false);
+            setTimeout(() => {
+                window.location.href = `/app/jx-web/${pathPrefix}/${firstTask.groupId}/${firstTask.resourceId}/${firstTask.nodeId}`;
+            }, 800);
+        }
     }
 
     // ==========================================
@@ -4143,6 +4275,7 @@
                     <div style="font-size: 14px; font-weight: 600; color: ${T('#94a3b8','#64748b')}; margin-bottom: 8px;">系统休眠中</div>
                     <div style="font-size: 12px; color: ${T('#64748b','#475569')}; line-height: 1.7; margin-bottom: 24px;">当前位于不可自动化的区域<br>进入<span style="color:${T('#34d399','#059669')};">视频/文档/讨论区</span>自动激活引擎</div>
                     <div style="display:flex; gap:10px; width:85%; margin: 0 auto;">
+                        <button class="xy-action-btn" id="xy-btn-radarplay-standby" style="background:${T('rgba(16,185,129,0.15)','#ecfdf5')}; border-color:${T('rgba(16,185,129,0.3)','#a7f3d0')}; color:${T('#34d399','#059669')}; flex:1; padding: 12px; font-size: 13px; font-weight:700;">🔊 一键连播</button>
                         <button class="xy-action-btn" id="xy-btn-dashboard-standby" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')}; flex:1; padding: 12px; font-size: 13px;">🌍 全局雷达</button>
                         <button class="xy-action-btn" id="xy-btn-schedule-standby" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')}; border-color:${T('rgba(251,191,36,0.25)','#fde68a')}; color:${T('#fcd34d','#92400e')}; flex:1; padding: 12px; font-size: 13px;">📅 计划调度</button>
                     </div>
@@ -4444,7 +4577,7 @@
             updateCourseUI(); 
         };
         document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } appState.mode = 'loop'; GM_setValue('xy_play_mode', 'loop'); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
-        document.getElementById('btn-mode-seq').onclick = () => { if (xyScheduleState.isRunning) { xySchStop(); } appState.mode = 'sequence'; GM_setValue('xy_play_mode', 'sequence'); logMsg('🚀 连播破壁引擎开启，特种规则接管文档与防拖拽', 'success'); updateCourseUI(); if (!getCourseGroupId()) tryJumpToNext(); else globalTaskStatusChecker(true); };
+        document.getElementById('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
         
         document.getElementById('xy-btn-guard').onclick = () => { appState.guardActive = !appState.guardActive; GM_setValue('xy_guard_active', appState.guardActive); updateCourseUI(); logMsg(`🛡️ 防休眠${appState.guardActive ? '已开启':'已关闭'}`, 'info', true); };
         document.getElementById('xy-btn-keepalive').onclick = () => {
@@ -4485,6 +4618,7 @@
         if (appState.mouseSimActive) { scheduleMouseSim(); }
         document.getElementById('xy-btn-dashboard').onclick = openGlobalTaskDashboard;
         document.getElementById('xy-btn-dashboard-standby').onclick = openGlobalTaskDashboard;
+        document.getElementById('xy-btn-radarplay-standby').onclick = oneClickRadarPlay;
         document.getElementById('xy-btn-schedule').onclick = openScheduleDashboard;
         document.getElementById('xy-btn-download-zone').onclick = () => enterDownloadZone();
         document.getElementById('xy-btn-quick-kill').onclick = () => {
