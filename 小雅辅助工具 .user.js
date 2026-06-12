@@ -4262,7 +4262,7 @@
                         <div id="xy-minimize" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 7px; border-radius: 6px; font-size: 14px; transition: 0.2s; font-weight:700;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}'; this.style.color='${T('#e2e8f0','#0f172a')}';" onmouseout="this.style.background='transparent'; this.style.color='${T('#64748b','#94a3b8')}';">⊟</div>
                     </div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
+                <div id="xy-handle-row2" style="display: flex; align-items: center; gap: 8px;">
                     <div id="xy-zone-badge" class="xy-badge xy-badge-info"></div>
                     <span id="xy-qq-group" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s;" title="点击复制QQ群号" onmouseover="this.style.background='${T('rgba(129,140,248,0.25)','#c7d2fe')}';" onmouseout="this.style.background='${T('rgba(129,140,248,0.15)','#e0e7ff')}';">QQ群: 1095232169</span>
                 </div>
@@ -4301,11 +4301,7 @@
                     <div id="xy-status-banner" style="text-align: center; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--xy-border); background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; font-size: 12px; margin-bottom: 10px; font-weight: 600; color: ${T('#94a3b8','#64748b')};">初始化中...</div>
 
                     <div class="xy-panel" style="padding: 12px;">
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
-                            <button class="xy-mode-btn" id="btn-mode-man">手动休眠</button>
-                            <button class="xy-mode-btn" id="btn-mode-loop">安全循环</button>
-                            <button class="xy-mode-btn" id="btn-mode-seq">雷达连播</button>
-                        </div>
+                        <button class="xy-mode-btn active" id="btn-mode-seq" style="width:100%;">雷达连播</button>
                     </div>
 
                     <div id="xy-sch-card" style="display:none; margin-bottom:10px; padding:12px 14px; border-radius:10px; border-left:4px solid ${T('#818cf8','#6366f1')}; background:${T('rgba(99,102,241,0.06)','#eef2ff')}; font-size:13px; line-height:1.6;"></div>
@@ -4584,15 +4580,6 @@
         document.getElementById('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
         document.getElementById('btn-clear-progress').onclick = () => { appState.recordCount = 0; appState.totalTime = 0; appState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
 
-        document.getElementById('btn-mode-man').onclick = () => { 
-            if (xyScheduleState.isRunning) { xySchStop(); } // 联动关闭调度
-            appState.mode = 'manual'; 
-            GM_setValue('xy_play_mode', 'manual'); 
-            clearDynamicRefresh(); 
-            logMsg('已暂停，且已强制停止所有重载任务', 'success'); 
-            updateCourseUI(); 
-        };
-        document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } appState.mode = 'loop'; GM_setValue('xy_play_mode', 'loop'); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
         document.getElementById('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
         
         document.getElementById('xy-btn-guard').onclick = () => { appState.guardActive = !appState.guardActive; GM_setValue('xy_guard_active', appState.guardActive); updateCourseUI(); logMsg(`🛡️ 防休眠${appState.guardActive ? '已开启':'已关闭'}`, 'info', true); };
@@ -4767,8 +4754,17 @@
             renderTargetList();
         }
 
-        const handle = document.getElementById('xy-drag-handle'), minBtn = document.getElementById('xy-minimize'), body = document.getElementById('xy-main-body');
-        let isMin = false; minBtn.onclick = () => { isMin = !isMin; body.style.display = isMin ? 'none' : 'flex'; minBtn.innerText = isMin ? '⊞' : '⊟'; };
+        const handle = document.getElementById('xy-drag-handle'), minBtn = document.getElementById('xy-minimize'), body = document.getElementById('xy-main-body'), handleRow2 = document.getElementById('xy-handle-row2');
+        let isMin = false;
+        minBtn.onclick = () => {
+            isMin = !isMin;
+            body.style.display = isMin ? 'none' : 'flex';
+            if (handleRow2) handleRow2.style.display = isMin ? 'none' : 'flex';
+            handle.style.padding = isMin ? '8px 18px' : '14px 18px 12px 18px';
+            handle.style.cursor = isMin ? 'default' : 'grab';
+            minBtn.innerText = isMin ? '⊞' : '⊟';
+            minBtn.title = isMin ? '展开面板' : '最小化面板';
+        };
 
         // ── 宽度切换：360 → 300 → 420 循环 ──
         const widthBtn = document.getElementById('xy-width-toggle');
