@@ -4257,7 +4257,6 @@
                          <span class="xy-badge xy-badge-success">v${SCRIPT_VERSION}</span>
                     </div>
                     <div style="display:flex; align-items:center; gap:2px;">
-                        <div id="xy-width-toggle" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 5px; border-radius: 6px; font-size: 13px; transition: 0.2s; font-weight:700;" title="切换面板宽度" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}';" onmouseout="this.style.background='transparent';">↔</div>
                         <div id="xy-theme-toggle" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 6px; border-radius: 6px; font-size: 14px; transition: 0.2s;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}';" onmouseout="this.style.background='transparent';">🌙</div>
                         <div id="xy-minimize" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 7px; border-radius: 6px; font-size: 14px; transition: 0.2s; font-weight:700;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}'; this.style.color='${T('#e2e8f0','#0f172a')}';" onmouseout="this.style.background='transparent'; this.style.color='${T('#64748b','#94a3b8')}';">⊟</div>
                     </div>
@@ -4480,7 +4479,7 @@
                 </div>
             </div>
 
-            <div class="xy-panel" style="background:${T('rgba(30,41,59,0.3)','#f8fafc')}; border-style:dashed;">
+            <div id="xy-sys-ctrl" class="xy-panel" style="background:${T('rgba(30,41,59,0.3)','#f8fafc')}; border-style:dashed;">
                 <div style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
                     <span>系统控制</span>
                     <div style="display:flex; gap: 10px;">
@@ -4494,7 +4493,7 @@
                 </div>
             </div>
 
-            <div style="margin-top: auto; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; margin-bottom: 6px;">
+            <div id="xy-bottom-containers" style="margin-top: auto; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; margin-bottom: 6px;">
                 <div id="xy-refresh-container" style="display: ${appState.showRefreshPanel ? 'block' : 'none'}; background: ${T('rgba(251,191,36,0.06)','#fffbeb')}; padding: 12px 16px; border-radius: 10px; border: 1px solid ${T('rgba(251,191,36,0.15)','#fde68a')};">
                     <div style="font-size: 11px; color: ${T('#fcd34d','#92400e')}; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">⏳ 动态重载调度</div>
                     <div id="xy-refresh-status" style="font-size: 12px; color: ${T('#fbbf24','#92400e')}; font-weight: 600; font-family: monospace;">目前无重载任务</div>
@@ -4768,24 +4767,19 @@
         }
 
         const handle = document.getElementById('xy-drag-handle'), minBtn = document.getElementById('xy-minimize'), body = document.getElementById('xy-main-body'), handleRow2 = document.getElementById('xy-handle-row2');
+        const sysCtrl = document.getElementById('xy-sys-ctrl'), bottomContainers = document.getElementById('xy-bottom-containers');
         let isMin = false;
         minBtn.onclick = () => {
             isMin = !isMin;
             body.style.display = isMin ? 'none' : 'flex';
             if (handleRow2) handleRow2.style.display = isMin ? 'none' : 'flex';
+            if (sysCtrl) sysCtrl.style.display = isMin ? 'none' : '';
+            if (bottomContainers) bottomContainers.style.display = isMin ? 'none' : '';
             handle.style.padding = isMin ? '8px 18px' : '14px 18px 12px 18px';
             handle.style.cursor = isMin ? 'default' : 'grab';
             minBtn.innerText = isMin ? '⊞' : '⊟';
             minBtn.title = isMin ? '展开面板' : '最小化面板';
         };
-
-        // ── 宽度切换：360 → 300 → 420 循环 ──
-        const widthBtn = document.getElementById('xy-width-toggle');
-        const widths = [360, 300, 420];
-        let widthIdx = widths.indexOf(savedWidth);
-        if (widthIdx === -1) widthIdx = 0;
-        const applyWidth = () => { wrapper.style.width = widths[widthIdx] + 'px'; GM_setValue('xy_panel_width', widths[widthIdx]); };
-        widthBtn.onclick = () => { widthIdx = (widthIdx + 1) % widths.length; applyWidth(); showToast(widths[widthIdx] === 300 ? '📐 紧凑模式' : widths[widthIdx] === 420 ? '📐 宽屏模式' : '📐 标准模式', 'info'); };
 
         // ── 折叠面板通用绑定 ──
         const bindSection = (hdrId, bodyId, arrId) => {
