@@ -2531,14 +2531,29 @@
         ]
     };
 
+    function autoLink(text) {
+        // 先找 URL 再转义，避免 & 被转成 &amp; 导致 URL 失效
+        const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
+        const parts = [];
+        let lastIdx = 0;
+        let match;
+        while ((match = urlRe.exec(text)) !== null) {
+            parts.push(escapeHtml(text.slice(lastIdx, match.index)));
+            parts.push(`<a href="${match[0]}" target="_blank" rel="noopener" style="color:${T('#818cf8','#4f46e5')}; text-decoration:underline;" onclick="event.stopPropagation()">${escapeHtml(match[0])}</a>`);
+            lastIdx = urlRe.lastIndex;
+        }
+        parts.push(escapeHtml(text.slice(lastIdx)));
+        return parts.join('');
+    }
+
     function renderNotice(data) {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
         contentBox.innerHTML =
             `<div style="padding:16px 20px;">
-                <div style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:12px; font-size:14px;">${escapeHtml(data.title || '系统公告')}</div>
+                <div style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:12px; font-size:14px;">${autoLink(data.title || '系统公告')}</div>
                 <ul style="margin:0; padding-left:18px; color:${T('#cbd5e1','#475569')}; line-height:1.6;">
-                    ${(data.items || []).map(item => `<li style="margin-bottom:8px;">${escapeHtml(item)}</li>`).join('')}
+                    ${(data.items || []).map(item => `<li style="margin-bottom:8px;">${autoLink(item)}</li>`).join('')}
                 </ul>
             </div>`;
         contentBox.style.display = 'block';
