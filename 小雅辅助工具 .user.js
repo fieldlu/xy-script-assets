@@ -4389,8 +4389,6 @@
                     </div>
                 </div>
 
-            </div>
-
             <div id="xy-view-disc" style="display:none; flex-shrink: 0;">
                 <div id="xy-disc-status" style="padding: 10px 14px; border-radius: 8px; background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; border: 1px solid var(--xy-border); font-size: 12px; font-weight: 600; margin-bottom: 10px; text-align: center; color: ${T('#94a3b8','#64748b')};">初始化中...</div>
 
@@ -4767,14 +4765,11 @@
         }
 
         const handle = document.getElementById('xy-drag-handle'), minBtn = document.getElementById('xy-minimize'), body = document.getElementById('xy-main-body'), handleRow2 = document.getElementById('xy-handle-row2');
-        const sysCtrl = document.getElementById('xy-sys-ctrl'), bottomContainers = document.getElementById('xy-bottom-containers');
         let isMin = false;
         minBtn.onclick = () => {
             isMin = !isMin;
             body.style.display = isMin ? 'none' : 'flex';
             if (handleRow2) handleRow2.style.display = isMin ? 'none' : 'flex';
-            if (sysCtrl) sysCtrl.style.display = isMin ? 'none' : '';
-            if (bottomContainers) bottomContainers.style.display = isMin ? 'none' : 'flex';
             handle.style.padding = isMin ? '8px 18px' : '14px 18px 12px 18px';
             handle.style.cursor = isMin ? 'default' : 'grab';
             minBtn.innerText = isMin ? '⊞' : '⊟';
