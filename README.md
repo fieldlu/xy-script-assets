@@ -1,69 +1,40 @@
-# xy-script-assets
+# 小雅辅助工具
 
-[![version](https://img.shields.io/badge/version-3.5.5-ff69b4)](https://gitee.com/fieldlu/xy-script-assets)
-[![license](https://img.shields.io/badge/license-custom-red)](LICENSE)
-[![userscript](https://img.shields.io/badge/tampermonkey-v4.19+-brightgreen)](https://www.tampermonkey.net/)
+> コードを紡ぐ、日常を自動に。
 
-A userscript for the xiaoya platform.
-
-[📦 Install](https://scriptcat.org/zh-CN/script-show-page/5881) · [📋 Changelog](CHANGELOG.md) · [📄 License](LICENSE)
+一个运行在小雅平台的用户脚本。
 
 ---
 
-## Features
+## 它是做什么的
 
-- Media playback automation
-- Document reading automation
-- Course material batch download
-- Assignment export to Word (.docx)
-- Discussion forum interaction tools
+帮助你更高效地完成平台上的学习任务。
 
 ---
 
-## Install
+## 怎么用
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/) v4.19+
-2. Click **[📦 Install]** above
-3. Confirm installation
-
----
-
-## Usage
-
-After installation, a control panel appears on the xiaoya platform. Use each module as needed.
+1. 安装 Tampermonkey 浏览器扩展
+2. 安装本脚本
+3. 打开小雅平台，控制面板会自动出现在页面右侧
 
 ---
 
-## Tech
+## 特性
 
-- Pure vanilla JavaScript, zero dependencies
-- Tampermonkey API for cross-origin requests and local storage
-- Defensive programming with exception handling
-
----
-
-## Changelog
-
-### v3.5.5 (2026-06-15)
-
-- New: Assignment questions export to Word (.docx)
-- Maintenance update
-
-### v3.5.4 (2026-06-12)
-
-- New: One-click radar playback, DDL sorted
-- Fix: Localized notice system
-
-> Full history: [CHANGELOG.md](CHANGELOG.md)
+- 视频与文档自动播放
+- 课件打包下载
+- 作业导出为 Word 文档
+- 讨论区互动
 
 ---
 
-## Privacy
+## 版本
 
-- No personal data collection
-- No third-party data upload
-- All data stored locally in browser
-- For personal learning and research only
-- Commercial use prohibited
+当前版本 `3.5.5`
 
 ---
+
+## 声明
+
+仅供个人学习使用。
