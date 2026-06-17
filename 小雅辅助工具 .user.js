@@ -6,6 +6,7 @@
 // @author       Confidential
 // @license      仅供个人学习使用，禁止修改、复制或用于商业用途
 // @match        https://*.ai-augmented.com/*
+// @noframes
 // @run-at       document-start
 // @connect      gitee.com
 // @connect      *
