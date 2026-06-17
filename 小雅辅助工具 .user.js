@@ -523,6 +523,8 @@
     function syncHardwareMute() { document.dispatchEvent(new CustomEvent('xy-volume-change', { detail: { mute: appState.hardwareMute } })); }
     function getCourseGroupId() { const match = window.location.href.match(/(?:mycourse|course)\/(\d+)/); return match ? match[1] : null; }
     function getNodeId() { const match = window.location.href.match(/resource\/\d+\/(\d+)/); return match ? match[1] : null; }
+    function getPaperId() { const match = window.location.href.match(/resource\/(\d+)\/(\d+)/); return match ? match[2] : null; }
+    function getResourceNodeId() { const match = window.location.href.match(/resource\/(\d+)\//); return match ? match[1] : null; }
 
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     function getCookie(keyword = 'prd-access-token') { for (const cookie of document.cookie.split('; ')) { const [name, value] = cookie.split('='); if (name.includes(keyword)) return value; } return null; }
@@ -4384,9 +4386,15 @@
         if (hwQuestionsData.length > 0) return;
         try {
             const urlObj = new URL(window.location.href);
-            const groupId = urlObj.searchParams.get('group_id');
-            const nodeId = urlObj.searchParams.get('node_id');
-            const paperId = urlObj.searchParams.get('paper_id');
+            let groupId = urlObj.searchParams.get('group_id');
+            let nodeId = urlObj.searchParams.get('node_id');
+            let paperId = urlObj.searchParams.get('paper_id');
+            // 路径参数兜底：URL 格式 /mycourse/{group_id}/resource/{node_id}/{paper_id}
+            if (!groupId || !nodeId || !paperId) {
+                if (!groupId) groupId = getCourseGroupId();
+                if (!nodeId) nodeId = getResourceNodeId();
+                if (!paperId) paperId = getPaperId();
+            }
             if (!groupId || !nodeId || !paperId) return;
             _hwProactiveFetching = true;
             hwGroupId = groupId;
@@ -5231,7 +5239,7 @@
             updateCourseUI();
             updateDiscUI();
             // 作业区：如果已有 paper_id 参数但数据为空，主动拉取
-            if (hwQuestionsData.length === 0 && new URL(window.location.href).searchParams.get('paper_id')) {
+            if (hwQuestionsData.length === 0 && (new URL(window.location.href).searchParams.get('paper_id') || getPaperId())) {
                 setTimeout(hwProactiveFetchData, 200);
             }
         });
