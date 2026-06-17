@@ -5309,7 +5309,6 @@
             _uiCreating = true;
             createUI();
         }
-        }
 
         // 后台保活引擎初始化
         if (appState.keepaliveEnabled && !keepaliveWatchdogTimer) {
