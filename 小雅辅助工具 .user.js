@@ -4538,9 +4538,8 @@
     function createUI() {
         if (document.getElementById('xy-super-console')) return;
         if (!document.body) { requestAnimationFrame(createUI); return; }
-        // 强力清理：移除任何残留的旧面板 DOM
-        const oldEl = document.getElementById('xy-super-console');
-        if (oldEl) try { oldEl.remove(); } catch(e) {}
+        // 强力清理：移除任何残留的旧面板 DOM（避免 SPA 重复创建）
+        document.querySelectorAll('#xy-super-console').forEach(el => { try { el.remove(); } catch(e) {} });
         // 同时清理可能残留的悬浮球、toast 容器等辅助元素
         ['xy-splash','xy-toast-box'].forEach(id => {
             const el = document.getElementById(id);
@@ -5305,6 +5304,13 @@
     let _uiCreating = false;
     function ensureUI() {
         if (_uiCreating) return;
+        // 巡检：定期清理残留重复面板（SPA 多次重绘可能遗留旧 DOM）
+        const allPanels = document.querySelectorAll('#xy-super-console');
+        if (allPanels.length > 1) {
+            for (let i = 1; i < allPanels.length; i++) {
+                try { allPanels[i].remove(); } catch(e) {}
+            }
+        }
         if (!document.getElementById('xy-super-console')) {
             _uiCreating = true;
             createUI();
