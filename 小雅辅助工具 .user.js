@@ -5248,8 +5248,16 @@
     // ==========================================
     // 🛡️ 启动系统与全局路由监听
     // ==========================================
+    let _uiCreating = false;
     function ensureUI() {
-        if (!document.getElementById('xy-super-console')) { createUI(); appState.isTaskCompleted = false; applyThemeClasses(); }
+        if (_uiCreating) return;
+        if (!document.getElementById('xy-super-console')) {
+            _uiCreating = true;
+            createUI();
+            appState.isTaskCompleted = false;
+            applyThemeClasses();
+            _uiCreating = false;
+        }
 
         // 后台保活引擎初始化
         if (appState.keepaliveEnabled && !keepaliveWatchdogTimer) {
