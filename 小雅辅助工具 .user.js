@@ -810,7 +810,9 @@
         else if (taskType === 6) { switchToZone('disc'); return; }
         else if (taskType > 1 && taskType <= 5) {
             if (appState.activeZone !== 'hw') logMsg('📝 侦测到【测验/作业/问卷】→ 已切换作业区', 'success', false);
-            switchToZone('hw'); return;
+            switchToZone('hw');
+            setTimeout(hwProactiveFetchData, 300);
+            return;
         }
 
         const htmlStr = document.body ? document.body.innerHTML : '';
@@ -4375,6 +4377,37 @@
         hwUpdateUI();
     }
 
+    // 🆕 主动拉取作业题目数据（SPA 导航时拦截器不会触发）
+    let _hwProactiveFetching = false;
+    async function hwProactiveFetchData() {
+        if (_hwProactiveFetching) return;
+        if (hwQuestionsData.length > 0) return;
+        try {
+            const urlObj = new URL(window.location.href);
+            const groupId = urlObj.searchParams.get('group_id');
+            const nodeId = urlObj.searchParams.get('node_id');
+            const paperId = urlObj.searchParams.get('paper_id');
+            if (!groupId || !nodeId || !paperId) return;
+            _hwProactiveFetching = true;
+            hwGroupId = groupId;
+            hwNodeId = nodeId;
+            hwPaperId = paperId;
+            const token = getCookie();
+            if (!token) { _hwProactiveFetching = false; return; }
+            const url = `https://${domain}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(nodeId)}&paper_id=${encodeURIComponent(paperId)}`;
+            const response = await _hw_nativeFetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+            const data = await response.json();
+            if (data && data.data && data.data.questions) {
+                console.log('[小雅辅助·作业区] 主动拉取题目数据成功');
+                hwProcessPaperData(data);
+            }
+        } catch(e) {
+            console.warn('[小雅辅助·作业区] 主动拉取题目数据失败', e);
+        } finally {
+            _hwProactiveFetching = false;
+        }
+    }
+
     // ── docx 导出 ──
 
     function hwDataUrlToArrayBuffer(dataUrl){const b64=dataUrl.split(',')[1];const bs=atob(b64);const bytes=new Uint8Array(bs.length);for(let i=0;i<bs.length;i++)bytes[i]=bs.charCodeAt(i);return bytes.buffer}
@@ -5197,6 +5230,10 @@
         runLowLevelScanner().then(() => {
             updateCourseUI();
             updateDiscUI();
+            // 作业区：如果已有 paper_id 参数但数据为空，主动拉取
+            if (hwQuestionsData.length === 0 && new URL(window.location.href).searchParams.get('paper_id')) {
+                setTimeout(hwProactiveFetchData, 200);
+            }
         });
     }
 
