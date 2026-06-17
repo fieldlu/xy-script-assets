@@ -4356,8 +4356,14 @@
         return{state:'submitted',canShowStandardAnswer:canShow,totalScore:hwToNum(pd?.total_score),actualScore:hwToNum(ar.actual_score??ar.score),answerNum:hwToNum(ar.answer_num||hwQuestionsData.length),correctNum:hwToNum(ar.answer_correct_num),questionResults:qrs};
     }
 
+    // 🆕 保护标志：hwProcessPaperData 刚执行完时阻止路由重置
+    let _hwDataJustLoaded = false;
+
     function hwProcessPaperData(json) {
         if(!json||!json.data||!json.data.questions){console.warn('[小雅辅助·作业区] 题目数据结构不完整，已跳过处理',!!json,!!json?.data,!!json?.data?.questions);return;}
+        clearTimeout(window._hwResetGuard);
+        _hwDataJustLoaded = true;
+        setTimeout(() => { _hwDataJustLoaded = false; }, 3000);
         console.log('[小雅辅助·作业区] 开始处理题目数据，题目数:', json.data.questions.length);
         hwPaperId=hwPaperId||json.data.paper_id||json.data.paperId||json.data.id||'';
         if(!hwGroupId)hwGroupId=json.data.group_id;
@@ -4402,12 +4408,27 @@
             hwPaperId = paperId;
             const token = getCookie();
             if (!token) { _hwProactiveFetching = false; return; }
-            const url = `https://${domain}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(nodeId)}&paper_id=${encodeURIComponent(paperId)}`;
-            const response = await _hw_nativeFetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-            const data = await response.json();
-            if (data && data.data && data.data.questions) {
+            // 重试策略：最多尝试 6 次（200ms/600ms/1.4s/3s/6.2s/12.6s）
+            let data = null;
+            for (let attempt = 0; attempt < 6; attempt++) {
+                if (hwQuestionsData.length > 0) { data = true; break; } // 拦截器已处理
+                try {
+                    const url = `https://${domain}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(nodeId)}&paper_id=${encodeURIComponent(paperId)}`;
+                    // 用 window.fetch（经过拦截器），拦截器会自动调 hwProcessPaperData
+                    const res = await window.fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+                    if (!res.ok) { /* 不直接解析，由拦截器处理 */ }
+                } catch(e) { /* 重试 */ }
+                if (hwQuestionsData.length > 0) { data = true; break; } // 拦截器已处理
+                if (attempt < 5) await sleep(200 * Math.pow(2, attempt)); // 200, 400, 800, 1600, 3200ms
+            }
+            if (data) {
                 console.log('[小雅辅助·作业区] 主动拉取题目数据成功');
-                hwProcessPaperData(data);
+                if (hwQuestionsData.length > 0 && hwSubmissionResult.state === 'waiting') {
+                    hwSubmissionResult.state = 'not_submitted';
+                    hwUpdateUI();
+                }
+            } else {
+                console.warn('[小雅辅助·作业区] 主动拉取未获得到题目数据（6次重试后放弃）');
             }
         } catch(e) {
             console.warn('[小雅辅助·作业区] 主动拉取题目数据失败', e);
@@ -5251,6 +5272,8 @@
     // ── 作业区路由监听 ──
     function hwHandleRouteChange() {
         setTimeout(() => {
+            // 保护期：数据刚加载完成时不重置（防止 SPA 二次导航打断）
+            if (_hwDataJustLoaded) return;
             if (!hwActiveTaskKey) return;
             const href = window.location.href;
             let match = true;
