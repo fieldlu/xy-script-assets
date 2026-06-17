@@ -833,8 +833,29 @@
         isFetchingResources = true;
         try {
             const token = await getAuthToken(); 
-            const res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, { headers: { "authorization": `Bearer ${token}` } });
-            const data = await res.json();
+            let res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, { headers: { "authorization": `Bearer ${token}` } });
+            let data = await res.json();
+            if (data.code === 50007) {
+                const gvRes = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
+                    method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group_id: groupId, role_type: 'normal' })
+                });
+                const gv = await gvRes.json();
+                const visitData = gv.data;
+                if (visitData && visitData.site_id) {
+                    const authRes = await fetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${visitData.site_id}&role_type=4`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const auth = await authRes.json();
+                    const accessToken = auth.data?.access_group_token;
+                    if (accessToken) {
+                        res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, {
+                            headers: { 'authorization': `Bearer ${token}`, 'X-Course-Access': accessToken }
+                        });
+                        data = await res.json();
+                    }
+                }
+            }
             if (data.success && data.data) { appState.courseResourcesCache = data.data; appState.lastCourseGroupId = groupId; }
         } catch(e) { console.warn('[小雅] loadCourseResources 请求失败', e); } 
         isFetchingResources = false;
@@ -873,10 +894,32 @@
         try {
             const token = getCookie();
             if (!token) return [];
-            const res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, {
+            let res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, {
                 headers: { 'authorization': `Bearer ${token}` }
             });
-            const data = await res.json();
+            let data = await res.json();
+            // 非本课程（可访问但未加入）需获取访问令牌
+            if (data.code === 50007) {
+                const gvRes = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
+                    method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group_id: groupId, role_type: 'normal' })
+                });
+                const gv = await gvRes.json();
+                const visitData = gv.data;
+                if (visitData && visitData.site_id) {
+                    const authRes = await fetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${visitData.site_id}&role_type=4`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    const auth = await authRes.json();
+                    const accessToken = auth.data?.access_group_token;
+                    if (accessToken) {
+                        res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, {
+                            headers: { 'authorization': `Bearer ${token}`, 'X-Course-Access': accessToken }
+                        });
+                        data = await res.json();
+                    }
+                }
+            }
             if (!data.success || !data.data) return [];
             const flat = extractFilesFromResources(data.data);
             return flat.filter(r => {
