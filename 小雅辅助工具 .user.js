@@ -5294,6 +5294,9 @@
 
         setTimeout(() => syncHardwareMute(), 100);
         fetchCloudIntelligence();
+        appState.isTaskCompleted = false;
+        applyThemeClasses();
+        _uiCreating = false;
     }
 
     // ==========================================
@@ -5305,9 +5308,7 @@
         if (!document.getElementById('xy-super-console')) {
             _uiCreating = true;
             createUI();
-            appState.isTaskCompleted = false;
-            applyThemeClasses();
-            _uiCreating = false;
+        }
         }
 
         // 后台保活引擎初始化
