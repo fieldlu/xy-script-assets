@@ -29,16 +29,6 @@
     const _hw_nativeXhrOpen = XMLHttpRequest.prototype.open;
     const _hw_nativeXhrSend = XMLHttpRequest.prototype.send;
 
-    // ── 全局 fetch 诊断（捕获所有 API 请求 URL）──
-    const _diagFetch = window.fetch;
-    window.fetch = function(input, init) {
-        const url = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
-        if (url && url.includes('/api/') && !url.includes('/queryStuPaper/v2') && !url.includes('my-imcloud') && !url.includes('aliyuncs') && !url.includes('/stat/') && !url.includes('/auth/') && !url.includes('/oauth')) {
-            console.log('[小雅诊断·fetch]', url.substring(0, 250));
-        }
-        return _diagFetch.apply(this, arguments);
-    };
-
     // 彻底动态化：读取头部 @version，无任何写死的数字，以后发版只需改头部注释即可！
     const SCRIPT_VERSION = typeof GM_info !== 'undefined' ? GM_info.script.version : '未知';
 
@@ -4490,10 +4480,48 @@
                 if (!nodeId) nodeId = getResourceNodeId();
                 if (!paperId) paperId = getPaperId();
             }
-            // /resource/ 页面：queryStuPaper/v2 一定返回 404（题目走其他 API）
+            // /resource/ 页面：queryStuPaper/v2 一定返回 404，改用 queryResource/v3
             const isResourcePage = window.location.href.includes('/resource/') && !window.location.href.includes('/course_paper/');
-            if (isResourcePage) {
-                console.log('[小雅辅助·作业区] resource 页面，跳过主动拉取');
+            if (isResourcePage && groupId && paperId) {
+                _hwProactiveFetching = true;
+                try {
+                    const token = getCookie();
+                    if (!token) { _hwProactiveFetching = false; return; }
+                    const resUrl = `https://${domain}/api/jx-iresource/resource/queryResource/v3?node_id=${encodeURIComponent(paperId)}`;
+                    console.log('[小雅辅助·作业区] resource 页面用 queryResource/v3');
+                    const res = await _hw_nativeFetch(resUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+                    const data = await res.json();
+                    if (data && data.success && data.data && data.data.resource && Array.isArray(data.data.resource.questions)) {
+                        const questions = data.data.resource.questions;
+                        console.log('[小雅辅助·作业区] queryResource/v3 获取到题目:', questions.length, '题');
+                        const paperIdFromRes = data.data.resource.id || paperId;
+                        // 展开子题目（type=9 材料题）
+                        const allQuestions = [];
+                        questions.forEach(q => {
+                            allQuestions.push(q);
+                            if (q.type === 9 && Array.isArray(q.subQuestions)) {
+                                q.subQuestions.forEach(sq => { sq._parentId = q.id; allQuestions.push(sq); });
+                            }
+                        });
+                        const compatData = {
+                            data: {
+                                paper_id: paperIdFromRes,
+                                group_id: groupId,
+                                questions: allQuestions,
+                                answer_record: data.data.answer_record || null
+                            }
+                        };
+                        hwGroupId = groupId;
+                        hwPaperId = String(paperIdFromRes);
+                        hwProcessPaperData(compatData);
+                        _hwProactiveFetching = false;
+                        return;
+                    }
+                    console.warn('[小雅辅助·作业区] queryResource/v3 返回值无 questions');
+                } catch(e) {
+                    console.warn('[小雅辅助·作业区] queryResource/v3 失败:', e);
+                }
+                _hwProactiveFetching = false;
                 return;
             }
             if (!groupId || !nodeId || !paperId) {
