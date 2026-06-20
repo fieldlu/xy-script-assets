@@ -799,7 +799,7 @@
         // 下载区手动模式：不自动切换区域，由用户手动控制
         if (appState.activeZone === 'download') return;
         if (appState.discLockedUrl === window.location.href) { switchToZone('disc'); return; }
-        const groupId = getCourseGroupId(); const nodeId = getNodeId();
+        const groupId = getCourseGroupId(); const nodeId = getNodeId() || getResourceNodeId() || getPaperId();
         if (!groupId || !nodeId) { switchToZone('standby'); return; }
 
         let taskType = -1;
