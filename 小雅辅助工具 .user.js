@@ -4482,44 +4482,39 @@
             }
             // /resource/ 页面：getResourceNodeId() 取到的是资源容器 ID，需从课程资源树中查找正确的测验 node_id
             const isResourcePage = window.location.href.includes('/resource/') && !window.location.href.includes('/course_paper/');
-            if (isResourcePage && groupId) {
+            if (isResourcePage && groupId && paperId) {
                 const resources = await loadCourseResources(groupId);
                 const containerNodeId = getResourceNodeId();
                 if (resources && containerNodeId) {
-                    // 在资源树中按容器节点 ID 定位，递归找子测验节点
-                    function findQuizChild(tree) {
-                        for (const item of tree) {
-                            if (String(item.node_id) === String(containerNodeId) || String(item.id) === String(containerNodeId)) {
-                                // 容器自身就是测验条目
-                                if (item.task_type >= 2 && item.task_type <= 5) return String(item.node_id || item.id);
-                                // 在子节点中找第一个测验
-                                const kids = item.children || item.child_nodes || item.items || [];
-                                for (const kid of kids) {
-                                    if (kid.task_type >= 2 && kid.task_type <= 5) return String(kid.node_id || kid.id);
-                                }
-                                return null;
-                            }
-                            // 递归深入子树
-                            const kids = item.children || item.child_nodes || item.items || [];
-                            if (kids.length) {
-                                const r = findQuizChild(kids);
-                                if (r) return r;
-                            }
-                        }
-                        return null;
+                    const flatRes = extractFilesFromResources(resources);
+                    // 策略 1：找 resource_id 等于当前容器 ID 的测验条目（quiz 挂在容器下）
+                    let quizItem = flatRes.find(r => r.computed_task_type >= 2 && r.computed_task_type <= 5 && String(r.resource_id) === String(containerNodeId));
+                    // 策略 2：找 id/node_id/resource_id 等于 paperId 的测验条目
+                    if (!quizItem) {
+                        quizItem = flatRes.find(r => r.computed_task_type >= 2 && r.computed_task_type <= 5 && (String(r.id) === String(paperId) || String(r.node_id) === String(paperId) || String(r.resource_id) === String(paperId)));
                     }
-                    const quizNodeId = findQuizChild(resources);
-                    if (quizNodeId) {
-                        nodeId = quizNodeId;
-                        console.log('[小雅辅助·作业区] resource 页面从资源树找到测验 node_id:', nodeId);
+                    if (quizItem && (quizItem.node_id || quizItem.id)) {
+                        nodeId = String(quizItem.node_id || quizItem.id);
+                        console.log('[小雅辅助·作业区] resource 页面从 flatRes 找到测验 node_id:', nodeId);
+                    } else {
+                        // 策略 3：getNodeId() 在 resource URL 上的值恰好是 paperId，值得一试
+                        const altNodeId = getNodeId();
+                        if (altNodeId && altNodeId !== nodeId) {
+                            nodeId = altNodeId;
+                            console.log('[小雅辅助·作业区] resource 页面 fallback 用 getNodeId 作为 node_id:', nodeId);
+                        }
                     }
                 }
             }
-            if (!groupId || !nodeId || !paperId) return;
+            if (!groupId || !nodeId || !paperId) {
+                console.log('[小雅辅助·作业区] 主动拉取参数缺失:', { groupId, nodeId, paperId });
+                return;
+            }
             _hwProactiveFetching = true;
             hwGroupId = groupId;
             hwNodeId = nodeId;
             hwPaperId = paperId;
+            console.log('[小雅辅助·作业区] 主动拉取参数:', { groupId, nodeId, paperId, isResourcePage: window.location.href.includes('/resource/') });
             const token = getCookie();
             if (!token) { _hwProactiveFetching = false; return; }
             // 重试策略：最多尝试 6 次（200ms/600ms/1.4s/3s/6.2s/12.6s）
