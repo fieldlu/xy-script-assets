@@ -850,6 +850,10 @@
         if (document.querySelector('.discussion-container, .jx-discussion, [class*="discuss"]') || htmlStr.includes('发表评论') || htmlStr.includes('全部评论')) {
             switchToZone('disc'); return;
         }
+        // resource 测验页：已处于 hw 区时不要切回 standby
+        if (appState.activeZone === 'hw' && window.location.href.includes('/resource/') && getPaperId()) {
+            return;
+        }
         switchToZone('standby');
     }
 
@@ -4478,15 +4482,36 @@
             }
             // /resource/ 页面：getResourceNodeId() 取到的是资源容器 ID，需从课程资源树中查找正确的测验 node_id
             const isResourcePage = window.location.href.includes('/resource/') && !window.location.href.includes('/course_paper/');
-            if (isResourcePage && groupId && paperId) {
+            if (isResourcePage && groupId) {
                 const resources = await loadCourseResources(groupId);
-                if (resources) {
-                    const flatRes = extractFilesFromResources(resources);
-                    // 找 id 或 node_id 等于 paperId 的条目，取该条目的 node_id 作为真实的 quiz node_id
-                    const quizItem = flatRes.find(r => r.id == paperId || r.resource_id == paperId || r.node_id == paperId);
-                    if (quizItem && quizItem.node_id) {
-                        nodeId = String(quizItem.node_id);
-                        console.log('[小雅辅助·作业区] resource 页面从资源树获取 quiz node_id:', nodeId);
+                const containerNodeId = getResourceNodeId();
+                if (resources && containerNodeId) {
+                    // 在资源树中按容器节点 ID 定位，递归找子测验节点
+                    function findQuizChild(tree) {
+                        for (const item of tree) {
+                            if (String(item.node_id) === String(containerNodeId) || String(item.id) === String(containerNodeId)) {
+                                // 容器自身就是测验条目
+                                if (item.task_type >= 2 && item.task_type <= 5) return String(item.node_id || item.id);
+                                // 在子节点中找第一个测验
+                                const kids = item.children || item.child_nodes || item.items || [];
+                                for (const kid of kids) {
+                                    if (kid.task_type >= 2 && kid.task_type <= 5) return String(kid.node_id || kid.id);
+                                }
+                                return null;
+                            }
+                            // 递归深入子树
+                            const kids = item.children || item.child_nodes || item.items || [];
+                            if (kids.length) {
+                                const r = findQuizChild(kids);
+                                if (r) return r;
+                            }
+                        }
+                        return null;
+                    }
+                    const quizNodeId = findQuizChild(resources);
+                    if (quizNodeId) {
+                        nodeId = quizNodeId;
+                        console.log('[小雅辅助·作业区] resource 页面从资源树找到测验 node_id:', nodeId);
                     }
                 }
             }
