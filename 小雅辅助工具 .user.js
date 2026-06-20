@@ -4487,17 +4487,64 @@
                 const containerNodeId = getResourceNodeId();
                 if (resources && containerNodeId) {
                     const flatRes = extractFilesFromResources(resources);
-                    // 策略 1：找 resource_id 等于当前容器 ID 的测验条目（quiz 挂在容器下）
-                    let quizItem = flatRes.find(r => r.computed_task_type >= 2 && r.computed_task_type <= 5 && String(r.resource_id) === String(containerNodeId));
-                    // 策略 2：找 id/node_id/resource_id 等于 paperId 的测验条目
+                    const allQuizItems = flatRes.filter(r => r.computed_task_type >= 2 && r.computed_task_type <= 5);
+                    console.log('[小雅辅助·作业区] 🔍 flatRes 共', flatRes.length, '条，其中 quiz 条目', allQuizItems.length, '条');
+                    allQuizItems.forEach((r, i) => {
+                        console.log(`[小雅辅助·作业区]   quiz[${i}] id=${r.id} node_id=${r.node_id} resource_id=${r.resource_id} paper_id=${r.paper_id} task_type=${r.computed_task_type} name=${r.name||r.title||'?'}`);
+                    });
+                    console.log('[小雅辅助·作业区] 🔍 目标: containerNodeId=', containerNodeId, ' paperId=', paperId);
+
+                    // 策略 1：resource_id 匹配容器
+                    let quizItem = allQuizItems.find(r => String(r.resource_id) === String(containerNodeId));
+                    // 策略 2：直接匹配 paperId
                     if (!quizItem) {
-                        quizItem = flatRes.find(r => r.computed_task_type >= 2 && r.computed_task_type <= 5 && (String(r.id) === String(paperId) || String(r.node_id) === String(paperId) || String(r.resource_id) === String(paperId)));
+                        quizItem = allQuizItems.find(r =>
+                            String(r.id) === String(paperId) ||
+                            String(r.node_id) === String(paperId) ||
+                            String(r.resource_id) === String(paperId) ||
+                            String(r.paper_id) === String(paperId)
+                        );
                     }
+                    // 策略 3：容器自身就是 quiz
+                    if (!quizItem) {
+                        quizItem = allQuizItems.find(r =>
+                            String(r.id) === String(containerNodeId) ||
+                            String(r.node_id) === String(containerNodeId)
+                        );
+                    }
+                    // 策略 4：仅 1 个 quiz 条目，直接用
+                    if (!quizItem && allQuizItems.length === 1) {
+                        quizItem = allQuizItems[0];
+                        console.log('[小雅辅助·作业区] resource 页面仅 1 个 quiz 条目，直接使用');
+                    }
+                    // 策略 5：暴力逐个尝试（最多 3 个）
+                    if (!quizItem && allQuizItems.length > 0) {
+                        console.log('[小雅辅助·作业区] resource 页面逐个尝试 quiz 条目（最多3个）');
+                        const token = getCookie();
+                        if (token) {
+                            for (let i = 0; i < Math.min(allQuizItems.length, 3); i++) {
+                                const candidate = allQuizItems[i];
+                                const tryNodeId = String(candidate.node_id || candidate.id);
+                                if (!tryNodeId) continue;
+                                try {
+                                    await window.fetch(`https://${domain}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(tryNodeId)}&paper_id=${encodeURIComponent(paperId)}`, {
+                                        headers: { 'Authorization': `Bearer ${token}` }
+                                    });
+                                    await sleep(300);
+                                    if (hwQuestionsData.length > 0) {
+                                        console.log('[小雅辅助·作业区] resource 页面逐个尝试成功！quiz[', i, '] node_id=', tryNodeId);
+                                        _hwProactiveFetching = false;
+                                        return;
+                                    }
+                                } catch(e) { /* 继续尝试下一个 */ }
+                            }
+                        }
+                    }
+
                     if (quizItem && (quizItem.node_id || quizItem.id)) {
                         nodeId = String(quizItem.node_id || quizItem.id);
                         console.log('[小雅辅助·作业区] resource 页面从 flatRes 找到测验 node_id:', nodeId);
                     } else {
-                        // 策略 3：getNodeId() 在 resource URL 上的值恰好是 paperId，值得一试
                         const altNodeId = getNodeId();
                         if (altNodeId && altNodeId !== nodeId) {
                             nodeId = altNodeId;
