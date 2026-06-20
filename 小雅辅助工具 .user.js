@@ -806,15 +806,16 @@
 
         try {
             const radarData = await fetchRadarCached();
+            const paperIdForMatch = getPaperId();
             if (radarData.success && radarData.data) {
-                const rTask = radarData.data.find(t => t.node_id == nodeId);
+                const rTask = radarData.data.find(t => t.node_id == nodeId || (paperIdForMatch && t.node_id == paperIdForMatch));
                 if (rTask) {
                     taskType = rTask.task_type;
                 } else {
                     const resources = await loadCourseResources(groupId);
                     if (resources) {
                         const flatRes = extractFilesFromResources(resources);
-                        const currentRes = flatRes.find(r => r.node_id == nodeId || r.id == nodeId);
+                        const currentRes = flatRes.find(r => r.node_id == nodeId || r.id == nodeId || (paperIdForMatch && (r.node_id == paperIdForMatch || r.id == paperIdForMatch)));
                         if (currentRes) taskType = currentRes.computed_task_type;
                     }
                     if (!appState.isTaskCompleted && appState.activeZone === 'course') {
@@ -836,6 +837,13 @@
         }
 
         const htmlStr = document.body ? document.body.innerHTML : '';
+        // course_paper 页面直接判定为作业/测验区
+        if (window.location.href.includes('/course_paper/')) {
+            if (appState.activeZone !== 'hw') logMsg('📝 侦测到【作业/测验页面】→ 已切换作业区', 'success', false);
+            switchToZone('hw');
+            setTimeout(hwProactiveFetchData, 300);
+            return;
+        }
         if (document.querySelector('video, iframe[src*="ow365"], iframe[src*="office"], .prism-player, .aliplayer, .xy_disk_preview, .pdf-viewer')) {
             switchToZone('course'); return;
         }
