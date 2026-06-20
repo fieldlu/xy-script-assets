@@ -396,9 +396,12 @@
         const href = window.location.href;
         try {
             const u = new URL(href, window.location.origin);
-            if (u.searchParams.get('group_id') !== hwGroupId && hwGroupId) return false;
-            if (u.searchParams.get('node_id') !== hwNodeId && hwNodeId) return false;
-            if (u.searchParams.get('paper_id') !== hwPaperId && hwPaperId) return false;
+            const g = u.searchParams.get('group_id') || getCourseGroupId();
+            const n = u.searchParams.get('node_id') || getResourceNodeId();
+            const p = u.searchParams.get('paper_id') || getPaperId();
+            if (g !== hwGroupId && hwGroupId) return false;
+            if (n !== hwNodeId && hwNodeId) return false;
+            if (p !== hwPaperId && hwPaperId) return false;
         } catch(e) {}
         const ids = [hwGroupId, hwNodeId].filter(Boolean);
         return ids.length ? ids.every(id => href.includes(id)) : true;
@@ -524,8 +527,22 @@
     function syncHardwareMute() { document.dispatchEvent(new CustomEvent('xy-volume-change', { detail: { mute: appState.hardwareMute } })); }
     function getCourseGroupId() { const match = window.location.href.match(/(?:mycourse|course)\/(\d+)/); return match ? match[1] : null; }
     function getNodeId() { const match = window.location.href.match(/resource\/\d+\/(\d+)/); return match ? match[1] : null; }
-    function getPaperId() { const match = window.location.href.match(/resource\/(\d+)\/(\d+)/); return match ? match[2] : null; }
-    function getResourceNodeId() { const match = window.location.href.match(/resource\/(\d+)\//); return match ? match[1] : null; }
+    function getPaperId() {
+        // course_paper 模式: /course_paper/mycourse/{gid}/{pid}/...
+        let match = window.location.href.match(/course_paper\/mycourse\/\d+\/(\d+)/);
+        if (match) return match[1];
+        // resource 模式: /resource/{nid}/{pid}
+        match = window.location.href.match(/resource\/(\d+)\/(\d+)/);
+        return match ? match[2] : null;
+    }
+    function getResourceNodeId() {
+        // course_paper 模式: /course_paper/mycourse/{gid}/{pid}/{nid}...
+        let match = window.location.href.match(/course_paper\/mycourse\/\d+\/\d+\/(\d+)/);
+        if (match) return match[1];
+        // resource 模式: /resource/{nid}/
+        match = window.location.href.match(/resource\/(\d+)\//);
+        return match ? match[1] : null;
+    }
 
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     function getCookie(keyword = 'prd-access-token') { for (const cookie of document.cookie.split('; ')) { const [name, value] = cookie.split('='); if (name.includes(keyword)) return value; } return null; }
@@ -5351,7 +5368,7 @@
             } catch(e) {}
             const ids = [hwGroupId, hwNodeId].filter(Boolean);
             if (ids.length && !ids.every(id => href.includes(id))) match = false;
-            if (hwPaperId && href.includes('paper_id') && !href.includes(hwPaperId)) match = false;
+            if (hwPaperId && !href.includes(hwPaperId)) match = false;
             if (!match) {
                 hwResetState('页面路由已离开当前作业任务');
             }
