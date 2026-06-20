@@ -4476,6 +4476,20 @@
                 if (!nodeId) nodeId = getResourceNodeId();
                 if (!paperId) paperId = getPaperId();
             }
+            // /resource/ 页面：getResourceNodeId() 取到的是资源容器 ID，需从课程资源树中查找正确的测验 node_id
+            const isResourcePage = window.location.href.includes('/resource/') && !window.location.href.includes('/course_paper/');
+            if (isResourcePage && groupId && paperId) {
+                const resources = await loadCourseResources(groupId);
+                if (resources) {
+                    const flatRes = extractFilesFromResources(resources);
+                    // 找 id 或 node_id 等于 paperId 的条目，取该条目的 node_id 作为真实的 quiz node_id
+                    const quizItem = flatRes.find(r => r.id == paperId || r.resource_id == paperId || r.node_id == paperId);
+                    if (quizItem && quizItem.node_id) {
+                        nodeId = String(quizItem.node_id);
+                        console.log('[小雅辅助·作业区] resource 页面从资源树获取 quiz node_id:', nodeId);
+                    }
+                }
+            }
             if (!groupId || !nodeId || !paperId) return;
             _hwProactiveFetching = true;
             hwGroupId = groupId;
