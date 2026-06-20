@@ -29,6 +29,16 @@
     const _hw_nativeXhrOpen = XMLHttpRequest.prototype.open;
     const _hw_nativeXhrSend = XMLHttpRequest.prototype.send;
 
+    // ── 全局 fetch 诊断（捕获所有 API 请求 URL）──
+    const _diagFetch = window.fetch;
+    window.fetch = function(input, init) {
+        const url = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
+        if (url && url.includes('/api/') && !url.includes('/queryStuPaper/v2') && !url.includes('my-imcloud') && !url.includes('aliyuncs') && !url.includes('/stat/') && !url.includes('/auth/') && !url.includes('/oauth')) {
+            console.log('[小雅诊断·fetch]', url.substring(0, 250));
+        }
+        return _diagFetch.apply(this, arguments);
+    };
+
     // 彻底动态化：读取头部 @version，无任何写死的数字，以后发版只需改头部注释即可！
     const SCRIPT_VERSION = typeof GM_info !== 'undefined' ? GM_info.script.version : '未知';
 
@@ -4480,43 +4490,11 @@
                 if (!nodeId) nodeId = getResourceNodeId();
                 if (!paperId) paperId = getPaperId();
             }
-            // /resource/ 页面：getResourceNodeId() 取到的是资源容器 ID，
-            // 且 quiz 条目仅 id 有值（node_id/resource_id/paper_id 全 undefined）。
-            // 改用暴力尝试：拿每个 quiz 条目 id 作为 node_id 调 API。
+            // /resource/ 页面：queryStuPaper/v2 一定返回 404（题目走其他 API）
             const isResourcePage = window.location.href.includes('/resource/') && !window.location.href.includes('/course_paper/');
-            if (isResourcePage && groupId && paperId) {
-                const resources = await loadCourseResources(groupId);
-                if (resources) {
-                    const flatRes = extractFilesFromResources(resources);
-                    const quizCandidates = flatRes.filter(r => r.computed_task_type >= 2 && r.computed_task_type <= 5 && r.id);
-                    console.log('[小雅辅助·作业区] 🔍 resource 暴力尝试:', quizCandidates.length, '个候选');
-                    const token = getCookie();
-                    if (token) {
-                        for (let i = 0; i < Math.min(quizCandidates.length, 10); i++) {
-                            const tryId = String(quizCandidates[i].id);
-                            try {
-                                await window.fetch(`https://${domain}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(tryId)}&paper_id=${encodeURIComponent(paperId)}`, {
-                                    headers: { 'Authorization': `Bearer ${token}` }
-                                });
-                                await sleep(200);
-                                if (hwQuestionsData.length > 0) {
-                                    console.log('[小雅辅助·作业区] ✅ 暴力尝试成功！quiz[', i, '] id=', tryId);
-                                    _hwProactiveFetching = false;
-                                    return;
-                                }
-                            } catch(e) {}
-                        }
-                        console.log('[小雅辅助·作业区] ❌ 暴力尝试全部失败，已尝试', Math.min(quizCandidates.length, 10), '个');
-                    }
-                }
-                // fallback: 用 getNodeId()(=paperId) 再试一次
-                if (hwQuestionsData.length === 0) {
-                    const altNodeId = getNodeId();
-                    if (altNodeId && altNodeId !== nodeId) {
-                        nodeId = altNodeId;
-                        console.log('[小雅辅助·作业区] resource fallback 用 getNodeId:', nodeId);
-                    }
-                }
+            if (isResourcePage) {
+                console.log('[小雅辅助·作业区] resource 页面，跳过主动拉取');
+                return;
             }
             if (!groupId || !nodeId || !paperId) {
                 console.log('[小雅辅助·作业区] 主动拉取参数缺失:', { groupId, nodeId, paperId });
