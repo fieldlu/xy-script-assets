@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.5.6
+// @version      3.5.7
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      仅供个人学习使用，禁止修改、复制或用于商业用途
@@ -20,6 +20,16 @@
 // @icon         https://www.ai-augmented.com/static/logo3.1dbbea8f.png
 
 // ==/UserScript==
+
+// ──────────────────────────────────────────────────────────
+// 📋 反馈问卷 · ScriptCat 公开 API
+//
+//   零 Token、零配置、零服务器。提交到 ScriptCat 公开反馈接口。
+//   查看反馈：https://scriptcat.org/zh-CN/script-show-page/5881/issue
+//
+//   控制台命令：
+//     xyExportFeedbacks()  — 导出本地暂存的反馈
+// ──────────────────────────────────────────────────────────
 
 (function () {
     'use strict';
@@ -4775,6 +4785,7 @@
                 </div>
                 <div id="xy-handle-row2" style="display: flex; align-items: center; gap: 8px;">
                     <div id="xy-zone-badge" class="xy-badge xy-badge-info"></div>
+                    <span id="xy-feedback-link" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s;" title="反馈问题或建议" onmouseover="this.style.background='${T('rgba(129,140,248,0.25)','#c7d2fe')}';" onmouseout="this.style.background='${T('rgba(129,140,248,0.15)','#e0e7ff')}';">💬 反馈</span>
                     <span id="xy-qq-group" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s;" title="点击复制QQ群号" onmouseover="this.style.background='${T('rgba(129,140,248,0.25)','#c7d2fe')}';" onmouseout="this.style.background='${T('rgba(129,140,248,0.15)','#e0e7ff')}';">QQ群: 1095232169</span>
                 </div>
             </div>
@@ -5334,6 +5345,10 @@
             showToast(appState.theme === 'auto' ? '🌓 主题：跟随系统' : appState.theme === 'light' ? '☀️ 主题：浅色模式' : '🌙 主题：深色模式', 'info');
         };
 
+        // ── 反馈链接 ──
+        const feedbackLink = document.getElementById('xy-feedback-link');
+        if (feedbackLink) feedbackLink.onclick = () => xyShowFeedbackSurvey();
+
         let isDragging = false, dragStartX = 0, dragStartY = 0, initialLeft = 0, initialTop = 0;
         
         handle.addEventListener('mousedown', (e) => {
@@ -5469,6 +5484,208 @@
         console.log('[小雅] 后台保活:', appState.keepaliveEnabled ? 'ON' : 'OFF');
         console.log('[小雅] 看门狗:', keepaliveWatchdogTimer ? '运行中' : '未启动');
     };
+    window.xyExportFeedbacks = () => {
+        const local = JSON.parse(GM_getValue('xy_local_feedbacks', '[]'));
+        if (local.length === 0) { console.log('📭 暂无本地反馈'); return; }
+        console.log(`📋 共 ${local.length} 条本地反馈：`);
+        console.log(JSON.stringify(local, null, 2));
+        console.log('\n💡 复制上面的 JSON 即可手动导入');
+    };
+
+    // 交互式配置 Google 表单：自动提取 entry ID
+    window.xySetupFeedbackForm = () => {
+        const formUrl = prompt(
+            '📋 配置 Google 表单反馈\n\n' +
+            '1. 打开 https://forms.google.com 创建一个新表单\n' +
+            '2. 只加一个「段落」（Paragraph）类型的题目\n' +
+            '3. 点右上角「发送」→ 复制链接\n' +
+            '4. 把链接粘贴到这里：\n\n' +
+            '链接示例：https://forms.gle/XXXX 或 https://docs.google.com/forms/d/e/XXXX/viewform'
+        );
+        if (!formUrl) { console.log('已取消'); return; }
+
+        // 从 URL 中提取 form ID
+        const match1 = formUrl.match(/\/d\/e\/([^/]+)/);
+        const match2 = formUrl.match(/forms\.gle\/([^/]+)/);
+        let formId = match1 ? match1[1] : (match2 ? match2[1] : null);
+
+        if (!formId) {
+            console.log('❌ 无法从链接中提取表单 ID，请检查链接格式');
+            console.log('   正确格式：https://docs.google.com/forms/d/e/XXXXXX/viewform');
+            return;
+        }
+
+        // 打开表单预览页，自动检测 entry ID
+        const previewUrl = `https://docs.google.com/forms/d/e/${formId}/viewform`;
+        console.log('🔍 正在分析表单...');
+        console.log('   如果自动检测失败，请打开此链接手动获取：' + previewUrl);
+        console.log('   在页面源代码中搜索 entry. 找到类似 entry.123456789 的值');
+
+        fetch(previewUrl)
+            .then(r => r.text())
+            .then(html => {
+                const match = html.match(/entry\.(\d+)/);
+                if (match) {
+                    const entryId = 'entry.' + match[1];
+                    GM_setValue('xy_feedback_form_id', formId);
+                    GM_setValue('xy_feedback_entry_id', entryId);
+                    console.log('✅ 配置成功！');
+                    console.log('   Form ID: ' + formId);
+                    console.log('   Entry ID: ' + entryId);
+                    console.log('   现在提交反馈即可自动上传到 Google Sheets！');
+                } else {
+                    // 手动输入兜底
+                    const manual = prompt(
+                        '⚠ 自动检测失败\n\n请在浏览器打开：' + previewUrl + '\n' +
+                        '右键 → 查看页面源代码 → 搜索 "entry."\n' +
+                        '找到类似 entry.123456789 的值，粘贴到这里：\n' +
+                        '（例如：entry.123456789）'
+                    );
+                    if (manual && manual.startsWith('entry.')) {
+                        GM_setValue('xy_feedback_form_id', formId);
+                        GM_setValue('xy_feedback_entry_id', manual);
+                        console.log('✅ 手动配置成功！');
+                    } else {
+                        console.log('❌ 配置失败，请重试');
+                    }
+                }
+            })
+            .catch(() => {
+                console.log('⚠ 自动检测失败，请手动配置：');
+                console.log('   1. 打开 ' + previewUrl);
+                console.log('   2. 右键 → 查看页面源代码 → 搜索 entry.');
+                console.log('   3. 执行：GM_setValue("xy_feedback_form_id", "' + formId + '");');
+                console.log('   4. 执行：GM_setValue("xy_feedback_entry_id", "entry.XXXXXXXXX");');
+            });
+    };
+
+    // ==========================================
+    // 📋 用户反馈问卷
+    // ==========================================
+
+    // SurveyJS 暗色主题覆盖样式
+    function xyInjectFeedbackStyle() {
+        GM_addStyle(`
+            /* ── 反馈问卷遮罩 ── */
+            #xy-feedback-overlay {
+                position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                background: rgba(0,0,0,0.72); z-index: 2147483645;
+                display: flex; justify-content: center; align-items: center;
+                animation: xy-fb-in 0.25s ease-out;
+            }
+            @keyframes xy-fb-in { 0%{opacity:0} 100%{opacity:1} }
+            @keyframes xy-fb-pop { 0%{opacity:0;transform:translateY(20px) scale(0.96)} 100%{opacity:1;transform:translateY(0) scale(1)} }
+
+            #xy-feedback-modal {
+                width: 620px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
+                background: rgba(15,23,42,0.96); border: 1px solid rgba(99,102,241,0.3);
+                border-radius: 18px; box-shadow: 0 0 60px rgba(99,102,241,0.12), 0 24px 80px rgba(0,0,0,0.6);
+                animation: xy-fb-pop 0.35s cubic-bezier(0.16,1,0.3,1);
+                padding: 32px 36px;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+            }
+            #xy-feedback-modal .xy-fb-header {
+                display: flex; justify-content: space-between; align-items: center;
+                margin-bottom: 24px; padding-bottom: 18px;
+                border-bottom: 1px solid rgba(99,102,241,0.2);
+            }
+            #xy-feedback-modal .xy-fb-title {
+                font-size: 20px; font-weight: 700; color: #e2e8f0;
+                display: flex; align-items: center; gap: 10px;
+            }
+            #xy-feedback-modal .xy-fb-close {
+                cursor: pointer; color: #64748b; font-size: 22px; padding: 4px 8px;
+                border-radius: 6px; transition: 0.2s; line-height: 1;
+            }
+            #xy-feedback-modal .xy-fb-close:hover { background: rgba(71,85,105,0.4); color: #e2e8f0; }
+
+            /* ── 原生表单样式 ── */
+            #xy-feedback-modal .xy-fb-q { margin-bottom: 22px; }
+            #xy-feedback-modal .xy-fb-q-title { font-size: 14px; font-weight: 600; color: #e2e8f0; margin-bottom: 10px; }
+            #xy-feedback-modal .xy-stars { display: flex; gap: 6px; }
+            #xy-feedback-modal .xy-stars span { font-size: 32px; color: rgba(251,191,36,0.25); cursor: pointer; transition: 0.12s; user-select: none; }
+            #xy-feedback-modal .xy-stars span:hover, #xy-feedback-modal .xy-stars span.active { color: #fbbf24; transform: scale(1.1); }
+            #xy-feedback-modal .xy-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+            #xy-feedback-modal .xy-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #cbd5e1; cursor: pointer; padding: 6px 12px; background: rgba(30,41,59,0.6); border: 1px solid rgba(71,85,105,0.35); border-radius: 8px; transition: 0.15s; }
+            #xy-feedback-modal .xy-check:hover { border-color: rgba(129,140,248,0.5); background: rgba(30,41,59,0.8); }
+            #xy-feedback-modal .xy-check input[type="checkbox"] { accent-color: #818cf8; width: 15px; height: 15px; cursor: pointer; }
+            #xy-feedback-modal .xy-fb-input, #xy-feedback-modal .xy-fb-textarea { width: 100%; box-sizing: border-box; background: rgba(30,41,59,0.8); color: #e2e8f0; border: 1px solid rgba(71,85,105,0.5); border-radius: 8px; padding: 10px 14px; font-size: 13px; font-family: inherit; resize: vertical; }
+            #xy-feedback-modal .xy-fb-input:focus, #xy-feedback-modal .xy-fb-textarea:focus { border-color: #818cf8; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); outline: none; }
+            #xy-feedback-modal .xy-fb-input::placeholder, #xy-feedback-modal .xy-fb-textarea::placeholder { color: #64748b; }
+            #xy-feedback-modal .xy-fb-submit { display: block; width: 100%; margin-top: 20px; padding: 12px; background: linear-gradient(135deg, #818cf8, #6366f1); color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; transition: 0.2s; }
+            #xy-feedback-modal .xy-fb-submit:hover { background: linear-gradient(135deg, #6366f1, #4f46e5); box-shadow: 0 4px 16px rgba(99,102,241,0.35); transform: translateY(-1px); }
+            #xy-feedback-modal .xy-fb-note { text-align: center; font-size: 11px; color: #64748b; margin-top: 10px; }
+
+            /* ── 浅色模式 ── */
+            body.xy-theme-light #xy-feedback-modal { background: #ffffff; border-color: #e2e8f0; box-shadow: 0 0 40px rgba(0,0,0,0.08), 0 24px 80px rgba(0,0,0,0.1); }
+            body.xy-theme-light #xy-feedback-modal .xy-fb-title { color: #0f172a; }
+            body.xy-theme-light #xy-feedback-modal .xy-fb-header { border-bottom-color: #e2e8f0; }
+            body.xy-theme-light #xy-feedback-modal .xy-fb-q-title { color: #0f172a; }
+            body.xy-theme-light #xy-feedback-modal .xy-fb-input, body.xy-theme-light #xy-feedback-modal .xy-fb-textarea { background: #f8fafc; color: #0f172a; border-color: #e2e8f0; }
+            body.xy-theme-light #xy-feedback-modal .xy-check { background: #f8fafc; border-color: #e2e8f0; color: #334155; }
+            body.xy-theme-light #xy-feedback-modal .xy-check:hover { border-color: #c7d2fe; background: #eef2ff; }
+        `);
+    }
+
+
+    function xyShowFeedbackSurvey() {
+        window.open('https://scriptcat.org/zh-CN/script-show-page/5881/issue/create', '_blank');
+    }
+
+    function xySaveFeedbackToGitee(surveyData) {
+        const payload = {
+            timestamp: new Date().toISOString(),
+            version: SCRIPT_VERSION,
+            userAgent: navigator.userAgent,
+            platform: window.location.hostname,
+            answers: surveyData
+        };
+
+        // ScriptCat 公开 API：零 Token、零配置，直接提交
+        // https://scriptcat.org/zh-CN/script-show-page/5881/issue
+        const feedbackText = JSON.stringify(payload, null, 2);
+
+        GM_xmlhttpRequest({
+            method: 'POST',
+            url: 'https://scriptcat.org/api/v2/feedback',
+            headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+            data: JSON.stringify({
+                Reason: 'other',
+                title: '[小雅反馈] ' + (payload.answers && payload.answers.satisfaction ? '满意度' + payload.answers.satisfaction + '/5' : '用户体验调查'),
+                content: '## 📋 小雅辅助工具 v' + SCRIPT_VERSION + ' 反馈\n\n```json\n' + feedbackText + '\n```',
+                scriptId: 5881
+            }),
+            onload: function (resp) {
+                try {
+                    const result = JSON.parse(resp.responseText);
+                    if (result.code === 0) {
+                        logMsg('✅ 反馈已提交至 ScriptCat，感谢！', 'success', false);
+                    } else {
+                        logMsg('⚠ 提交失败：' + (result.msg || '未知错误'), 'warning', false);
+                        xySaveFeedbackLocal(payload);
+                    }
+                } catch(e) {
+                    xySaveFeedbackLocal(payload);
+                }
+            },
+            onerror: function () {
+                xySaveFeedbackLocal(payload);
+            }
+        });
+    }
+
+    function xySaveFeedbackLocal(payload) {
+        try {
+            const localFeedbacks = JSON.parse(GM_getValue('xy_local_feedbacks', '[]'));
+            localFeedbacks.push(payload);
+            // 最多保留 50 条本地反馈
+            if (localFeedbacks.length > 50) localFeedbacks.splice(0, localFeedbacks.length - 50);
+            GM_setValue('xy_local_feedbacks', JSON.stringify(localFeedbacks));
+            logMsg('📦 反馈已暂存本地（共 ' + localFeedbacks.length + ' 条）', 'info', false);
+        } catch (e) {
+            logMsg('⚠ 本地存储失败', 'warning', false);
+        }
+    }
 
 
 })();
