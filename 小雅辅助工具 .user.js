@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.6.0
+// @version      3.6.1
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      仅供个人学习使用，禁止修改、复制或用于商业用途
@@ -363,6 +363,7 @@
         downloadSearchKeyword: '',
         downloadSortMode: GM_getValue('xy_dl_sort', 'unit'),
         downloadSortMap: {},
+        downloadDirTree: null,
         downloadTypeFilter: (function() {
             const all = ['video','audio','pdf','doc','ppt','xls','zip','other'];
             let saved = [];
@@ -584,6 +585,10 @@
         return match ? match[1] : null;
     }
 
+    function isCourseDirPage() {
+        return /\/mycourse\/\d+(?:\/resource(?:\/\d+)?)?\/?$/.test(window.location.pathname);
+    }
+
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     function getCookie(keyword = 'prd-access-token') { for (const cookie of document.cookie.split('; ')) { const [name, value] = cookie.split('='); if (name.includes(keyword)) return value; } return null; }
     async function getAuthToken() { const token = getCookie(); if (token) return token; throw new Error('未找到Token'); }
@@ -793,13 +798,14 @@
             superConsole.style.display = 'flex';
         }
         
-        const viewC = document.getElementById('xy-view-course'), viewD = document.getElementById('xy-view-disc'), viewS = document.getElementById('xy-view-standby'), viewDL = document.getElementById('xy-view-download'), viewHW = document.getElementById('xy-view-hw'), badge = document.getElementById('xy-zone-badge');
+        const viewC = document.getElementById('xy-view-course'), viewD = document.getElementById('xy-view-disc'), viewS = document.getElementById('xy-view-standby'), viewDL = document.getElementById('xy-view-download'), viewHW = document.getElementById('xy-view-hw'), viewDIR = document.getElementById('xy-view-dir'), badge = document.getElementById('xy-zone-badge');
         if (viewC && viewD && viewS && viewDL && badge) {
             viewC.style.display = newZone === 'course' ? 'block' : 'none';
             viewD.style.display = newZone === 'disc' ? 'block' : 'none';
             viewS.style.display = newZone === 'standby' ? 'flex' : 'none';
             viewDL.style.display = newZone === 'download' ? 'block' : 'none';
             if (viewHW) viewHW.style.display = newZone === 'hw' ? 'block' : 'none';
+            if (viewDIR) viewDIR.style.display = newZone === 'dir' ? 'block' : 'none';
 
             const isLight = resolveTheme() === 'light';
             if (newZone === 'course') {
@@ -818,6 +824,10 @@
                 badge.innerHTML = '📝 作业区';
                 badge.style.background = isLight ? '#fce7f3' : 'rgba(236,72,153,0.15)';
                 badge.style.color = isLight ? '#9d174d' : '#f9a8d4';
+            } else if (newZone === 'dir') {
+                badge.innerHTML = '📂 课程目录';
+                badge.style.background = isLight ? '#e0e7ff' : 'rgba(129,140,248,0.15)';
+                badge.style.color = isLight ? '#4338ca' : '#a5b4fc';
             } else {
                 badge.innerHTML = '🏝️ 待命区';
                 badge.style.background = isLight ? '#f1f5f9' : 'rgba(71,85,105,0.2)';
@@ -826,7 +836,7 @@
         }
 
         if (oldZone !== 'uninitialized') {
-            const zoneName = newZone === 'course' ? '视频/文档自动引擎' : newZone === 'disc' ? '互动点赞引擎' : newZone === 'download' ? '课件下载区' : newZone === 'hw' ? '作业答题台' : '系统隔离待命区';
+            const zoneName = newZone === 'course' ? '视频/文档自动引擎' : newZone === 'disc' ? '互动点赞引擎' : newZone === 'download' ? '课件下载区' : newZone === 'hw' ? '作业答题台' : newZone === 'dir' ? '课程目录区' : '系统隔离待命区';
             logMsg(`📍 底层指令：已切换至【${zoneName}】`, newZone === 'standby' ? 'warning' : 'success', false);
         }
 
@@ -842,6 +852,9 @@
                 appState.videoScriptProgress = undefined;
                 appState.isTaskCompleted = false;
             }
+        }
+        if (newZone === 'dir') {
+            setTimeout(loadCourseDirectory, 150);
         }
     }
 
@@ -871,7 +884,16 @@
         if (appState.activeZone === 'download') return;
         if (appState.discLockedUrl === window.location.href) { switchToZone('disc'); return; }
         const groupId = getCourseGroupId(); const nodeId = getNodeId() || getResourceNodeId() || getPaperId();
-        if (!groupId || !nodeId) { switchToZone('standby'); return; }
+        if (!groupId || !nodeId) {
+            if (isCourseDirPage()) {
+                if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', false);
+                switchToZone('dir');
+                setTimeout(loadCourseDirectory, 200);
+            } else {
+                switchToZone('standby');
+            }
+            return;
+        }
 
         let taskType = -1;
 
@@ -925,6 +947,12 @@
         if (appState.activeZone === 'hw' && window.location.href.includes('/resource/') && getPaperId()) {
             return;
         }
+        if (isCourseDirPage()) {
+            if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', false);
+            switchToZone('dir');
+            setTimeout(loadCourseDirectory, 200);
+            return;
+        }
         switchToZone('standby');
     }
 
@@ -966,6 +994,189 @@
     
     
     
+    function dirUnitChildren(n) {
+        return (n && n._children) || [];
+    }
+
+    function dirIsUnit(n) {
+        if (dirUnitChildren(n).length) return true;
+        if (String(n.type || '') === 'folder') return true;
+        if (n.mimetype) return false;
+        const type = n.task_type !== undefined ? n.task_type : n.type;
+        if (Number(type) >= 2 && Number(type) <= 5) return false;
+        return !/\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(String(n.name || n.title || ''));
+    }
+
+    function buildDirTree(resources) {
+        const byId = new Map();
+        (Array.isArray(resources) ? resources : []).forEach(r => {
+            if (!r) return;
+            const id = r.id != null ? r.id : r.resource_id;
+            if (id == null) return;
+            byId.set(String(id), Object.assign({}, r, { _children: [], _id: String(id) }));
+        });
+        const roots = [];
+        byId.forEach(node => {
+            const parts = String(node.path || '').split('/').filter(Boolean);
+            let parentId = parts.length >= 2 ? parts[parts.length - 2] : null;
+            if (parentId == null && node.parent_id != null) parentId = String(node.parent_id);
+            const parent = parentId ? byId.get(parentId) : null;
+            if (parent) parent._children.push(node);
+            else roots.push(node);
+        });
+        const sortRec = nodes => {
+            nodes.sort((a, b) => (Number(a.sort_position) || 0) - (Number(b.sort_position) || 0));
+            nodes.forEach(n => sortRec(n._children));
+        };
+        sortRec(roots);
+        if (roots.length === 1 && roots[0]._children && roots[0]._children.length) {
+            return roots[0]._children;
+        }
+        return roots;
+    }
+
+    function dirFileSize(n) {
+        const s = Number(n.file_size || n.size || 0);
+        if (!s) return '';
+        return s > 1048576 ? (s / 1048576).toFixed(1) + 'MB' : (s / 1024).toFixed(0) + 'KB';
+    }
+
+    function countDirFiles(nodes) {
+        let c = 0;
+        (Array.isArray(nodes) ? nodes : []).forEach(n => {
+            if (dirUnitChildren(n).length) c += countDirFiles(dirUnitChildren(n));
+            else c++;
+        });
+        return c;
+    }
+
+    async function loadCourseDirectory() {
+        const box = document.getElementById('xy-dir-list');
+        const statusEl = document.getElementById('xy-dir-status');
+        if (!box) return;
+        const groupId = getCourseGroupId();
+        if (!groupId) {
+            box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:24px 0;font-size:13px;">未检测到课程 ID</div>';
+            if (statusEl) statusEl.textContent = '未检测到课程';
+            return;
+        }
+        box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:24px 0;font-size:13px;">正在读取课程目录...</div>';
+        if (statusEl) statusEl.textContent = '读取中...';
+        try {
+            const resources = await loadCourseResources(groupId);
+            if (!resources || !resources.length) {
+                box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:24px 0;font-size:13px;">暂无课程目录数据</div>';
+                if (statusEl) statusEl.textContent = '目录为空';
+                return;
+            }
+            const tree = buildDirTree(resources);
+            if (statusEl) statusEl.textContent = '✅ ' + countDirFiles(tree) + ' 项';
+            renderCourseDirectory(tree);
+        } catch (e) {
+            box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:24px 0;font-size:13px;">课程目录读取失败</div>';
+            if (statusEl) statusEl.textContent = '读取失败';
+        }
+    }
+
+    function dirResourceUrl(r) {
+        const groupId = getCourseGroupId();
+        if (!groupId || !r) return '';
+        const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
+        const resId = r.id != null ? r.id : r.resource_id;
+        const nodeId = r.node_id != null ? r.node_id : resId;
+        if (dirIsUnit(r)) {
+            return `/app/jx-web/${pathPrefix}/${groupId}/resource/${nodeId || resId}`;
+        }
+        return `/app/jx-web/${pathPrefix}/${groupId}/resource/${resId}/${nodeId}`;
+    }
+
+    function buildDirHtml(nodes, depth) {
+        let html = '';
+        (Array.isArray(nodes) ? nodes : []).forEach(n => {
+            const name = n.name || n.title || '';
+            if (dirIsUnit(n)) {
+                const kids = dirUnitChildren(n);
+                const count = countDirFiles(kids);
+                const uUrl = dirResourceUrl(n);
+                html += `
+                    <div>
+                        <div class="xy-dir-head" style="display:flex; align-items:center; gap:6px; padding:6px 10px; border-radius:8px; margin:1px 0; margin-left:${depth * 14}px;">
+                            <span data-marker style="width:12px; flex-shrink:0; text-align:center; font-size:10px; color:${T('#94a3b8','#64748b')}; cursor:pointer;" title="点击展开/收起">−</span>
+                            <span data-dir-url="${escapeHtml(uUrl)}" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; cursor:pointer;" title="点击跳转：${escapeHtml(name)}">${escapeHtml(name)}</span>
+                            <span style="font-size:10px; color:${T('#64748b','#94a3b8')}; flex-shrink:0; cursor:pointer;">${count} 项</span>
+                        </div>
+                        <div class="xy-dir-body" style="margin-left:${(depth + 1) * 14}px;">${buildDirHtml(kids, depth + 1)}</div>
+                    </div>`;
+            } else {
+                const type = n.task_type !== undefined ? n.task_type : n.type;
+                const numType = Number(type);
+                const isTask = numType >= 2 && numType <= 5;
+                const taskLabel = ({ 2: '作业', 3: '练习', 4: '测验', 5: '问卷' })[numType] || '任务';
+                const chip = isTask
+                    ? `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:1px 5px;border-radius:5px;background:#6366f1;color:#fff;font-size:9px;font-weight:800;flex-shrink:0;">${taskLabel}</span>`
+                    : dlFileChip(name);
+                const fUrl = dirResourceUrl(n);
+                html += `
+                    <div data-dir-url="${escapeHtml(fUrl)}" title="点击跳转：${escapeHtml(name)}" style="display:flex; align-items:center; gap:8px; padding:5px 8px; margin-left:${depth * 14}px; border-radius:6px; cursor:pointer;" onmouseover="this.style.background='${T('rgba(129,140,248,0.12)','#eef2ff')}'" onmouseout="this.style.background='transparent'">
+                        ${chip}
+                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; color:${T('#e2e8f0','#0f172a')};" title="${name}">${escapeHtml(name)}</span>
+                        <span style="font-size:10px; color:${T('#64748b','#94a3b8')}; flex-shrink:0;">${dirFileSize(n)}</span>
+                        <span style="font-size:10px; color:${T('#a5b4fc','#6366f1')}; flex-shrink:0;">↗</span>
+                    </div>`;
+            }
+        });
+        return html;
+    }
+
+    function renderCourseDirectory(nodes) {
+        const box = document.getElementById('xy-dir-list');
+        if (!box) return;
+        box.innerHTML = buildDirHtml(nodes, 0);
+    }
+
+    function countVisibleFiles(node, visibleIds) {
+        if (!dirIsUnit(node)) return visibleIds.has(node._id) ? 1 : 0;
+        return dirUnitChildren(node).reduce((s, k) => s + countVisibleFiles(k, visibleIds), 0);
+    }
+
+    function buildDownloadTreeHtml(nodes, visibleIds, depth) {
+        let html = '';
+        (Array.isArray(nodes) ? nodes : []).forEach(n => {
+            if (dirIsUnit(n)) {
+                const kids = dirUnitChildren(n);
+                if (!kids.some(k => countVisibleFiles(k, visibleIds) > 0)) return;
+                const cnt = kids.reduce((s, k) => s + countVisibleFiles(k, visibleIds), 0);
+                html += `
+                    <div>
+                        <div class="xy-dl-unit-head" style="display:flex; align-items:center; gap:6px; cursor:pointer; padding:6px 10px; margin-left:${depth * 14}px;">
+                            <span data-dl-marker style="width:12px; flex-shrink:0; text-align:center; font-size:10px; color:${T('#94a3b8','#64748b')};">−</span>
+                            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; font-weight:700; color:${T('#c7d2fe','#4338ca')};">📁 ${escapeHtml(n.name || n.title || '')}</span>
+                            <span style="font-size:10px; color:${T('#64748b','#94a3b8')}; flex-shrink:0;">${cnt} 项</span>
+                        </div>
+                        <div class="xy-dl-unit-body" style="margin-left:${(depth + 1) * 14}px;">${buildDownloadTreeHtml(kids, visibleIds, depth + 1)}</div>
+                    </div>`;
+            } else {
+                if (!visibleIds.has(n._id)) return;
+                const name = n.name || n.title || '未知文件';
+                const checked = appState.downloadSelectedIds.has(n._id);
+                const sizeStr = dirFileSize(n);
+                html += `
+                    <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; margin-left:${depth * 14}px; border-bottom:1px solid ${T('rgba(71,85,105,0.12)','#e2e8f0')}; font-size:13px; color:${T('#cbd5e1','#334155')};">
+                        <input type="checkbox" class="xy-dl-check" data-fid="${n._id}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
+                        <span style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
+                            <span>${dlFileChip(name)}</span>
+                            <button class="xy-mini-btn xy-dl-single" data-fid="${n._id}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
+                        </span>
+                        <span style="flex:1;">
+                            <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${name}">${escapeHtml(name)}</div>
+                        </span>
+                        <span style="font-size:11px; color:${T('#64748b','#94a3b8')}; flex-shrink:0;">${sizeStr}</span>
+                    </div>`;
+            }
+        });
+        return html;
+    }
+
     function decryptFileUrl(encryptedUrl) {
         try {
             const key = "94374647";
@@ -1030,9 +1241,10 @@
                 }
             }
             if (!data.success || !data.data) return [];
-            
+
             appState.downloadSortMap = {};
             dlBuildSortMap(data.data, appState.downloadSortMap);
+            appState.downloadDirTree = buildDirTree(data.data);
             const flat = extractFilesFromResources(data.data);
             return flat.filter(r => {
                 const name = (r.name || r.title || '').toLowerCase();
@@ -1301,6 +1513,13 @@
         if (countEl) countEl.textContent = filtered.length + ' 个文件' + ((keyword || typeFiltered) ? ' (已过滤)' : '');
         if (filtered.length === 0) {
             listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
+            return;
+        }
+        if (mode === 'unit' && appState.downloadDirTree && appState.downloadDirTree.length) {
+            const visibleIds = new Set(filtered.map(f => String(f.id)));
+            let treeHtml = buildDownloadTreeHtml(appState.downloadDirTree, visibleIds, 0);
+            if (!treeHtml) treeHtml = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
+            listDiv.innerHTML = treeHtml;
             return;
         }
         const showUnit = mode === 'unit';
@@ -1980,7 +2199,7 @@
         } catch(e) {} return false;
     }
 
-    
+
     
     
     let mouseSimTimer = null;
@@ -2354,7 +2573,8 @@
         checkDynamicRefresh();
 
         if (appState.activeZone !== 'course') {
-            watchdogLastActiveTime = Date.now(); 
+            if (appState.activeZone === 'download' && appState.guardActive) forceDismissPopups(document);
+            watchdogLastActiveTime = Date.now();
             return;
         }
         if (appState.guardActive) forceDismissPopups(document);
@@ -2854,31 +3074,28 @@
     
     
     const EMBEDDED_NOTICE = {
-        "title": "🎉 v3.6.0 作业答题台 · 下载区增强",
-        "version": "3.6.0",
+        "title": "🎉 v3.6.1 课程目录 · 树状下载 · 雷达树",
+        "version": "3.6.1",
         "updatedAt": "2026-08-02",
         "items": [
             "🔮 更新链接：https://scriptcat.org/zh-CN/script-show-page/5881",
             "🔒 隐私声明：本脚本不收集任何个人信息，数据仅存本地浏览器",
             "⚠️ 免责声明：仅供个人学习使用，禁止用于商业用途，使用者自负风险",
             "",
-            "🔥 === v3.6.0 更新 ===",
-            "📝 作业答题台：全新「作答/结果」双 Tab，AI 作答模板提取 + 一键提交作答记录",
-            "📊 提交结果面板：成绩摘要 + 每题状态徽章 / 我的答案 / 标准答案",
-            "🗂️ 下载区排序：单元顺序 / 文件名 / 上传时间，与网页端一致",
-            "🏷️ 下载区文件徽章：彩色扩展名标签，色弱色盲友好",
-            "⇄ 下载区长文件名横向滚动",
+            "🔥 === v3.6.1 更新 ===",
+            "📂 课程目录区：课程页自动展示树状目录，点击任意项跳转对应资源",
+            "🌳 下载区单元顺序：改为树状呈现，与平台目录一致",
             "☑️ 下载区类型筛选：按文件类型勾选过滤，默认全选",
-            "🧹 移除脚本内全部注释，精简体积",
+            "⬇️ 下载按钮紧贴彩色类型标签",
+            "🌍 全局雷达：课程 → 单元 → 任务 树状展示",
+            "🧹 自动破除系统弹窗：刷课区/下载区自动清理",
+            "🔄 目录排序修复：对齐平台左侧目录（sort_position + 解包 root）",
             "",
-            "📟 === v3.5.7 更新 ===",
-            "💬 新增反馈入口",
-            "🧹 移除未使用依赖",
-            "",
-            "📟 === v3.5.6 更新 ===",
-            "📝 作业题目自动解析",
-            "📥 课件下载增强",
-            "🛠️ 修复双面板问题",
+            "📟 === v3.6.0 更新 ===",
+            "📝 作业答题台：作答/结果双 Tab + AI 作答模板 + 一键提交",
+            "📊 提交结果面板：成绩摘要 + 每题状态徽章 / 我的答案 / 标准答案",
+            "🏷️ 下载区文件徽章（色弱友好）+ 排序 + 横向滚动",
+            "🧹 移除脚本内全部注释",
             "",
             "💬 有 bug 随时提 Issue！"
         ]
@@ -3342,7 +3559,71 @@
         const tasks = await fetchGlobalTasks(); renderGlobalDashboardContent(tasks);
     }
 
-    function renderGlobalDashboardContent(tasks) {
+    function buildUnitNameMap(nodes, parentName, map) {
+        if (!map) map = new Map();
+        (Array.isArray(nodes) ? nodes : []).forEach(n => {
+            const name = n.name || n.title || '';
+            if (dirIsUnit(n)) {
+                if (n._id != null) map.set(String(n._id), name);
+                if (n.node_id != null) map.set(String(n.node_id), name);
+                buildUnitNameMap(dirUnitChildren(n), name, map);
+            } else {
+                const p = parentName || '';
+                if (n._id != null) map.set(String(n._id), p);
+                if (n.node_id != null) map.set(String(n.node_id), p);
+            }
+        });
+        return map;
+    }
+
+    function groupTasksByUnit(tasks, unitMap) {
+        const m = new Map();
+        (Array.isArray(tasks) ? tasks : []).forEach(t => {
+            const key = String(t.node_id != null ? t.node_id : t.id);
+            const unit = (unitMap && (unitMap.get(key) || unitMap.get(String(t.id)))) || '未分组';
+            if (!m.has(unit)) m.set(unit, []);
+            m.get(unit).push(t);
+        });
+        return m;
+    }
+
+    function buildRadarTaskCard(task) {
+        window.xyGlobalTaskMap.set(task.task_id || task.id, task);
+        const now = new Date();
+        const endTime = new Date(task.end_time);
+        const startTime = new Date(task.start_time);
+        const isCompleted = task.finish === 2;
+        const isAutoable = task.task_type === 1;
+        const enableCheck = (!isCompleted) && (isAutoable || appState.isFreedomMode);
+        let statusTag = '', statusColorBg = '', statusColorText = '';
+        if (isCompleted) { statusTag = '✓ 已完成'; statusColorBg = 'rgba(52,211,153,0.12)'; statusColorText = '#34d399'; }
+        else if (endTime < now) { statusTag = '⚠️ 已截止'; statusColorBg = 'rgba(248,113,113,0.12)'; statusColorText = '#f87171'; }
+        else if (task.start_time && startTime > now) { statusTag = '🔒 未开始'; statusColorBg = 'rgba(71,85,105,0.15)'; statusColorText = '#94a3b8'; }
+        else { statusTag = '⏳ 进行中'; statusColorBg = 'rgba(99,102,241,0.12)'; statusColorText = '#a5b4fc'; }
+        const currentNodeId = getNodeId();
+        const isCurrentNode = currentNodeId && task.node_id == currentNodeId;
+        const borderStyle = isCurrentNode ? 'border: 2px solid #818cf8; box-shadow: 0 0 15px rgba(129,140,248,0.15);' : (enableCheck ? `border: 1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')};` : 'border: 1px solid transparent;');
+        const currentMark = isCurrentNode ? `<span style="background:#6366f1; color:white; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; margin-left:10px; box-shadow: 0 2px 4px rgba(99,102,241,0.3);">📍 当前位置</span>` : '';
+        const typeStr = {1:'👁️ 自主观看', 2:'✍️ 作业', 3:'📚 课堂练习', 4:'💯 测验', 5:'📋 问卷', 6:'💭 讨论'}[task.task_type] || '📌 未知';
+        return `
+            <div id="xy-global-task-card-${task.task_id || task.id}" style="background:${T('rgba(30,41,59,0.35)','#ffffff')}; border-radius:12px; padding:16px; display:flex; align-items:center; gap:20px; transition: all 0.3s; ${borderStyle}">
+                <input type="checkbox" class="xy-task-check" value="${task.task_id || task.id}" ${enableCheck?'':'disabled'} style="width:20px; height:20px; cursor:${enableCheck?'pointer':'not-allowed'}; accent-color:#818cf8; flex-shrink: 0;">
+                <div style="flex:1;">
+                    <div style="font-size:15px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:8px; display:flex; align-items:center; letter-spacing: 0.5px;">
+                        ${escapeHtml(task.name) || '未知任务'} ${currentMark}
+                    </div>
+                    <div style="font-size:13px; color:${T('#94a3b8','#64748b')}; display:flex; gap:24px; font-weight: 500;">
+                        <span style="background: ${T('rgba(71,85,105,0.2)','#f1f5f9')}; padding: 2px 8px; border-radius: 6px;">${typeStr}</span>
+                        <span>截止: ${new Date(task.end_time).toLocaleDateString()}</span>
+                    </div>
+                </div>
+                <div>
+                    <span class="xy-task-status-indicator" style="background:${statusColorBg}; color:${statusColorText}; padding:6px 12px; border-radius:8px; font-size:13px; font-weight:bold; white-space:nowrap; transition:all 0.3s;">${statusTag}</span>
+                </div>
+            </div>`;
+    }
+
+    async function renderGlobalDashboardContent(tasks) {
         const contentBox = document.getElementById('xy-dashboard-content'), footerBox = document.getElementById('xy-dashboard-footer');
         if (!contentBox) return;
         if (!tasks || tasks.length === 0) { contentBox.innerHTML = `<div style="text-align:center; padding:100px; color:${T('#94a3b8','#64748b')}; font-size:22px; letter-spacing: 0.5px;">🎉 全网已无任务数据！</div>`; if (footerBox) footerBox.style.display = 'none'; return; }
@@ -3372,6 +3653,19 @@
         const groupedTasks = tasks.reduce((acc, t) => { if(!acc[t.group_name]) acc[t.group_name] = []; acc[t.group_name].push(t); return acc; }, {});
         window.xyGlobalTaskMap = new Map();
 
+        const courseUnits = {};
+        for (const [courseName, courseTasks] of Object.entries(groupedTasks)) {
+            const gid = courseTasks[0] && courseTasks[0].group_id;
+            let unitMap = null;
+            if (gid) {
+                try {
+                    const res = await loadCourseResources(gid);
+                    if (res) unitMap = buildUnitNameMap(buildDirTree(res));
+                } catch(e) {}
+            }
+            courseUnits[courseName] = groupTasksByUnit(courseTasks, unitMap);
+        }
+
         Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
             
             courseTasks.sort((a,b) => {
@@ -3392,44 +3686,21 @@
                     </div>
                     <div id="${safeId}" class="xy-global-group-content" style="padding:20px; display:flex; flex-direction:column; gap:16px;">
             `;
-            courseTasks.forEach(task => {
-                window.xyGlobalTaskMap.set(task.task_id || task.id, task);
-                const now = new Date();
-                const endTime = new Date(task.end_time);
-                const startTime = new Date(task.start_time);
-                
-                const isCompleted = task.finish === 2;
-                const isAutoable = task.task_type === 1;
-                const enableCheck = (!isCompleted) && (isAutoable || appState.isFreedomMode);
-
-                let statusTag = ''; let statusColorBg = ''; let statusColorText = '';
-                if (isCompleted) { statusTag = '✓ 已完成'; statusColorBg = 'rgba(52,211,153,0.12)'; statusColorText = '#34d399'; }
-                else if (endTime < now) { statusTag = '⚠️ 已截止'; statusColorBg = 'rgba(248,113,113,0.12)'; statusColorText = '#f87171'; }
-                else if (task.start_time && startTime > now) { statusTag = '🔒 未开始'; statusColorBg = 'rgba(71,85,105,0.15)'; statusColorText = '#94a3b8'; }
-                else { statusTag = '⏳ 进行中'; statusColorBg = 'rgba(99,102,241,0.12)'; statusColorText = '#a5b4fc'; }
-
-                const currentNodeId = getNodeId();
-                const isCurrentNode = currentNodeId && task.node_id == currentNodeId;
-                const borderStyle = isCurrentNode ? 'border: 2px solid #818cf8; box-shadow: 0 0 15px rgba(129,140,248,0.15);' : (enableCheck ? `border: 1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')};` : 'border: 1px solid transparent;');
-                const currentMark = isCurrentNode ? `<span style="background:#6366f1; color:white; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; margin-left:10px; box-shadow: 0 2px 4px rgba(99,102,241,0.3);">📍 当前位置</span>` : '';
-                const typeStr = {1:'👁️ 自主观看', 2:'✍️ 作业', 3:'📚 课堂练习', 4:'💯 测验', 5:'📋 问卷', 6:'💭 讨论'}[task.task_type] || '📌 未知';
-
+            const unitGroups = courseUnits[courseName];
+            let ui = 0;
+            unitGroups.forEach((unitTasks, unitName) => {
+                const unitId = safeId + '-u' + ui++;
                 html += `
-                    <div id="xy-global-task-card-${task.task_id || task.id}" style="background:${T('rgba(30,41,59,0.35)','#ffffff')}; border-radius:12px; padding:16px; display:flex; align-items:center; gap:20px; transition: all 0.3s; ${borderStyle}">
-                        <input type="checkbox" class="xy-task-check" value="${task.task_id || task.id}" ${enableCheck?'':'disabled'} style="width:20px; height:20px; cursor:${enableCheck?'pointer':'not-allowed'}; accent-color:#818cf8; flex-shrink: 0;">
-                        <div style="flex:1;">
-                            <div style="font-size:15px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:8px; display:flex; align-items:center; letter-spacing: 0.5px;">
-                                ${escapeHtml(task.name) || '未知任务'} ${currentMark}
-                            </div>
-                            <div style="font-size:13px; color:${T('#94a3b8','#64748b')}; display:flex; gap:24px; font-weight: 500;">
-                                <span style="background: ${T('rgba(71,85,105,0.2)','#f1f5f9')}; padding: 2px 8px; border-radius: 6px;">${typeStr}</span>
-                                <span>截止: ${new Date(task.end_time).toLocaleDateString()}</span>
-                            </div>
+                    <div style="margin-bottom:12px;">
+                        <div class="xy-global-unit-header" data-target="${unitId}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; border:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')}; cursor:pointer; user-select:none;">
+                            <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📂 ${escapeHtml(unitName)}</span>
+                            <span style="background:${T('rgba(99,102,241,0.15)','#e0e7ff')}; color:${T('#a5b4fc','#3730a3')}; padding:2px 10px; border-radius:10px; font-size:12px; font-weight:700; white-space:nowrap;">${unitTasks.length} 个任务</span>
+                            <span class="xy-global-unit-arrow" style="transition:transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size:11px;">▼</span>
                         </div>
-                        <div>
-                            <span class="xy-task-status-indicator" style="background:${statusColorBg}; color:${statusColorText}; padding:6px 12px; border-radius:8px; font-size:13px; font-weight:bold; white-space:nowrap; transition:all 0.3s;">${statusTag}</span>
-                        </div>
-                    </div>`;
+                        <div id="${unitId}" class="xy-global-unit-content" style="display:flex; flex-direction:column; gap:12px; padding:12px 0 4px 14px;">
+                `;
+                unitTasks.forEach(task => { html += buildRadarTaskCard(task); });
+                html += `</div></div>`;
             });
             html += `</div></div>`;
         });
@@ -3449,6 +3720,21 @@
                     content.style.display = 'none';
                     arrow.style.transform = 'rotate(-90deg)';
                     header.style.background = T('rgba(30,41,59,0.35)','#f1f5f9');
+                }
+            };
+        });
+
+        document.querySelectorAll('.xy-global-unit-header').forEach(header => {
+            header.onclick = () => {
+                const targetId = header.getAttribute('data-target');
+                const content = document.getElementById(targetId);
+                const arrow = header.querySelector('.xy-global-unit-arrow');
+                if (content.style.display === 'none') {
+                    content.style.display = 'flex';
+                    if (arrow) arrow.style.transform = 'rotate(0deg)';
+                } else {
+                    content.style.display = 'none';
+                    if (arrow) arrow.style.transform = 'rotate(-90deg)';
                 }
             };
         });
@@ -5252,6 +5538,22 @@
                     </div>
                 </div>
 
+                <div id="xy-view-dir" style="display:none; flex-shrink: 0;">
+                    <div style="display:flex; align-items:center; gap:9px; padding:10px 14px; border-radius:10px; background: ${T('rgba(99,102,241,0.08)','#eef2ff')}; border: 1px solid ${T('rgba(129,140,248,0.22)','#c7d2fe')}; margin-bottom:10px;">
+                        <span style="width:8px; height:8px; border-radius:99px; background:#818cf8; box-shadow:0 0 10px rgba(129,140,248,.6); flex-shrink:0;"></span>
+                        <span style="font-size:12.5px; font-weight:700; color:${T('#e2e8f0','#0f172a')};">课程目录</span>
+                        <span id="xy-dir-status" style="margin-left:auto; font-size:10px; color:${T('#94a3b8','#64748b')};">读取中...</span>
+                    </div>
+                    <div style="display:flex; gap:8px; margin-bottom:10px;">
+                        <button class="xy-action-btn" id="xy-dir-play" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(16,185,129,0.12)','#ecfdf5')}; border-color:${T('rgba(16,185,129,0.25)','#a7f3d0')}; color:${T('#34d399','#059669')};">▶️ 一键连播</button>
+                        <button class="xy-action-btn" id="xy-dir-download" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(52,211,153,0.12)','#d1fae5')}; border-color:${T('rgba(52,211,153,0.25)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">📥 进入下载区</button>
+                        <button class="xy-action-btn" id="xy-dir-refresh" style="flex:1; min-height:36px; font-size:12px;">🔄 刷新</button>
+                    </div>
+                    <div style="max-height:300px; overflow-y:auto; border:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')}; border-radius:11px; background:${T('rgba(15,23,42,0.35)','#ffffff')}; padding:4px;" id="xy-dir-list">
+                        <div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">正在读取课程目录...</div>
+                    </div>
+                </div>
+
                 <div id="xy-view-course" style="display:none; flex-shrink: 0;">
                     <div id="xy-status-banner" style="text-align: center; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--xy-border); background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; font-size: 12px; margin-bottom: 10px; font-weight: 600; color: ${T('#94a3b8','#64748b')};">初始化中...</div>
 
@@ -5636,6 +5938,33 @@
             quickKillCurrentTask();
         };
 
+        // 课程目录区按钮
+        const dirPlayBtn = document.getElementById('xy-dir-play');
+        if (dirPlayBtn) dirPlayBtn.onclick = () => oneClickRadarPlay();
+        const dirDownloadBtn = document.getElementById('xy-dir-download');
+        if (dirDownloadBtn) dirDownloadBtn.onclick = () => enterDownloadZone();
+        const dirRefreshBtn = document.getElementById('xy-dir-refresh');
+        if (dirRefreshBtn) dirRefreshBtn.onclick = () => loadCourseDirectory();
+        const dirListBox = document.getElementById('xy-dir-list');
+        if (dirListBox) {
+            dirListBox.addEventListener('click', (e) => {
+                const link = e.target.closest('[data-dir-url]');
+                if (link) {
+                    const url = link.getAttribute('data-dir-url');
+                    if (url) window.location.href = url;
+                    return;
+                }
+                const head = e.target.closest('.xy-dir-head');
+                if (!head) return;
+                const body = head.nextElementSibling;
+                if (!body) return;
+                const hidden = body.style.display === 'none';
+                body.style.display = hidden ? '' : 'none';
+                const marker = head.querySelector('[data-marker]');
+                if (marker) marker.textContent = hidden ? '−' : '+';
+            });
+        }
+
         
         const hwDocxBtn = document.getElementById('xy-hw-docx-btn');
         if (hwDocxBtn) hwDocxBtn.onclick = async () => {
@@ -5753,6 +6082,17 @@
                 }
             });
             dlFileList.addEventListener('click', (e) => {
+                const unitHead = e.target.closest('.xy-dl-unit-head');
+                if (unitHead) {
+                    const body = unitHead.nextElementSibling;
+                    if (body) {
+                        const hidden = body.style.display === 'none';
+                        body.style.display = hidden ? '' : 'none';
+                        const marker = unitHead.querySelector('[data-dl-marker]');
+                        if (marker) marker.textContent = hidden ? '−' : '+';
+                    }
+                    return;
+                }
                 if (e.target.classList.contains('xy-dl-single')) {
                     const fid = e.target.getAttribute('data-fid');
                     const file = appState.downloadFiles.find(f => f.id == fid);
