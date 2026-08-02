@@ -3569,14 +3569,15 @@
         return null;
     }
 
-    function buildUnitNameMap(nodes, parentName, map) {
+    function buildUnitNameMap(nodes, parentName, map, orderMap) {
         if (!map) map = new Map();
         (Array.isArray(nodes) ? nodes : []).forEach(n => {
             const name = n.name || n.title || '';
             if (dirIsUnit(n)) {
                 if (n._id != null) map.set(String(n._id), name);
                 if (n.node_id != null) map.set(String(n.node_id), name);
-                buildUnitNameMap(dirUnitChildren(n), name, map);
+                if (orderMap && !orderMap.has(name)) orderMap.set(name, Number(n.sort_position) || 0);
+                buildUnitNameMap(dirUnitChildren(n), name, map, orderMap);
             } else {
                 const p = parentName || '';
                 if (n._id != null) map.set(String(n._id), p);
@@ -3664,16 +3665,22 @@
         window.xyGlobalTaskMap = new Map();
 
         const courseUnits = {};
+        const courseUnitOrder = {};
         for (const [courseName, courseTasks] of Object.entries(groupedTasks)) {
             const gid = courseTasks[0] && courseTasks[0].group_id;
             let unitMap = null;
+            const orderMap = new Map();
             if (gid) {
                 try {
                     const res = await fetchCourseResourcesForRadar(gid);
-                    if (res) unitMap = buildUnitNameMap(buildDirTree(res));
+                    if (res) {
+                        unitMap = buildUnitNameMap(buildDirTree(res), '', null, orderMap);
+                        orderMap.set('未分组', Number.MAX_SAFE_INTEGER);
+                    }
                 } catch(e) {}
             }
             courseUnits[courseName] = groupTasksByUnit(courseTasks, unitMap);
+            courseUnitOrder[courseName] = orderMap;
         }
 
         Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
@@ -3698,11 +3705,13 @@
             `;
             const unitGroups = courseUnits[courseName];
             const flatFallback = unitGroups.size === 1 && unitGroups.has('未分组');
+            const unitOrder = courseUnitOrder[courseName] || new Map();
+            const unitEntries = Array.from(unitGroups.entries()).sort((a, b) => (unitOrder.get(a[0]) || 0) - (unitOrder.get(b[0]) || 0));
             let ui = 0;
             if (flatFallback) {
                 courseTasks.forEach(task => { html += buildRadarTaskCard(task); });
             } else {
-                unitGroups.forEach((unitTasks, unitName) => {
+                unitEntries.forEach(([unitName, unitTasks]) => {
                     const unitId = safeId + '-u' + ui++;
                     html += `
                         <div style="margin-bottom:12px;">
