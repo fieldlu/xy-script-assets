@@ -362,7 +362,13 @@
         downloadSelectedIds: new Set(),
         downloadSearchKeyword: '',
         downloadSortMode: GM_getValue('xy_dl_sort', 'unit'),
-        downloadSortMap: {},          
+        downloadSortMap: {},
+        downloadTypeFilter: (function() {
+            const all = ['video','audio','pdf','doc','ppt','xls','zip','other'];
+            let saved = [];
+            try { saved = String(GM_getValue('xy_dl_types','')||'').split(',').filter(k => all.includes(k)); } catch(e) {}
+            return new Set(saved.length ? saved : all);
+        })(),
         downloadAbortController: null,
         downloadPaused: false,
         prevZone: 'course',
@@ -1214,6 +1220,30 @@
     }
 
     
+    const DL_TYPES = [
+        { key: 'video', label: '视频' },
+        { key: 'audio', label: '音频' },
+        { key: 'pdf', label: 'PDF' },
+        { key: 'doc', label: 'Word' },
+        { key: 'ppt', label: 'PPT' },
+        { key: 'xls', label: 'Excel' },
+        { key: 'zip', label: '压缩' },
+        { key: 'other', label: '其他' }
+    ];
+
+    function dlFileType(name) {
+        const m = String(name || '').match(/\.([A-Za-z0-9]+)$/);
+        const ext = m ? m[1].toUpperCase() : '';
+        if (/^(MP4|AVI|MOV|WMV|FLV|MKV|M3U8|WEBM)$/.test(ext)) return 'video';
+        if (/^(MP3|WAV|AAC)$/.test(ext)) return 'audio';
+        if (ext === 'PDF') return 'pdf';
+        if (/^(DOC|DOCX|WPS|TXT)$/.test(ext)) return 'doc';
+        if (/^(PPT|PPTX)$/.test(ext)) return 'ppt';
+        if (/^(XLS|XLSX|CSV)$/.test(ext)) return 'xls';
+        if (/^(ZIP|RAR|7Z)$/.test(ext)) return 'zip';
+        return 'other';
+    }
+
     function dlFileChip(name) {
         const m = String(name || '').match(/\.([A-Za-z0-9]+)$/);
         const ext = m ? m[1].toUpperCase() : 'FILE';
@@ -1252,9 +1282,11 @@
             return;
         }
         const keyword = (appState.downloadSearchKeyword || '').toLowerCase().trim();
-        const filtered = keyword
-            ? appState.downloadFiles.filter(f => f.name.toLowerCase().includes(keyword))
-            : appState.downloadFiles.slice();
+        const typeSet = appState.downloadTypeFilter;
+        const filtered = appState.downloadFiles.filter(f => {
+            if (typeSet && typeSet.size > 0 && !typeSet.has(dlFileType(f.name))) return false;
+            return !keyword || f.name.toLowerCase().includes(keyword);
+        });
         
         const mode = appState.downloadSortMode;
         filtered.sort((a, b) => {
@@ -1265,7 +1297,8 @@
             return dlUnitCompare(a, b);
         });
         const countEl = document.getElementById('xy-dl-file-count');
-        if (countEl) countEl.textContent = filtered.length + ' 个文件' + (keyword ? ' (已过滤)' : '');
+        const typeFiltered = typeSet && typeSet.size < DL_TYPES.length;
+        if (countEl) countEl.textContent = filtered.length + ' 个文件' + ((keyword || typeFiltered) ? ' (已过滤)' : '');
         if (filtered.length === 0) {
             listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
             return;
@@ -2833,6 +2866,7 @@
             "🗂️ 下载区排序：单元顺序 / 文件名 / 上传时间，与网页端一致",
             "🏷️ 下载区文件徽章：彩色扩展名标签，色弱色盲友好",
             "⇄ 下载区长文件名横向滚动",
+            "☑️ 下载区类型筛选：按文件类型勾选过滤，默认全选",
             "🧹 移除脚本内全部注释，精简体积",
             "",
             "📟 === v3.5.7 更新 ===",
@@ -5371,6 +5405,7 @@
                     <div style="margin-bottom: 10px;">
                         <input type="text" id="xy-dl-search" class="xy-input-box" placeholder="🔍 搜索文件名..." style="text-align: left; padding: 8px 12px; width: 100%; box-sizing: border-box;">
                     </div>
+                    <div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px;" id="xy-dl-type-filter"></div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 11px; color: ${T('#94a3b8','#64748b')};">
                         <span id="xy-dl-file-count">0 个文件</span>
                         <select id="xy-dl-sort" class="xy-input-box" title="排序方式" style="width:auto; max-width:150px; padding:4px 6px; font-size:11px; text-align:left;">
@@ -5647,7 +5682,29 @@
                 renderDownloadList();
             });
         }
-        
+
+        // 下载类型勾选（默认全选，持久化）
+        const typeFilterBox = document.getElementById('xy-dl-type-filter');
+        if (typeFilterBox) {
+            DL_TYPES.forEach(t => {
+                const label = document.createElement('label');
+                label.style.cssText = `display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')};background:${T('rgba(15,23,42,0.35)','#ffffff')};color:${T('#cbd5e1','#334155')};font-size:10.5px;font-weight:600;cursor:pointer;`;
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = appState.downloadTypeFilter.has(t.key);
+                cb.style.cssText = `width:12px;height:12px;accent-color:#22d3ee;cursor:pointer;`;
+                cb.onchange = () => {
+                    if (cb.checked) appState.downloadTypeFilter.add(t.key);
+                    else appState.downloadTypeFilter.delete(t.key);
+                    try { GM_setValue('xy_dl_types', Array.from(appState.downloadTypeFilter).join(',')); } catch(e) {}
+                    renderDownloadList();
+                };
+                label.appendChild(cb);
+                label.appendChild(document.createTextNode(t.label));
+                typeFilterBox.appendChild(label);
+            });
+        }
+
         const dlSortSelect = document.getElementById('xy-dl-sort');
         if (dlSortSelect) {
             dlSortSelect.value = appState.downloadSortMode || 'unit';
