@@ -1316,13 +1316,15 @@
             html += `
                 <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid ${T('rgba(71,85,105,0.12)','#e2e8f0')}; font-size:13px; color:${T('#cbd5e1','#334155')};">
                     <input type="checkbox" class="xy-dl-check" data-fid="${f.id}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
-                    <span style="flex-shrink:0;">${icon}</span>
+                    <span style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
+                        <span>${icon}</span>
+                        <button class="xy-mini-btn xy-dl-single" data-fid="${f.id}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
+                    </span>
                     <span style="flex:1;">
                         <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${f.name}">${f.name}</div>
                         ${metaLine ? `<div style="font-size:10px; color:${T('#64748b','#94a3b8')}; white-space:nowrap;" title="${metaLine}">${metaLine}</div>` : ''}
                     </span>
                     <span style="font-size:11px; color:${T('#64748b','#94a3b8')}; flex-shrink:0;">${sizeStr}</span>
-                    <button class="xy-mini-btn xy-dl-single" data-fid="${f.id}" style="padding:3px 10px; font-size:11px; flex-shrink:0;">⬇️</button>
                 </div>`;
         });
         listDiv.innerHTML = html;
