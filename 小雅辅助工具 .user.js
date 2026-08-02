@@ -1002,7 +1002,10 @@
         if (dirUnitChildren(n).length) return true;
         if (String(n.type || '') === 'folder') return true;
         if (n.mimetype) return false;
-        if (n.task_type !== undefined && n.task_type !== null) return false;
+        if (n.is_task === true) return false;
+        const tt = (n.task_type !== undefined && n.task_type !== null) ? n.task_type : (n.property && n.property.task_type);
+        if (tt !== undefined && tt !== null) return false;
+        if (n.task_id) return false;
         const type = n.task_type !== undefined ? n.task_type : n.type;
         if (Number(type) >= 2 && Number(type) <= 5) return false;
         return !/\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(String(n.name || n.title || ''));
@@ -1083,12 +1086,12 @@
         const groupId = getCourseGroupId();
         if (!groupId || !r) return '';
         const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
-        const resId = r.id != null ? r.id : r.resource_id;
-        const nodeId = r.node_id != null ? r.node_id : resId;
+        const selfId = r.id != null ? r.id : r.resource_id;
         if (dirIsUnit(r)) {
-            return `/app/jx-web/${pathPrefix}/${groupId}/resource/${nodeId || resId}`;
+            return `/app/jx-web/${pathPrefix}/${groupId}/resource/${selfId}`;
         }
-        return `/app/jx-web/${pathPrefix}/${groupId}/resource/${resId}/${nodeId}`;
+        const parentId = (r.parent_id != null && r.parent_id !== '1') ? r.parent_id : selfId;
+        return `/app/jx-web/${pathPrefix}/${groupId}/resource/${parentId}/${selfId}`;
     }
 
     function buildDirHtml(nodes, depth) {
