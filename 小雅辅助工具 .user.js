@@ -1008,6 +1008,7 @@
         if (n.task_id) return false;
         const type = n.task_type !== undefined ? n.task_type : n.type;
         if (Number(type) >= 2 && Number(type) <= 5) return false;
+        if (Number(n.resource_type) > 0) return false;
         return !/\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(String(n.name || n.title || ''));
     }
 
