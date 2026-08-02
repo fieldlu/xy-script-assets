@@ -4220,35 +4220,68 @@
             }
         };
 
-        const renderLibraryList = (tasks) => {
+        const renderLibraryList = async (tasks) => {
             const container = document.getElementById('xy-sch-lib-list');
             if (!container) return;
             if (!tasks || tasks.length === 0) { container.innerHTML = `<div style="text-align:center; padding:40px; color:${T('#94a3b8','#64748b')};">暂无可用任务</div>`; return; }
 
             if (!window.xyGlobalTaskMap) window.xyGlobalTaskMap = new Map();
 
+            const isValidSchTask = (task) => {
+                const name = (task.name || '').toLowerCase();
+                return /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name) || /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+            };
+
+            const buildSchLibCard = (task) => {
+                window.xyGlobalTaskMap.set(task.task_id || task.id, task);
+                const isCompleted = task.finish === 2;
+                const name = (task.name || '').toLowerCase();
+                const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
+                const typeStr = isVideo ? '📺 视频' : '📄 文档';
+                const statusUI = isCompleted
+                    ? `<span style="color:${T('#34d399','#065f46')}; font-weight:bold; background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; padding:2px 6px; border-radius:6px;">✅ 已完成(可刷)</span>`
+                    : `<span style="color:${T('#fbbf24','#92400e')}; font-weight:bold; background:${T('rgba(251,191,36,0.1)','#fffbeb')}; padding:2px 6px; border-radius:6px;">⏳ 待完成</span>`;
+                return `
+                    <div style="background:${T('rgba(30,41,59,0.3)','#ffffff')}; border:1px solid ${isCompleted ? T('rgba(52,211,153,0.15)','#a7f3d0') : T('rgba(71,85,105,0.12)','#e2e8f0')}; border-radius:10px; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; box-shadow: ${T('0 2px 4px rgba(0,0,0,0.1)','0 1px 2px rgba(0,0,0,0.04)')};">
+                        <div style="flex:1; overflow:hidden;">
+                            <div style="font-size:14px; font-weight:600; color:${T('#e2e8f0','#0f172a')}; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</div>
+                            <div style="display:flex; gap:12px; font-size:12px; align-items:center;">
+                                <span style="color:${T('#94a3b8','#64748b')};">${typeStr}</span>
+                                ${statusUI}
+                            </div>
+                        </div>
+                        <button class="xy-sch-add-btn" data-tid="${task.task_id || task.id}" style="background:linear-gradient(135deg, #6366f1, #4f46e5); color:white; border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:pointer; transform: translateY(0); transition:0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">+ 添加</button>
+                    </div>`;
+            };
+
             const groupedTasks = tasks.reduce((acc, t) => { if(!acc[t.group_name]) acc[t.group_name] = []; acc[t.group_name].push(t); return acc; }, {});
+
+            const courseUnits = {};
+            const courseUnitOrder = {};
+            for (const [courseName, courseTasks] of Object.entries(groupedTasks)) {
+                const gid = courseTasks[0] && courseTasks[0].group_id;
+                let unitMap = null;
+                const orderedOut = [];
+                if (gid) {
+                    try {
+                        const res = await fetchCourseResourcesForRadar(gid);
+                        if (res) unitMap = buildUnitNameMap(buildDirTree(res), '', null, orderedOut);
+                    } catch(e) {}
+                }
+                courseUnits[courseName] = groupTasksByUnit(courseTasks, unitMap);
+                const orderIdx = new Map(orderedOut.map((n, i) => [n, i]));
+                orderIdx.set('未分组', Number.MAX_SAFE_INTEGER);
+                courseUnitOrder[courseName] = orderIdx;
+            }
+
             let html = '';
             let hasAnyValidTask = false;
-            
-            Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
-                
-                let validTasks = courseTasks.filter(task => {
-                    const name = (task.name || '').toLowerCase();
-                    const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
-                    const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
-                    return isVideo || isDoc;
-                });
 
-                if (validTasks.length === 0) return; 
+            Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
+                const validTasks = courseTasks.filter(isValidSchTask);
+                if (validTasks.length === 0) return;
                 hasAnyValidTask = true;
 
-                validTasks.sort((a,b) => {
-                    if (a.finish !== b.finish) return a.finish - b.finish; 
-                    return new Date(a.end_time) - new Date(b.end_time);
-                });
-
-                
                 html += `
                     <div class="xy-sch-group-header" data-idx="${groupIdx}" style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; padding:12px 16px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; margin: 16px 0 8px 0; font-size:14px; position:sticky; top:0; z-index:2; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; transition:background 0.2s;">
                         <span>📚 ${courseName || '未知课程'} <span style="font-size:12px; color:${T('#94a3b8','#64748b')}; font-weight:normal; margin-left:6px;">(${validTasks.length}个节点)</span></span>
@@ -4257,43 +4290,41 @@
                     <div class="xy-sch-group-content" id="xy-sch-group-${groupIdx}" style="display:flex; flex-direction:column; gap:8px;">
                 `;
 
-                validTasks.forEach(task => {
-                    window.xyGlobalTaskMap.set(task.task_id || task.id, task);
-                    const isCompleted = task.finish === 2;
-                    
-                    const name = (task.name || '').toLowerCase();
-                    const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
-                    
-                    let typeStr = isVideo ? '📺 视频' : '📄 文档';
-
-                    const statusUI = isCompleted
-                        ? `<span style="color:${T('#34d399','#065f46')}; font-weight:bold; background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; padding:2px 6px; border-radius:6px;">✅ 已完成(可刷)</span>`
-                        : `<span style="color:${T('#fbbf24','#92400e')}; font-weight:bold; background:${T('rgba(251,191,36,0.1)','#fffbeb')}; padding:2px 6px; border-radius:6px;">⏳ 待完成</span>`;
-
-                    html += `
-                        <div style="background:${T('rgba(30,41,59,0.3)','#ffffff')}; border:1px solid ${isCompleted ? T('rgba(52,211,153,0.15)','#a7f3d0') : T('rgba(71,85,105,0.12)','#e2e8f0')}; border-radius:10px; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; box-shadow: ${T('0 2px 4px rgba(0,0,0,0.1)','0 1px 2px rgba(0,0,0,0.04)')};">
-                            <div style="flex:1; overflow:hidden;">
-                                <div style="font-size:14px; font-weight:600; color:${T('#e2e8f0','#0f172a')}; margin-bottom:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(task.name)}">${escapeHtml(task.name)}</div>
-                                <div style="display:flex; gap:12px; font-size:12px; align-items:center;">
-                                    <span style="color:${T('#94a3b8','#64748b')};">${typeStr}</span>
-                                    ${statusUI}
+                const unitGroups = courseUnits[courseName];
+                const flatFallback = unitGroups.size === 1 && unitGroups.has('未分组');
+                const unitOrder = courseUnitOrder[courseName] || new Map();
+                const unitEntries = Array.from(unitGroups.entries()).sort((a, b) => (unitOrder.get(a[0]) || 0) - (unitOrder.get(b[0]) || 0));
+                let ui = 0;
+                if (flatFallback) {
+                    validTasks.forEach(task => { html += buildSchLibCard(task); });
+                } else {
+                    unitEntries.forEach(([unitName, unitTasks]) => {
+                        const validUnitTasks = unitTasks.filter(isValidSchTask);
+                        if (validUnitTasks.length === 0) return;
+                        const unitId = 'xy-sch-group-' + groupIdx + '-u' + (ui++);
+                        html += `
+                            <div>
+                                <div class="xy-sch-unit-header" data-target="${unitId}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.45)','#f8fafc')}; border-radius:8px; border:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; cursor:pointer; user-select:none;">
+                                    <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📂 ${escapeHtml(unitName)}</span>
+                                    <span style="font-size:11px; color:${T('#94a3b8','#64748b')}; white-space:nowrap;">${validUnitTasks.length} 个</span>
+                                    <span class="xy-sch-unit-arrow" style="transition:transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size:10px;">▼</span>
                                 </div>
-                            </div>
-                            <button class="xy-sch-add-btn" data-tid="${task.task_id || task.id}" style="background:linear-gradient(135deg, #6366f1, #4f46e5); color:white; border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:pointer; transform: translateY(0); transition:0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">+ 添加</button>
-                        </div>
-                    `;
-                });
-                
-                html += `</div>`; 
+                                <div id="${unitId}" class="xy-sch-unit-content" style="display:flex; flex-direction:column; gap:8px; padding:8px 0 2px 12px;">
+                        `;
+                        validUnitTasks.forEach(task => { html += buildSchLibCard(task); });
+                        html += `</div></div>`;
+                    });
+                }
+
+                html += `</div>`;
             });
-            
+
             if (!hasAnyValidTask) {
                 html = `<div style="text-align:center; padding:40px; color:${T('#94a3b8','#64748b')};">当前全网未发现可挂机的视频或文档任务</div>`;
             }
-            
+
             container.innerHTML = html;
 
-            
             document.querySelectorAll('.xy-sch-group-header').forEach(header => {
                 header.onclick = () => {
                     const idx = header.getAttribute('data-idx');
@@ -4311,6 +4342,22 @@
                 };
             });
 
+            document.querySelectorAll('.xy-sch-unit-header').forEach(header => {
+                header.onclick = () => {
+                    const targetId = header.getAttribute('data-target');
+                    const content = document.getElementById(targetId);
+                    const arrow = header.querySelector('.xy-sch-unit-arrow');
+                    if (!content) return;
+                    if (content.style.display === 'none') {
+                        content.style.display = 'flex';
+                        if (arrow) arrow.style.transform = 'rotate(0deg)';
+                    } else {
+                        content.style.display = 'none';
+                        if (arrow) arrow.style.transform = 'rotate(-90deg)';
+                    }
+                };
+            });
+
             document.querySelectorAll('.xy-sch-add-btn').forEach(btn => {
                 btn.onclick = async (e) => {
                     const tid = e.target.getAttribute('data-tid');
@@ -4319,9 +4366,9 @@
                         const originalText = e.target.innerText;
                         e.target.innerText = '提取中...';
                         e.target.disabled = true;
-                        
+
                         const resId = await getTaskResourceId(task);
-                        
+
                         xyScheduleState.queue.push({
                             uuid: generateUUID(),
                             taskId: tid,
@@ -4329,8 +4376,8 @@
                             groupId: task.group_id,
                             resourceId: resId,
                             name: task.name,
-                            type: 1, 
-                            strategy: task.finish === 2 ? 'duration' : 'until_done', 
+                            type: 1,
+                            strategy: task.finish === 2 ? 'duration' : 'until_done',
                             duration: 30,
                             elapsedSec: 0,
                             actionDone: false,
@@ -4338,7 +4385,7 @@
                         });
                         saveScheduleState();
                         renderQueueList();
-                        
+
                         e.target.innerText = originalText;
                         e.target.disabled = false;
                         showToast(`已添加：${task.name.substring(0,8)}...`, 'success');
