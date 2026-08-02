@@ -3408,6 +3408,20 @@
                     if (apiName) courseMap[gId] = apiName;
                 }));
             }
+
+            // 拉取全部学生课程，补齐 courseMap（调度/雷达显示所有课程）
+            try {
+                const gr = await fetch(`https://${domain}/api/jx-iresource/group/student/groups?time_flag=1`, { headers: { "authorization": `Bearer ${token}` } });
+                const gj = await gr.json();
+                const gdata = gj && gj.data;
+                const garr = Array.isArray(gdata) ? gdata : (gdata && (Array.isArray(gdata.groups) ? gdata.groups : (Array.isArray(gdata.list) ? gdata.list : [])));
+                (garr || []).forEach(g => {
+                    const gid = g.id || g.group_id;
+                    const gname = g.name || g.group_name || g.title;
+                    if (gid && gname) courseMap[String(gid)] = gname;
+                });
+            } catch(e) {}
+
             GM_setValue('xy_course_map', JSON.stringify(courseMap));
 
             
