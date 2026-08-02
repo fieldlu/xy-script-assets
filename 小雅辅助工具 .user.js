@@ -3569,15 +3569,15 @@
         return null;
     }
 
-    function buildUnitNameMap(nodes, parentName, map, orderMap) {
+    function buildUnitNameMap(nodes, parentName, map, orderedOut) {
         if (!map) map = new Map();
         (Array.isArray(nodes) ? nodes : []).forEach(n => {
             const name = n.name || n.title || '';
             if (dirIsUnit(n)) {
                 if (n._id != null) map.set(String(n._id), name);
                 if (n.node_id != null) map.set(String(n.node_id), name);
-                if (orderMap && !orderMap.has(name)) orderMap.set(name, Number(n.sort_position) || 0);
-                buildUnitNameMap(dirUnitChildren(n), name, map, orderMap);
+                if (orderedOut && !orderedOut.includes(name)) orderedOut.push(name);
+                buildUnitNameMap(dirUnitChildren(n), name, map, orderedOut);
             } else {
                 const p = parentName || '';
                 if (n._id != null) map.set(String(n._id), p);
@@ -3669,18 +3669,19 @@
         for (const [courseName, courseTasks] of Object.entries(groupedTasks)) {
             const gid = courseTasks[0] && courseTasks[0].group_id;
             let unitMap = null;
-            const orderMap = new Map();
+            const orderedOut = [];
             if (gid) {
                 try {
                     const res = await fetchCourseResourcesForRadar(gid);
                     if (res) {
-                        unitMap = buildUnitNameMap(buildDirTree(res), '', null, orderMap);
-                        orderMap.set('未分组', Number.MAX_SAFE_INTEGER);
+                        unitMap = buildUnitNameMap(buildDirTree(res), '', null, orderedOut);
                     }
                 } catch(e) {}
             }
             courseUnits[courseName] = groupTasksByUnit(courseTasks, unitMap);
-            courseUnitOrder[courseName] = orderMap;
+            const orderIdx = new Map(orderedOut.map((n, i) => [n, i]));
+            orderIdx.set('未分组', Number.MAX_SAFE_INTEGER);
+            courseUnitOrder[courseName] = orderIdx;
         }
 
         Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
