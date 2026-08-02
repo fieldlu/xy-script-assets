@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.5.7
-// @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出、讨论区互动等常用功能集成
+// @version      3.6.0
+// @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      仅供个人学习使用，禁止修改、复制或用于商业用途
 // @match        https://*.ai-augmented.com/*
@@ -21,33 +21,23 @@
 
 // ==/UserScript==
 
-// ──────────────────────────────────────────────────────────
-// 📋 反馈问卷 · ScriptCat 公开 API
-//
-//   零 Token、零配置、零服务器。提交到 ScriptCat 公开反馈接口。
-//   查看反馈：https://scriptcat.org/zh-CN/script-show-page/5881/issue
-//
-//   控制台命令：
-//     xyExportFeedbacks()  — 导出本地暂存的反馈
-// ──────────────────────────────────────────────────────────
-
 (function () {
     'use strict';
 
-    // ── 作业区：最早抓原生 fetch/XHR（仿粘粘粘）──
+    
     const _hw_nativeFetch = window.fetch;
     const _hw_nativeXhrOpen = XMLHttpRequest.prototype.open;
     const _hw_nativeXhrSend = XMLHttpRequest.prototype.send;
 
-    // 彻底动态化：读取头部 @version，无任何写死的数字，以后发版只需改头部注释即可！
+    
     const SCRIPT_VERSION = typeof GM_info !== 'undefined' ? GM_info.script.version : '未知';
 
     const domain = window.location.hostname;
 
-    // ⚡ 二次元启动程序 — 仅冷启动显示，刷新跳过
+    
     (function initSplash() {
         try {
-            // 用 sessionStorage 判断：新标签页=显示，刷新/F5=跳过
+            
             if (sessionStorage.getItem('xy_splash_done')) return;
             sessionStorage.setItem('xy_splash_done', '1');
 
@@ -159,23 +149,23 @@
                 el.id = 'xy-splash';
                 el.appendChild(style);
 
-                // 网格背景已用 CSS 实现
+                
 
-                // 扫描线已在 CSS ::after 伪元素中
+                
 
-                // 脉冲点
+                
                 for (let i = 0; i < 3; i++) {
                     const pls = document.createElement('div');
                     pls.className = 'pls';
                     el.appendChild(pls);
                 }
 
-                // 六边形装饰
+                
                 const hex = document.createElement('div');
                 hex.className = 'hex';
                 el.appendChild(hex);
 
-                // 星空
+                
                 const stars = document.createElement('div');
                 for (let i = 0; i < 70; i++) {
                     const s = document.createElement('div'); s.className = 'st';
@@ -186,14 +176,14 @@
                 }
                 el.appendChild(stars);
 
-                // 光环
+                
                 [1,2,3].forEach(i => {
                     const r = document.createElement('div');
                     r.className = `ri ri-${i}`;
                     el.appendChild(r);
                 });
 
-                // 粒子 — 混合菱形和圆形
+                
                 const parts = document.createElement('div');
                 const pcols = ['rgba(124,58,237,0.45)','rgba(167,139,250,0.35)','rgba(6,182,212,0.35)','rgba(244,63,94,0.35)','rgba(139,92,246,0.3)','rgba(129,140,248,0.25)'];
                 for (let i = 0; i < 24; i++) {
@@ -204,7 +194,7 @@
                 }
                 el.appendChild(parts);
 
-                // 中心 HUD 卡片
+                
                 const card = document.createElement('div');
                 card.className = 'cd';
                 card.innerHTML = '<div class="sc"></div><div class="cr cr-tl"></div><div class="cr cr-tr"></div><div class="cr cr-bl"></div><div class="cr cr-br"></div><div class="icon">⚡</div><div class="title">小雅辅助工具</div><div class="sub">系 统 启 动 中</div><div class="ver">版本 ' + SCRIPT_VERSION + '</div><div class="po"><div class="pi" id="xy-sp"></div><div class="ps"></div></div><div class="ft">初 始 化 引 擎</div>';
@@ -212,7 +202,7 @@
 
                 document.body.appendChild(el);
 
-                // 进度条
+                
                 const bar = document.getElementById('xy-sp');
                 let prog = 0;
                 const t = setInterval(() => {
@@ -234,7 +224,7 @@
                 window._xySplashDismiss = dismiss;
             }
             requestAnimationFrame(tryShow);
-        } catch(e) { /* 不影响主脚本 */ }
+        } catch(e) {  }
     })();
 
     (function injectStealthEngine() {
@@ -338,7 +328,7 @@
         lastRecordDate: null,
         lastPopupClickTime: 0,
         isFreedomMode: false,
-        _lastCourseNodeId: null, // 智能重置：跟踪当前课程节点 ID
+        _lastCourseNodeId: null, 
         aiMode: GM_getValue('xy_ai_mode', true),
         videoAutoSubmit: GM_getValue('xy_video_submit', true),
         docBatchSubmit: GM_getValue('xy_doc_batch', true),
@@ -371,20 +361,22 @@
         downloadCourseName: '',
         downloadSelectedIds: new Set(),
         downloadSearchKeyword: '',
+        downloadSortMode: GM_getValue('xy_dl_sort', 'unit'),
+        downloadSortMap: {},          
         downloadAbortController: null,
         downloadPaused: false,
         prevZone: 'course',
-        // 🆕 反检测深度伪装 2.0
+        
         deepCamouflage: GM_getValue('xy_deep_camo', true),
         camoScrollActive: false,
         camoKeyboardActive: false,
-        // 🆕 后台保活
+        
         keepaliveEnabled: GM_getValue('xy_keepalive', true),
         keepaliveWatchdog: null,
         camoClickActive: false
     };
 
-    // ── 作业区全局状态 ──
+    
     let hwQuestionsData = [];
     let hwExtractedText = '';
     let hwImageAssets = [];
@@ -392,6 +384,10 @@
     let hwSubmissionResult = { state: 'waiting', message: '等待题目数据加载...' };
     let hwGroupId = '', hwNodeId = '', hwPaperId = '';
     let hwActiveTaskKey = '';
+    let hwRecordId = '';            
+    let hwResultFilter = 'all';     
+    let hwResultOpen = false;       
+    let hwActiveTab = 'answer';     
 
     function hwBuildTaskKey(gid, nid, pid) { return [gid||'', nid||'', pid||''].join(':'); }
     function hwResetState(reason) {
@@ -399,6 +395,7 @@
         hwQuestionsData = []; hwExtractedText = ''; hwImageAssets = []; hwPdfQuestions = [];
         hwSubmissionResult = { state: 'waiting', message: '等待题目数据加载...' };
         hwGroupId = ''; hwNodeId = ''; hwPaperId = ''; hwActiveTaskKey = '';
+        hwRecordId = ''; hwResultFilter = 'all'; hwResultOpen = false; hwActiveTab = 'answer';
         hwUpdateUI();
     }
     function hwCurrentUrlMatches() {
@@ -416,6 +413,26 @@
         const ids = [hwGroupId, hwNodeId].filter(Boolean);
         return ids.length ? ids.every(id => href.includes(id)) : true;
     }
+    
+    function hwUpdateTabs() {
+        const ans = document.getElementById('xy-hw-pane-answer');
+        const res = document.getElementById('xy-hw-pane-result');
+        const tabA = document.getElementById('xy-hw-tab-answer');
+        const tabR = document.getElementById('xy-hw-tab-result');
+        if (!ans || !res) return;
+        ans.style.display = hwActiveTab === 'answer' ? 'block' : 'none';
+        res.style.display = hwActiveTab === 'result' ? 'block' : 'none';
+        if (tabA) {
+            tabA.style.background = hwActiveTab === 'answer' ? T('#0e7490','#0ea5e9') : 'transparent';
+            tabA.style.color = hwActiveTab === 'answer' ? '#fff' : T('#94a3b8','#64748b');
+        }
+        if (tabR) {
+            tabR.style.background = hwActiveTab === 'result' ? T('#0e7490','#0ea5e9') : 'transparent';
+            tabR.style.color = hwActiveTab === 'result' ? '#fff' : T('#94a3b8','#64748b');
+        }
+        if (hwActiveTab === 'result') hwRenderResultPanel();
+    }
+
     function hwUpdateUI() {
         const st = document.getElementById('xy-hw-status');
         if (st) {
@@ -427,11 +444,18 @@
                 st.textContent = '等待题目数据...';
             }
         }
+        
+        hwRenderResultPanel();
+        hwUpdateTabs();
+        const copyBtn = document.getElementById('xy-hw-copy-btn');
+        if (copyBtn) copyBtn.disabled = !hwQuestionsData.length;
+        const saveBtn = document.getElementById('xy-hw-save-btn');
+        if (saveBtn) saveBtn.disabled = !hwQuestionsData.length;
     }
 
-    // ==========================================
-    // 🌟 全新外挂架构：计划调度中心状态
-    // ==========================================
+    
+    
+    
     let _q, _r, _p, _i, _m;
     try { _q = JSON.parse(GM_getValue('xy_schedule_queue', '[]')); if (!Array.isArray(_q)) _q = []; } catch(e) { _q = []; }
     try { _r = GM_getValue('xy_schedule_running', false) === true; } catch(e) { _r = false; }
@@ -449,7 +473,7 @@
         autoStop: GM_getValue('xy_schedule_auto_stop', '')
     };
 
-    // 数据向上迁移与格式兼容
+    
     xyScheduleState.queue.forEach(q => {
         if (q.infinite !== undefined) {
             if (q.infinite) q.strategy = 'infinite';
@@ -458,15 +482,15 @@
             delete q.infinite;
         }
         if (!q.strategy) q.strategy = 'until_done';
-        // 防止 duration 为 0/负数导致瞬间完成
+        
         if (q.strategy === 'duration' && (!q.duration || q.duration < 1)) q.duration = 30;
     });
 
-    // 调度跳转标记：跳转时置 1，初始化后清除
+    
     let _schJumping = false;
     try { _schJumping = sessionStorage.getItem('xy_sch_jumping') === '1'; sessionStorage.removeItem('xy_sch_jumping'); } catch(e) {}
 
-    // 会话检测：无 sessionStorage 标记 = 新浏览器会话 → 清空调度
+    
     let _schNewSession = true;
     try { _schNewSession = !sessionStorage.getItem('xy_sch_session'); sessionStorage.setItem('xy_sch_session', '1'); } catch(e) {}
 
@@ -481,7 +505,7 @@
         GM_setValue('xy_schedule_queue', JSON.stringify(xyScheduleState.queue));
     }
 
-    // 如果调度在运行中（刷新保留），启动防节流振荡器
+    
     if (xyScheduleState.isRunning) {
         setTimeout(() => { try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {} }, 500);
     }
@@ -529,7 +553,7 @@
         return hex[0]+hex[1]+hex[2]+hex[3]+'-'+hex[4]+hex[5]+'-'+hex[6]+hex[7]+'-'+hex[8]+hex[9]+'-'+hex[10]+hex[11]+hex[12]+hex[13]+hex[14]+hex[15];
     }
 
-    // 动态定时重载调度器变量
+    
     let dynamicRefreshTimeoutId = null;
     let refreshCountdownTimer = null;
     let lastRefreshStrategy = 'none';
@@ -538,18 +562,18 @@
     function getCourseGroupId() { const match = window.location.href.match(/(?:mycourse|course)\/(\d+)/); return match ? match[1] : null; }
     function getNodeId() { const match = window.location.href.match(/resource\/\d+\/(\d+)/); return match ? match[1] : null; }
     function getPaperId() {
-        // course_paper 模式: /course_paper/mycourse/{gid}/{pid}/...
+        
         let match = window.location.href.match(/course_paper\/mycourse\/\d+\/(\d+)/);
         if (match) return match[1];
-        // resource 模式: /resource/{nid}/{pid}
+        
         match = window.location.href.match(/resource\/(\d+)\/(\d+)/);
         return match ? match[2] : null;
     }
     function getResourceNodeId() {
-        // course_paper 模式: /course_paper/mycourse/{gid}/{pid}/{nid}...
+        
         let match = window.location.href.match(/course_paper\/mycourse\/\d+\/\d+\/(\d+)/);
         if (match) return match[1];
-        // resource 模式: /resource/{nid}/
+        
         match = window.location.href.match(/resource\/(\d+)\//);
         return match ? match[1] : null;
     }
@@ -583,7 +607,7 @@
         return appState.theme;
     }
 
-    // 主题色切换辅助：T(深色值, 浅色值) → 根据当前有效主题返回对应颜色
+    
     function T(dark, light) { return resolveTheme() === 'light' ? light : dark; }
 
     let _lastEffectiveTheme = null;
@@ -598,7 +622,7 @@
         } else {
             wrapper.classList.remove('xy-theme-light');
         }
-        // Zone badge
+        
         const badge = document.getElementById('xy-zone-badge');
         if (badge && appState.activeZone !== 'uninitialized') {
             const isLight = effective === 'light';
@@ -613,7 +637,7 @@
                 badge.style.color = isLight ? '#475569' : '#94a3b8';
             }
         }
-        // Toggle icon
+        
         const btn = document.getElementById('xy-theme-toggle');
         if (btn) {
             if (appState.theme === 'auto') {
@@ -631,7 +655,7 @@
         const effective = resolveTheme();
         if (_lastEffectiveTheme === effective) return;
 
-        // 主题发生变化，刷新网页以全新主题重新渲染所有样式
+        
         window.location.reload();
     }
 
@@ -672,45 +696,76 @@
         return cleanName(res);
     }
 
-    // 🌟终极修复：精确识别测验/作业，且对自主学习节点(视频/文档)进行严格的后缀名校验以剔除空文件夹！
+    
+    
     function extractFilesFromResources(arr) {
         let res = [];
         if (!Array.isArray(arr)) return res;
-        arr.forEach(item => {
-            if (item.children) res = res.concat(extractFilesFromResources(item.children));
-            if (item.child_nodes) res = res.concat(extractFilesFromResources(item.child_nodes));
-            if (item.items) res = res.concat(extractFilesFromResources(item.items));
-
-            const type = item.task_type !== undefined ? item.task_type : item.type;
-            if (type === undefined || type === null) return;
-
-            const name = (item.name || item.title || '').toLowerCase();
-            
-            // 核心修正：如果是测验(4)、作业(2)、问卷(5)、练习(3) 等，直接保留，不需要后缀名！
-            if (type >= 2 && type <= 5) {
-                const cleanItem = Object.assign({}, item);
-                cleanItem.computed_task_type = type;
-                res.push(cleanItem);
-            } 
-            // 否则（如类型1 自主学习，或其它类型），必须严格校验后缀名防空文件夹！
-            else {
-                const isMedia = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
-                const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+        let __seq = 0;
+        const FILE_EXT_RE = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i;
+        function walk(list, unitPath, idPath) {
+            list.forEach(item => {
+                const seg = (item.name || item.title || '').trim();
                 
-                // 唯有真正匹配到后缀的文件，才予以放行
-                if (isMedia || isDoc) {
+                const nextUnitPath = (seg && !FILE_EXT_RE.test(seg)) ? unitPath.concat(seg) : unitPath;
+                
+                const nextIdPath = idPath.concat(item.id !== undefined && item.id !== null ? String(item.id) : '__x' + __seq);
+                if (item.children) walk(item.children, nextUnitPath, nextIdPath);
+                if (item.child_nodes) walk(item.child_nodes, nextUnitPath, nextIdPath);
+                if (item.items) walk(item.items, nextUnitPath, nextIdPath);
+
+                const type = item.task_type !== undefined ? item.task_type : item.type;
+                if (type === undefined || type === null) return;
+
+                const name = (item.name || item.title || '').toLowerCase();
+
+                
+                let keep = false;
+                if (type >= 2 && type <= 5) {
+                    keep = true;
+                }
+                
+                else {
+                    const isMedia = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
+                    const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+                    
+                    if (isMedia || isDoc) keep = true;
+                }
+
+                if (keep) {
                     const cleanItem = Object.assign({}, item);
-                    cleanItem.computed_task_type = 1; // 媒体/文档文件必定是自主学习(类型1)
+                    cleanItem.computed_task_type = (type >= 2 && type <= 5) ? type : 1; 
+                    cleanItem.__order = __seq++;
+                    cleanItem.__unitPath = unitPath;
+                    cleanItem.__idPath = nextIdPath;
+                    cleanItem.__path = item.path || nextIdPath.join('/');
+                    cleanItem.__sortPos = item.sort_position;
+                    cleanItem.__parentId = item.parent_id;
+                    
+                    const rawT = item.created_at ?? item.create_time ?? item.createdAt ?? item.update_time ?? item.updated_at ?? item.updatedAt ?? item.publish_time ?? item.time;
+                    if (rawT !== undefined && rawT !== null && rawT !== '') cleanItem.__createdAt = rawT;
                     res.push(cleanItem);
                 }
-            }
-        });
+            });
+        }
+        walk(arr, [], []);
         return res;
     }
 
-    // ==========================================
-    // 🚀 底层雷达系统 & 状态秒判
-    // ==========================================
+    
+    function dlBuildSortMap(nodes, map) {
+        (Array.isArray(nodes) ? nodes : []).forEach(n => {
+            if (n && n.id !== undefined && n.id !== null) map[String(n.id)] = Number(n.sort_position) || 0;
+            if (n && n.children) dlBuildSortMap(n.children, map);
+            if (n && n.child_nodes) dlBuildSortMap(n.child_nodes, map);
+            if (n && n.items) dlBuildSortMap(n.items, map);
+        });
+        return map;
+    }
+
+    
+    
+    
     function switchToZone(newZone) {
         if (appState.activeZone === newZone) return;
         const oldZone = appState.activeZone;
@@ -720,13 +775,13 @@
             toggleRecord(false); 
         }
         
-        // 核心修复：进入待命区或讨论区时，立刻销毁动态重载调度器
+        
         if (newZone === 'standby' || newZone === 'disc') {
             clearDynamicRefresh();
             lastRefreshStrategy = 'none';
         }
         
-        // 确保主UI面板本体不会被隐藏
+        
         const superConsole = document.getElementById('xy-super-console');
         if (superConsole) {
             superConsole.style.display = 'flex';
@@ -765,14 +820,14 @@
         }
 
         if (oldZone !== 'uninitialized') {
-            const zoneName = newZone === 'course' ? '视频/文档自动引擎' : newZone === 'disc' ? '互动点赞引擎' : newZone === 'download' ? '课件下载区' : newZone === 'hw' ? '作业导出区' : '系统隔离待命区';
+            const zoneName = newZone === 'course' ? '视频/文档自动引擎' : newZone === 'disc' ? '互动点赞引擎' : newZone === 'download' ? '课件下载区' : newZone === 'hw' ? '作业答题台' : '系统隔离待命区';
             logMsg(`📍 底层指令：已切换至【${zoneName}】`, newZone === 'standby' ? 'warning' : 'success', false);
         }
 
         if (newZone === 'course') {
             ensureAutoRecord();
             globalTaskStatusChecker(true);
-            // 智能重置：只在进入新节点时重置完成状态，避免已完成任务被重复提交
+            
             const currentNodeId = getNodeId();
             if (!appState._lastCourseNodeId || appState._lastCourseNodeId !== currentNodeId) {
                 appState._lastCourseNodeId = currentNodeId;
@@ -784,12 +839,12 @@
         }
     }
 
-    // 雷达 API 缓存（3秒TTL，减少高频轮询中的重复请求）
+    
     let _radarCache = { data: null, time: 0, promise: null };
     async function fetchRadarCached() {
         const now = Date.now();
         if (_radarCache.data && (now - _radarCache.time) < 3000) return _radarCache.data;
-        if (_radarCache.promise) return _radarCache.promise; // 合并并发请求
+        if (_radarCache.promise) return _radarCache.promise; 
         _radarCache.promise = (async () => {
             try {
                 const token = await getAuthToken();
@@ -806,7 +861,7 @@
     }
 
     async function runLowLevelScanner() {
-        // 下载区手动模式：不自动切换区域，由用户手动控制
+        
         if (appState.activeZone === 'download') return;
         if (appState.discLockedUrl === window.location.href) { switchToZone('disc'); return; }
         const groupId = getCourseGroupId(); const nodeId = getNodeId() || getResourceNodeId() || getPaperId();
@@ -847,7 +902,7 @@
         }
 
         const htmlStr = document.body ? document.body.innerHTML : '';
-        // course_paper 页面直接判定为作业/测验区
+        
         if (window.location.href.includes('/course_paper/')) {
             if (appState.activeZone !== 'hw') logMsg('📝 侦测到【作业/测验页面】→ 已切换作业区', 'success', false);
             switchToZone('hw');
@@ -860,7 +915,7 @@
         if (document.querySelector('.discussion-container, .jx-discussion, [class*="discuss"]') || htmlStr.includes('发表评论') || htmlStr.includes('全部评论')) {
             switchToZone('disc'); return;
         }
-        // resource 测验页：已处于 hw 区时不要切回 standby
+        
         if (appState.activeZone === 'hw' && window.location.href.includes('/resource/') && getPaperId()) {
             return;
         }
@@ -902,9 +957,9 @@
         return appState.courseResourcesCache;
     }
 
-    // ==========================================
-    // 📥 下载区核心引擎
-    // ==========================================
+    
+    
+    
     function decryptFileUrl(encryptedUrl) {
         try {
             const key = "94374647";
@@ -929,6 +984,14 @@
         }
     }
 
+    
+    function dlParseTs(v) {
+        if (v === undefined || v === null || v === '') return 0;
+        if (typeof v === 'number') return (v < 1e12) ? v * 1000 : v;
+        const t = Date.parse(v);
+        return Number.isFinite(t) ? t : 0;
+    }
+
     async function fetchDownloadResources(groupId) {
         if (!groupId) return [];
         try {
@@ -938,7 +1001,7 @@
                 headers: { 'authorization': `Bearer ${token}` }
             });
             let data = await res.json();
-            // 非本课程（可访问但未加入）需获取访问令牌
+            
             if (data.code === 50007) {
                 const gvRes = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
                     method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -961,6 +1024,9 @@
                 }
             }
             if (!data.success || !data.data) return [];
+            
+            appState.downloadSortMap = {};
+            dlBuildSortMap(data.data, appState.downloadSortMap);
             const flat = extractFilesFromResources(data.data);
             return flat.filter(r => {
                 const name = (r.name || r.title || '').toLowerCase();
@@ -971,7 +1037,12 @@
                 name: r.name || r.title || '未知文件',
                 type: /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test((r.name || '').toLowerCase()) ? 'video' : 'doc',
                 quoteId: r.quote_id || r.id,
-                size: r.file_size || r.size || 0
+                size: r.file_size || r.size || 0,
+                order: r.__order || 0,
+                sortPos: Number(r.__sortPos) || 0,
+                path: r.__path || '',
+                unitPath: Array.isArray(r.__unitPath) ? r.__unitPath.slice(0, 3) : [],
+                createdAt: dlParseTs(r.__createdAt)
             }));
         } catch(e) { return []; }
     }
@@ -1072,7 +1143,7 @@
         const total = selected.length;
         updateDownloadProgress(0, total);
         for (let i = 0; i < selected.length; i++) {
-            // 检查终止
+            
             if (signal.aborted) {
                 updateDownloadProgress(done + failed, total);
                 setDownloadButtonsState(false, false);
@@ -1082,7 +1153,7 @@
                 setTimeout(() => updateDownloadProgress(-1, 0), 3000);
                 return;
             }
-            // 检查暂停
+            
             while (appState.downloadPaused && !signal.aborted) {
                 await sleep(300);
             }
@@ -1142,6 +1213,35 @@
         setTimeout(() => updateDownloadProgress(-1, 0), 3000);
     }
 
+    
+    function dlFileChip(name) {
+        const m = String(name || '').match(/\.([A-Za-z0-9]+)$/);
+        const ext = m ? m[1].toUpperCase() : 'FILE';
+        let bg = '#64748b';
+        if (/^(MP4|AVI|MOV|WMV|FLV|MKV|M3U8|WEBM)$/.test(ext)) bg = '#7c3aed';
+        else if (/^(MP3|WAV|AAC)$/.test(ext)) bg = '#db2777';
+        else if (ext === 'PDF') bg = '#dc2626';
+        else if (/^(DOC|DOCX|WPS)$/.test(ext)) bg = '#2563eb';
+        else if (ext === 'TXT') bg = '#6b7280';
+        else if (/^(PPT|PPTX)$/.test(ext)) bg = '#ea580c';
+        else if (/^(XLS|XLSX|CSV)$/.test(ext)) bg = '#16a34a';
+        else if (/^(ZIP|RAR|7Z)$/.test(ext)) bg = '#a16207';
+        return `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:1px 5px;border-radius:5px;background:${bg};color:#fff;font-size:9px;font-weight:800;letter-spacing:.5px;line-height:1.7;flex-shrink:0;">${ext}</span>`;
+    }
+
+    
+    function dlUnitCompare(a, b) {
+        const sortMap = appState.downloadSortMap || {};
+        const ap = String(a.path || '').split('/').filter(Boolean);
+        const bp = String(b.path || '').split('/').filter(Boolean);
+        const minLen = Math.min(ap.length, bp.length);
+        for (let i = 0; i < minLen; i++) {
+            if (ap[i] !== bp[i]) return (sortMap[ap[i]] || 0) - (sortMap[bp[i]] || 0);
+        }
+        if (ap.length !== bp.length) return ap.length - bp.length;
+        return (a.order || 0) - (b.order || 0);
+    }
+
     function renderDownloadList() {
         const listDiv = document.getElementById('xy-dl-file-list');
         if (!listDiv) return;
@@ -1154,23 +1254,40 @@
         const keyword = (appState.downloadSearchKeyword || '').toLowerCase().trim();
         const filtered = keyword
             ? appState.downloadFiles.filter(f => f.name.toLowerCase().includes(keyword))
-            : appState.downloadFiles;
+            : appState.downloadFiles.slice();
+        
+        const mode = appState.downloadSortMode;
+        filtered.sort((a, b) => {
+            if (mode === 'name_asc') return String(a.name).localeCompare(String(b.name), 'zh-Hans-CN');
+            if (mode === 'name_desc') return String(b.name).localeCompare(String(a.name), 'zh-Hans-CN');
+            if (mode === 'time_desc') return (b.createdAt || 0) - (a.createdAt || 0) || dlUnitCompare(a, b);
+            if (mode === 'time_asc') return (a.createdAt || 0) - (b.createdAt || 0) || dlUnitCompare(a, b);
+            return dlUnitCompare(a, b);
+        });
         const countEl = document.getElementById('xy-dl-file-count');
         if (countEl) countEl.textContent = filtered.length + ' 个文件' + (keyword ? ' (已过滤)' : '');
         if (filtered.length === 0) {
             listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
             return;
         }
+        const showUnit = mode === 'unit';
+        const showTime = mode === 'time_desc' || mode === 'time_asc';
         let html = '';
         filtered.forEach(f => {
             const checked = appState.downloadSelectedIds.has(f.id);
-            const icon = f.type === 'video' ? '🎬' : '📄';
+            const icon = dlFileChip(f.name);
             const sizeStr = f.size ? (f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : (f.size/1024).toFixed(0)+'KB') : '';
+            const unitLabel = showUnit && Array.isArray(f.unitPath) && f.unitPath.length ? f.unitPath.join(' › ') : '';
+            const timeStr = showTime && f.createdAt ? new Date(f.createdAt).toLocaleDateString('zh-CN') : '';
+            const metaLine = unitLabel || timeStr;
             html += `
                 <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid ${T('rgba(71,85,105,0.12)','#e2e8f0')}; font-size:13px; color:${T('#cbd5e1','#334155')};">
                     <input type="checkbox" class="xy-dl-check" data-fid="${f.id}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
                     <span style="flex-shrink:0;">${icon}</span>
-                    <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${f.name}">${f.name}</span>
+                    <span style="flex:1;">
+                        <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${f.name}">${f.name}</div>
+                        ${metaLine ? `<div style="font-size:10px; color:${T('#64748b','#94a3b8')}; white-space:nowrap;" title="${metaLine}">${metaLine}</div>` : ''}
+                    </span>
                     <span style="font-size:11px; color:${T('#64748b','#94a3b8')}; flex-shrink:0;">${sizeStr}</span>
                     <button class="xy-mini-btn xy-dl-single" data-fid="${f.id}" style="padding:3px 10px; font-size:11px; flex-shrink:0;">⬇️</button>
                 </div>`;
@@ -1217,7 +1334,7 @@
         loadDownloadPanel(groupId);
     }
 
-    // 获取特定任务的真实资源 ID (给计划调度和跳课共用)
+    
     async function getTaskResourceId(task) {
         if (task.resource_id) return task.resource_id;
         try {
@@ -1228,12 +1345,12 @@
                 if (rInfo) return (rInfo.id || rInfo.resource_id);
             }
         } catch(e) {}
-        return task.id; // 最后退避使用自身 ID
+        return task.id; 
     }
 
-    // ==========================================
-    // 🛠️ 弹窗、日志与UI交互
-    // ==========================================
+    
+    
+    
     function xyShowModal(title, message, onConfirm = null) {
         if (!document.body) return;
         const modal = document.createElement('div');
@@ -1259,7 +1376,7 @@
     }
 
     function showToast(msg, type = 'info') {
-        // 核心修复：如果网页 DOM 还没完全加载完毕，延迟 500ms 后再次尝试弹出，避免抛错卡死引擎
+        
         if (!document.body) {
             setTimeout(() => showToast(msg, type), 500);
             return;
@@ -1286,7 +1403,7 @@
         sessionLogs.push({ text: logStr, color: color });
         if (sessionLogs.length > 80) sessionLogs.shift();
         
-        // 核心防御：跨域或无痕模式下直接访问 sessionStorage 极易抛出安全异常导致崩溃，用 try-catch 包裹
+        
         try { sessionStorage.setItem('xy_session_logs', JSON.stringify(sessionLogs)); } catch (e) {}
         
         const logBox = document.getElementById('xy-activity-log');
@@ -1303,9 +1420,9 @@
         try { const opts = { bubbles: true, cancelable: true, view: window }; el.dispatchEvent(new MouseEvent('pointerdown', opts)); el.dispatchEvent(new MouseEvent('click', opts)); el.click(); } catch (e) { el.click(); }
     }
 
-    // ==========================================
-    // 动态条件定时重载引擎
-    // ==========================================
+    
+    
+    
     function scheduleDynamicRefresh(delayMs, reason) {
         if (dynamicRefreshTimeoutId) clearTimeout(dynamicRefreshTimeoutId);
         if (refreshCountdownTimer) clearInterval(refreshCountdownTimer);
@@ -1361,7 +1478,7 @@
     }
 
     function checkDynamicRefresh() {
-        // 如果被计划调度中心接管（manual 模式），强停原生重载
+        
         if (appState.activeZone !== 'course' || appState.mode === 'manual') {
             if (lastRefreshStrategy !== 'none' || dynamicRefreshTimeoutId) { 
                 clearDynamicRefresh(); 
@@ -1419,9 +1536,9 @@
         }
     }
 
-    // ==========================================
-    // 🕸️ 网络抓包与DOM双向解析：零延迟讨论区监听
-    // ==========================================
+    
+    
+    
     function scanDomForUserNames() {
         let names = [];
         try {
@@ -1530,9 +1647,9 @@
         return originalXhrSend.apply(this, arguments);
     };
 
-    // ═══════════════════════════════════════════
-    //  作业区 — 粘粘粘同款 fetch/XHR 拦截（独立变量，不碰讨论区）
-    // ═══════════════════════════════════════════
+    
+    
+    
     function hwCaptureParams(rawUrl) {
         try {
             const urlObj = new URL(rawUrl, window.location.origin);
@@ -1543,7 +1660,7 @@
     }
 
     (function() {
-        // fetch：对 quiz 请求走原生 fetch，对普通请求走 window.fetch（保留讨论区链）
+        
         const _prevFetch = window.fetch;
         window.fetch = async function(input, init) {
             const rawUrl = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
@@ -1562,14 +1679,14 @@
             return _prevFetch.apply(this, arguments);
         };
 
-        // XHR open：额外存 _hw_url（不碰讨论区的 _xy_current_url）
+        
         const _prevXhrOpen = XMLHttpRequest.prototype.open;
         XMLHttpRequest.prototype.open = function(method, url, ...rest) {
             this._hw_url = typeof url === 'string' ? url : String(url);
             return _prevXhrOpen.apply(this, [method, url, ...rest]);
         };
 
-        // XHR send：对 quiz 请求走原生 send + 独立 load 监听
+        
         const _prevXhrSend = XMLHttpRequest.prototype.send;
         XMLHttpRequest.prototype.send = function(...rest) {
             const self = this;
@@ -1617,9 +1734,9 @@
         updateDiscUI(); 
     });
 
-    // ==========================================
-    // 🔥 核心战斗模块：纯净雷达寻路与提交
-    // ==========================================
+    
+    
+    
     async function getTaskTypeAccurate() {
         if (document.querySelector('video') || document.querySelector('.prism-player') || document.querySelector('.aliplayer')) return 'video';
         const iframes = document.querySelectorAll('iframe');
@@ -1684,7 +1801,7 @@
     async function tryJumpToNext() {
         if (isJumpingLock) return; 
         if (Date.now() < appState.jumpSleepUntil) return; 
-        if (xyScheduleState.isRunning) return; // 🌟 核心拦截：如果超级计划调度在运行，禁止原生引擎私自跳课，完全交由计划器接管跳转！
+        if (xyScheduleState.isRunning) return; 
 
         isJumpingLock = true;
         
@@ -1694,7 +1811,7 @@
             
             logMsg('🔄 正在通过【全局雷达】匹配下一项自主观看任务...', 'info', false);
             
-            _radarCache.time = 0; // 跳转时强制刷新
+            _radarCache.time = 0; 
             const unfinishData = await fetchRadarCached();
             const unfinishTasks = (unfinishData && unfinishData.success && unfinishData.data) ? unfinishData.data : [];
             const now = new Date();
@@ -1711,12 +1828,12 @@
             if (watchTasks.length > 0) {
                 let courseTasks = watchTasks.filter(t => t.group_id == currentGroupId);
                 if (courseTasks.length > 0) {
-                    // 同课程内：按 node_id 升序排列，优先跳转到未访问的下一节点
+                    
                     courseTasks.sort((a, b) => (parseInt(a.node_id) || 0) - (parseInt(b.node_id) || 0));
-                    // 优先选 node_id 大于当前节点的（往后跳），否则选最小的（从头开始）
+                    
                     targetTask = courseTasks.find(t => (parseInt(t.node_id) || 0) > (parseInt(currentNodeId) || 0)) || courseTasks[0];
                 } else {
-                    // 跨课程：按同课程数量降序（优先清完一门课），再按 node_id 升序
+                    
                     const courseCountMap = {};
                     watchTasks.forEach(t => { courseCountMap[t.group_id] = (courseCountMap[t.group_id] || 0) + 1; });
                     watchTasks.sort((a, b) => (courseCountMap[b.group_id] - courseCountMap[a.group_id]) || ((parseInt(a.node_id) || 0) - (parseInt(b.node_id) || 0)));
@@ -1742,7 +1859,7 @@
             
             appState.jumpFailCount++;
             const failCount = appState.jumpFailCount;
-            // 指数退避：5s → 10s → 20s → 40s → 80s → 10min
+            
             const delays = [5000, 10000, 20000, 40000, 80000, 600000];
             const delay = delays[Math.min(failCount - 1, delays.length - 1)];
 
@@ -1828,9 +1945,9 @@
         } catch(e) {} return false;
     }
 
-    // ==========================================
-    // 🖱️ 鼠标轨迹模拟引擎
-    // ==========================================
+    
+    
+    
     let mouseSimTimer = null;
     let simMouseX = Math.random() * window.innerWidth;
     let simMouseY = Math.random() * window.innerHeight;
@@ -1901,9 +2018,9 @@
         }, delay);
     }
 
-    // ==========================================
-    // 🕵️ 反检测深度伪装 2.0 — 滚动/键盘/点击全维模拟
-    // ==========================================
+    
+    
+    
     let deepCamoTimers = { scroll: null, keyboard: null, click: null };
 
     function simulateNaturalScroll() {
@@ -1911,11 +2028,11 @@
         const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
         if (maxScroll <= 0) { scheduleDeepCamo('scroll'); return; }
 
-        // 随机目标位置，模拟分段阅读
+        
         const currentY = window.scrollY;
         const targetY = Math.max(0, Math.min(maxScroll, currentY + (Math.random() - 0.4) * window.innerHeight * 0.7));
         const distance = Math.abs(targetY - currentY);
-        const duration = 800 + Math.random() * 2200; // 0.8-3秒完成
+        const duration = 800 + Math.random() * 2200; 
         const startTime = performance.now();
         const startY = currentY;
 
@@ -1929,7 +2046,7 @@
             if (progress < 1) {
                 requestAnimationFrame(scrollStep);
             } else {
-                // 模拟阅读停顿
+                
                 const pauseTime = 3000 + Math.random() * 15000;
                 deepCamoTimers.scroll = setTimeout(() => scheduleDeepCamo('scroll'), pauseTime);
             }
@@ -1956,7 +2073,7 @@
 
     function simulateRandomClick() {
         if (!appState.deepCamouflage || !appState.camoClickActive) return;
-        // 点击页面空白区域，避开所有交互元素
+        
         const x = Math.random() * window.innerWidth * 0.7 + window.innerWidth * 0.15;
         const y = Math.random() * window.innerHeight * 0.5 + window.innerHeight * 0.2;
         const el = document.elementFromPoint(x, y);
@@ -1998,7 +2115,7 @@
         logMsg('⏸️ 深度伪装2.0 已关闭', 'warning', true);
     }
 
-    // 恢复上次的伪装状态
+    
     if (appState.deepCamouflage) {
         setTimeout(() => {
             appState.camoScrollActive = true;
@@ -2034,7 +2151,7 @@
         appState.docPreviewDoneNodeId = nodeId; 
     }
 
-    // 核心发包：无 isRecordSending 守卫，失败会 throw
+    
     async function _origSendRecordRequest() {
         const groupId = getCourseGroupId(); const resourceId = getNodeId();
         if (!groupId || !resourceId) throw new Error('no resource');
@@ -2065,7 +2182,7 @@
                     sessionStorage.setItem('xy_recordCount', appState.recordCount); sessionStorage.setItem('xy_totalTime', appState.totalTime); updateCourseUI();
                     recordFailCount = 0;
                     keepaliveLastBeatTime = Date.now();
-                    return; // success
+                    return; 
                 }
                 lastError = new Error(`code=${result.code} msg=${result.message}`);
             } catch (e) {
@@ -2089,7 +2206,7 @@
         isRecordSending = false;
     }
 
-    // 🕐 持久化定时器：防止浏览器后台节流导致定时器停摆
+    
     const _persistentIntervals = [];
     function createPersistentInterval(fn, ms, maxCatchUp = 20) {
         let lastTick = Date.now();
@@ -2118,7 +2235,7 @@
         };
     }
 
-    // 监听窗口切回前台，立即补偿所有持久化定时器
+    
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
             _persistentIntervals.forEach(p => {
@@ -2130,7 +2247,7 @@
                     }
                 }
             });
-            // 切回前台后强制刷新调度卡片和状态栏
+            
             if (typeof updateSchCard === 'function') updateSchCard();
             if (typeof updateCourseUI === 'function') updateCourseUI();
         }
@@ -2157,9 +2274,9 @@
         if (nodeId && !appState.recordActive) toggleRecord(true); else if (!nodeId && appState.recordActive) toggleRecord(false);
     }
 
-    // ==========================================
-    // 💓 后台保活引擎：防止浏览器节流导致心跳中断
-    // ==========================================
+    
+    
+    
     let keepaliveWatchdogTimer = null;
     let keepaliveLastBeatTime = 0;
 
@@ -2168,13 +2285,13 @@
         keepaliveLastBeatTime = Date.now();
         keepaliveWatchdogTimer = setInterval(() => {
             if (!appState.keepaliveEnabled || appState.activeZone !== 'course') return;
-            // 看门狗：距离上次心跳超过 75s（2.5 个周期），强制补发
+            
             const gap = Date.now() - keepaliveLastBeatTime;
             if (gap > 75000) {
                 logMsg('💓 [保活] 检测到心跳缺口 ' + Math.round(gap / 1000) + 's，强制补发', 'warning', true);
                 sendRecordRequest().then(() => { keepaliveLastBeatTime = Date.now(); });
             }
-            // 如果心跳定时器丢失（被GC/节流回收），重新拉起
+            
             if (!recordIntervalTimer && appState.recordActive) {
                 logMsg('💓 [保活] 心跳定时器丢失，自动重建', 'warning', true);
                 if (recordIntervalTimer) recordIntervalTimer.clear();
@@ -2188,14 +2305,14 @@
         if (keepaliveWatchdogTimer) { clearInterval(keepaliveWatchdogTimer); keepaliveWatchdogTimer = null; }
     }
 
-    // ==========================================
-    // ⚙️ 双频驱动引擎：UI渲染(1秒) + 暴力操作(5秒)
-    // ==========================================
+    
+    
+    
 
     let watchdogLastActiveTime = Date.now();
     let lastAutoActionMinute = '';
 
-    // 频段1：1秒级状态维持（脚本进度隔离、文档计时、弹窗点击）- 持久化防后台节流
+    
     createPersistentInterval(async () => {
         await runLowLevelScanner(); 
 
@@ -2209,8 +2326,8 @@
 
         appState.currentEngine = await getTaskTypeAccurate();
 
-        // 放宽计划调度时的死锁判定（无限挂机需要较长时间不动作）
-        const timeoutLimit = xyScheduleState.isRunning ? 1800000 : 180000; // 计划模式下30分钟死锁强刷
+        
+        const timeoutLimit = xyScheduleState.isRunning ? 1800000 : 180000; 
         if (Date.now() - watchdogLastActiveTime > timeoutLimit) {
             sessionStorage.setItem('xy_reload_reason', '防死锁刷新');
             logMsg(`💀 发生死锁！执行强刷...`, 'error', false);
@@ -2357,10 +2474,10 @@
                 watchdogLastActiveTime = Date.now();
             }
         } else {
-            watchdogLastActiveTime = Date.now(); // 保证计划模式下能持续喂狗
+            watchdogLastActiveTime = Date.now(); 
         }
 
-        // 定时自动启动/停止
+        
         const nowHM = new Date().toLocaleTimeString('zh-CN', { hour12: false }).substring(0, 5);
         if (nowHM !== lastAutoActionMinute) {
             if (!xyScheduleState.isRunning && xyScheduleState.autoStart && nowHM === xyScheduleState.autoStart && xyScheduleState.queue.length > 0) {
@@ -2379,7 +2496,7 @@
         if (appState.theme === 'auto') applyTheme();
     }, 1000, 30);
 
-    // 频段2：5秒级跳课与连播模式的专属提交调度 - 持久化防后台节流
+    
     createPersistentInterval(async () => {
         if (!appState.aiMode || appState.activeZone !== 'course' || appState.mode !== 'sequence') return;
 
@@ -2450,7 +2567,7 @@
         }
     }, 5000, 10);
 
-    // 频段3：讨论区DOM智能扫描探测 (3秒一次，不影响主轴) - 持久化防后台节流
+    
     createPersistentInterval(() => {
         if (appState.activeZone === 'disc' && appState.enableDomScan) {
             const domNames = scanDomForUserNames();
@@ -2468,9 +2585,9 @@
         }
     }, 3000, 10);
 
-    // ==========================================
-    // 🎯 讨论区点赞抓取模块：自动全页扫描
-    // ==========================================
+    
+    
+    
     async function fetchDiscussions(pageSize = 20, pageIndex = 1) {
         if (!appState.discussionId || !appState.discGroupId) { showToast('未捕获到ID，请重刷页面获取截包！', 'warning'); return null; }
         try {
@@ -2698,9 +2815,9 @@
         } catch (e) { logMsg('回复异常', 'error'); } finally { if (btn) { btn.disabled = false; btn.innerText = originalText; } }
     }
 
-    // ==========================================
-    // ☁️ 小雅辅助工具云端情报站 (系统公告) —— 嵌入式秒开 + GM_xhr 静默实时更新
-    // ==========================================
+    
+    
+    
     const EMBEDDED_NOTICE = {
         "title": "🎉 v3.5.6 作业区增强 · 稳定性修复",
         "items": [
@@ -2747,7 +2864,7 @@
     };
 
     function autoLink(text) {
-        // 先找 URL 再转义，避免 & 被转成 &amp; 导致 URL 失效
+        
         const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
         const parts = [];
         let lastIdx = 0;
@@ -2780,22 +2897,22 @@
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
 
-        // 1. 优先读本地缓存，瞬间显示
+        
         let hasCache = false;
         try {
             const cached = GM_getValue('xy_notice_cache', '');
             if (cached) { renderNotice(JSON.parse(cached)); hasCache = true; }
-        } catch (e) { /* ignore */ }
+        } catch (e) {  }
 
-        // 2. 无缓存时用嵌入式公告兜底
+        
         if (!hasCache) {
             try {
                 renderNotice(EMBEDDED_NOTICE);
                 GM_setValue('xy_notice_cache', JSON.stringify(EMBEDDED_NOTICE));
-            } catch (e) { /* ignore */ }
+            } catch (e) {  }
         }
 
-        // 3. 后台 GM_xhr 静默拉取最新公告（Tampermonkey 特权 API，不走浏览器 CORS）
+        
         const rawUrl = `https://gitee.com/fieldlu/xy-script-assets/raw/main/notice_new.json?t=${Date.now()}`;
         try {
             GM_xmlhttpRequest({
@@ -2807,17 +2924,17 @@
                         const data = JSON.parse(resp.responseText);
                         GM_setValue('xy_notice_cache', JSON.stringify(data));
                         renderNotice(data);
-                    } catch (e) { /* 解析失败，保持当前显示 */ }
+                    } catch (e) {  }
                 },
-                onerror: function() { /* 网络不通，嵌入式/缓存已兜底 */ },
-                ontimeout: function() { /* 超时，保持当前显示 */ }
+                onerror: function() {  },
+                ontimeout: function() {  }
             });
-        } catch (e) { /* GM_xhr 不可用时静默降级 */ }
+        } catch (e) {  }
     }
 
-    // ==========================================
-    // 🎨 核心UI 界面渲染与控制
-    // ==========================================
+    
+    
+    
     function formatTime(s) { const h = Math.floor(s/3600), m = Math.floor((s%3600)/60).toString().padStart(2,'0'), sec = (s%60).toString().padStart(2,'0'); return h > 0 ? `${h}h ${m}m ${sec}s` : `${m}m ${sec}s`; }
 
     function updateCourseUI() {
@@ -3008,15 +3125,15 @@
         updateCheckedCount();
     }
 
-    // ==========================================
-    // 🌟 全局任务大屏 (雷达) 附带全量已完成提取逻辑
-    // ==========================================
+    
+    
+    
     async function fetchGlobalTasks() {
         let allTasks = [];
         try { 
             const token = await getAuthToken(); 
             
-            // 1. 获取全网未完成任务（主雷达）
+            
             const res1 = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { method: "GET", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" } }); 
             const data1 = await res1.json(); 
             let unfinishedTasks = [];
@@ -3025,7 +3142,7 @@
                 allTasks = JSON.parse(JSON.stringify(unfinishedTasks));
             }
 
-            // 2. 缓存全局课程ID字典，实现在待命区也能调出全部课程的已完成任务
+            
             let courseMap = {};
             try { courseMap = JSON.parse(GM_getValue('xy_course_map', '{}')); } catch(e) {}
 
@@ -3033,13 +3150,13 @@
                 if (t.group_id && t.group_name) courseMap[t.group_id] = t.group_name;
             });
 
-            // 记录当前进入的课程：优先用 API 获取正确课程名
+            
             const currentGroupId = getCourseGroupId();
             if (currentGroupId && !courseMap[currentGroupId]) {
                 const apiName = await getCourseNameFromAPI(currentGroupId);
                 if (apiName) courseMap[currentGroupId] = apiName;
             }
-            // 批量刷新未在未完成列表中的缓存课程名（修复旧 DOM 抓取的错名）
+            
             const unfinishedGroupIds = new Set(unfinishedTasks.map(t => t.group_id).filter(Boolean));
             const staleIds = Object.keys(courseMap).filter(gId => !unfinishedGroupIds.has(gId));
             if (staleIds.length > 0) {
@@ -3050,7 +3167,7 @@
             }
             GM_setValue('xy_course_map', JSON.stringify(courseMap));
 
-            // 3. 并发拉取已知所有课程的【全量资源目录】
+            
             const groupIds = Object.keys(courseMap);
             if (groupIds.length > 0) {
                 const fetchPromises = groupIds.map(async (gId) => {
@@ -3067,7 +3184,7 @@
                     if (res && res.data && res.data.success && res.data.data) {
                         const flatRes = extractFilesFromResources(res.data.data);
                         flatRes.forEach(r => {
-                            // 在【全量资源】中找，如果在【未完成雷达】中不存在，说明它必定是【已完成】的！
+                            
                             const existItem = allTasks.find(t => t.node_id == (r.node_id || r.id) && t.group_id == res.gId);
                             if (!existItem) {
                                 allTasks.push({
@@ -3076,15 +3193,15 @@
                                     node_id: r.node_id || r.id,
                                     group_id: res.gId,
                                     resource_id: r.resource_id || r.id,
-                                    name: r.name || r.title || '未知任务', // 恢复原名称，不再拼接
-                                    task_type: r.computed_task_type || 1, // 精确填入计算出的类型
-                                    finish: 2, // 强行贴上已完成标签
+                                    name: r.name || r.title || '未知任务', 
+                                    task_type: r.computed_task_type || 1, 
+                                    finish: 2, 
                                     start_time: r.start_time || new Date().toISOString(),
                                     end_time: r.end_time || "2099-12-31T00:00:00.000Z",
-                                    group_name: res.gName || "未知课程" // 只要能识别课程名称，就放回对应的原课程组中
+                                    group_name: res.gName || "未知课程" 
                                 });
                             } else {
-                                // 校准现存任务的组名
+                                
                                 existItem.group_name = res.gName;
                                 existItem.task_type = r.computed_task_type || existItem.task_type;
                             }
@@ -3235,7 +3352,7 @@
         window.xyGlobalTaskMap = new Map();
 
         Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
-            // 让未完成的任务优先排在上面，已完成的排在底下
+            
             courseTasks.sort((a,b) => {
                 if (a.finish !== b.finish) return a.finish - b.finish; 
                 return new Date(a.end_time) - new Date(b.end_time);
@@ -3297,7 +3414,7 @@
         });
         html += `</div>`; contentBox.innerHTML = html;
 
-        // 全局大屏折叠事件绑定
+        
         document.querySelectorAll('.xy-global-group-header').forEach(header => {
             header.onclick = () => {
                 const targetId = header.getAttribute('data-target');
@@ -3332,9 +3449,9 @@
         };
     }
 
-    // ==========================================
-    // 🧠 智能排课优化器 — DDL紧迫度+类型交错+课程分组
-    // ==========================================
+    
+    
+    
     function optimizeScheduleOrder(tasks) {
         if (!tasks || tasks.length === 0) return [];
         const now = Date.now();
@@ -3345,11 +3462,11 @@
             const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
             const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
 
-            // DDL 分数：越紧迫越高（0-100）
+            
             const ddlScore = daysLeft < 1 ? 100 : daysLeft < 3 ? 80 : daysLeft < 7 ? 60 : daysLeft < 14 ? 40 : daysLeft < 30 ? 20 : 5;
-            // 已完成的任务优先级降低
+            
             const completionPenalty = task.finish === 2 ? 0.3 : 1.0;
-            // 类型权重（保持混合多样性）
+            
             const typeWeight = isVideo ? 0.5 : isDoc ? 0.5 : 0.3;
 
             return {
@@ -3363,27 +3480,27 @@
             };
         });
 
-        // 排序：综合考虑DDL紧迫度和类型交错
+        
         const sorted = [];
         const remaining = [...scored];
         let lastWasVideo = null;
 
         while (remaining.length > 0) {
-            // 为每个候选项计算综合分数
+            
             remaining.forEach(item => {
                 let typeBonus = 0;
-                if (lastWasVideo === true && item.isDoc) typeBonus = 25; // 视频后优先文档
-                if (lastWasVideo === false && item.isVideo) typeBonus = 25; // 文档后优先视频
-                if (lastWasVideo === null) typeBonus = 10; // 首个任务微奖励
+                if (lastWasVideo === true && item.isDoc) typeBonus = 25; 
+                if (lastWasVideo === false && item.isVideo) typeBonus = 25; 
+                if (lastWasVideo === null) typeBonus = 10; 
 
-                // 避免连续同课程（如果队列中有其他课程）
+                
                 const hasOtherCourse = remaining.some(r => r.groupId !== item.groupId);
                 const courseSwitchBonus = (hasOtherCourse && sorted.length > 0 && item.groupId !== sorted[sorted.length-1].groupId) ? 15 : 0;
 
                 item.score = item.ddlScore + typeBonus + courseSwitchBonus;
             });
 
-            // 选最高分
+            
             remaining.sort((a, b) => b.score - a.score);
             const best = remaining.shift();
             sorted.push(best);
@@ -3432,9 +3549,9 @@
         showToast(`已优化导入 ${xyScheduleState.queue.length} 个任务`, 'success');
     }
 
-    // ==========================================
-    // 🔊 一键雷达连播：休眠区 / 刷课区通用
-    // ==========================================
+    
+    
+    
     async function oneClickRadarPlay() {
         if (xyScheduleState.isRunning) {
             showToast('计划调度正在运行中，请先停止后再一键连播', 'warning');
@@ -3447,14 +3564,14 @@
         const allTasks = await fetchGlobalTasks();
         const now = new Date();
 
-        // 筛选：只保留未完成的视频/文档任务，排除已完成(finish===2)和未开始(start_time>now)的
+        
         const pendingTasks = allTasks.filter(t => {
             const name = (t.name || '').toLowerCase();
             const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
             const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
             if (!(isVideo || isDoc)) return false;
-            if (t.finish === 2) return false; // 排除已完成
-            if (t.start_time && new Date(t.start_time) > now) return false; // 排除未开始
+            if (t.finish === 2) return false; 
+            if (t.start_time && new Date(t.start_time) > now) return false; 
             return true;
         });
 
@@ -3464,23 +3581,23 @@
             return;
         }
 
-        // 按截止时间智能排序（最紧迫的在前）
+        
         pendingTasks.sort((a, b) => {
             const aEnd = new Date(a.end_time || '2099-12-31').getTime();
             const bEnd = new Date(b.end_time || '2099-12-31').getTime();
             if (aEnd !== bEnd) return aEnd - bEnd;
-            // 同截止时间，未完成的排在已完成刷时长的前面
+            
             if (a.finish !== b.finish) return (a.finish || 0) - (b.finish || 0);
-            // 同课程分组
+            
             if (a.group_id !== b.group_id) return (parseInt(a.group_id) || 0) - (parseInt(b.group_id) || 0);
             return (parseInt(a.node_id) || 0) - (parseInt(b.node_id) || 0);
         });
 
-        // 清空当前队列
+        
         xyScheduleState.queue = [];
         xyScheduleState.currentIdx = 0;
 
-        // 一键导入
+        
         for (const task of pendingTasks) {
             const resId = await getTaskResourceId(task);
             xyScheduleState.queue.push({
@@ -3491,7 +3608,7 @@
                 resourceId: resId,
                 name: task.name,
                 type: 1,
-                strategy: 'until_done', // 全部达标即跳(连播)
+                strategy: 'until_done', 
                 duration: 30,
                 elapsedSec: 0,
                 actionDone: false,
@@ -3505,7 +3622,7 @@
         logMsg(`🔊 一键连播：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
         showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动连播`, 'success');
 
-        // 立即启动调度
+        
         xyScheduleState.lastMode = appState.mode;
         appState.mode = 'manual';
         GM_setValue('xy_play_mode', 'manual');
@@ -3518,7 +3635,7 @@
         updateSchCard();
         try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
 
-        // 跳转到第一个任务
+        
         const firstTask = xyScheduleState.queue[0];
         if (firstTask) {
             const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
@@ -3529,10 +3646,10 @@
         }
     }
 
-    // ==========================================
-    // ==========================================
-    // ⚡ 一键极速秒交 — 仅提交当前页面任务，秒级响应
-    // ==========================================
+    
+    
+    
+    
     let quickKillRunning = false;
 
     async function quickKillCurrentTask() {
@@ -3569,9 +3686,9 @@
         }
     }
 
-    // ==========================================
-    // 📅 新增核心组件：极简外挂计划调度中心
-    // ==========================================
+    
+    
+    
     async function openScheduleDashboard() {
         let overlay = document.getElementById('xy-schedule-overlay');
         if (!overlay) {
@@ -3653,7 +3770,7 @@
                     if (task) {
                         task.strategy = e.target.value;
                         saveScheduleState();
-                        renderQueueList(); // 重新渲染以控制时间输入框的显隐
+                        renderQueueList(); 
                     }
                 };
             });
@@ -3669,7 +3786,7 @@
                 };
             });
 
-            // —— 拖拽排序 ——
+            
             let dragSrcUuid = null;
             let insertIndicator = null;
 
@@ -3730,16 +3847,16 @@
                     let dstIdx = xyScheduleState.queue.findIndex(q => q.uuid === row.getAttribute('data-uuid'));
                     if (srcIdx === -1 || dstIdx === -1) return;
 
-                    // 如果拖到目标下方，插入位置 +1
+                    
                     const rect = row.getBoundingClientRect();
                     if (e.clientY > rect.top + rect.height / 2) dstIdx++;
-                    // 如果源在目标前面，移除源后目标索引需要 -1
+                    
                     if (srcIdx < dstIdx) dstIdx--;
 
                     const [moved] = xyScheduleState.queue.splice(srcIdx, 1);
                     xyScheduleState.queue.splice(dstIdx, 0, moved);
 
-                    // 如果正在执行中且移动了当前项前后的任务，同步修正 currentIdx
+                    
                     if (xyScheduleState.isRunning) {
                         const curUuid = xyScheduleState.queue[xyScheduleState.currentIdx]?.uuid;
                         xyScheduleState.currentIdx = xyScheduleState.queue.findIndex(q => q.uuid === curUuid);
@@ -3778,7 +3895,7 @@
             let hasAnyValidTask = false;
             
             Object.entries(groupedTasks).forEach(([courseName, courseTasks], groupIdx) => {
-                // 核心过滤：在计划调度中心的任务提取池中，只保留视频和文档
+                
                 let validTasks = courseTasks.filter(task => {
                     const name = (task.name || '').toLowerCase();
                     const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
@@ -3786,7 +3903,7 @@
                     return isVideo || isDoc;
                 });
 
-                if (validTasks.length === 0) return; // 如果过滤后该课程为空，直接跳过不显示该课程栏
+                if (validTasks.length === 0) return; 
                 hasAnyValidTask = true;
 
                 validTasks.sort((a,b) => {
@@ -3794,7 +3911,7 @@
                     return new Date(a.end_time) - new Date(b.end_time);
                 });
 
-                // 引入丝滑折叠标题栏
+                
                 html += `
                     <div class="xy-sch-group-header" data-idx="${groupIdx}" style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; padding:12px 16px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; margin: 16px 0 8px 0; font-size:14px; position:sticky; top:0; z-index:2; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; transition:background 0.2s;">
                         <span>📚 ${courseName || '未知课程'} <span style="font-size:12px; color:${T('#94a3b8','#64748b')}; font-weight:normal; margin-left:6px;">(${validTasks.length}个节点)</span></span>
@@ -3830,7 +3947,7 @@
                     `;
                 });
                 
-                html += `</div>`; // 结束折叠内容区
+                html += `</div>`; 
             });
             
             if (!hasAnyValidTask) {
@@ -3839,7 +3956,7 @@
             
             container.innerHTML = html;
 
-            // 绑定计划中心丝滑折叠事件
+            
             document.querySelectorAll('.xy-sch-group-header').forEach(header => {
                 header.onclick = () => {
                     const idx = header.getAttribute('data-idx');
@@ -3875,8 +3992,8 @@
                             groupId: task.group_id,
                             resourceId: resId,
                             name: task.name,
-                            type: 1, // 这里只会有视频文档进队列，统一为1
-                            strategy: task.finish === 2 ? 'duration' : 'until_done', // 智能默认：已完成的默认刷时长，未完成的默认达标连播
+                            type: 1, 
+                            strategy: task.finish === 2 ? 'duration' : 'until_done', 
                             duration: 30,
                             elapsedSec: 0,
                             actionDone: false,
@@ -4068,9 +4185,9 @@
         };
     }
 
-    // ==========================================
-    // 📟 课程页调度卡片 —— 用 addEventListener，不用 onclick
-    // ==========================================
+    
+    
+    
     function _bindSchCardButtons(card) {
         if (!card) return;
         const btns = card.querySelectorAll('button');
@@ -4093,19 +4210,19 @@
 
         if (!xyScheduleState.isRunning) { card.style.display = 'none'; return; }
         card.style.display = 'block';
-        card.style.color = T('#e2e8f0','#0f172a'); // 跟进当前主题
+        card.style.color = T('#e2e8f0','#0f172a'); 
 
         const task = xyScheduleState.queue[xyScheduleState.currentIdx];
         const total = xyScheduleState.queue.length;
         let html = '';
 
-        // 全部完成
+        
         if (!task) {
             card.style.borderLeftColor = T('#34d399','#059669');
             card.style.background = T('rgba(52,211,153,0.06)','#ecfdf5');
             html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;"><b style="color:${T('#34d399','#059669')};">✅ 全部完成 · ${total}/${total} 项已达标</b><button data-action="restart" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🔄 重新开始</button></div>`;
         }
-        // 跳转中
+        
         else if (appState.isJumping) {
             card.style.borderLeftColor = T('#f59e0b','#d97706');
             card.style.background = T('rgba(251,191,36,0.06)','#fffbeb');
@@ -4134,7 +4251,7 @@
         _bindSchCardButtons(card);
     }
 
-    // 全局调度函数 —— 挂 window，供卡片 addEventListener 和 overlay 共用
+    
     window.xySchStart = () => {
         if (xyScheduleState.queue.length === 0) { logMsg('队列为空，无法启动调度', 'warning'); return; }
         if (xyScheduleState.isRunning) return;
@@ -4214,10 +4331,10 @@
         logMsg('📅 计划调度已重新启动', 'success');
     };
 
-    // ==========================================
-    // ⚙️ 计划调度器专属外挂 Timer
-    // ==========================================
-    // 独立于双频引擎的调度专属1秒轮询 - 持久化防后台节流
+    
+    
+    
+    
     createPersistentInterval(async () => {
         if (!xyScheduleState.isRunning || xyScheduleState.isPaused || xyScheduleState.queue.length === 0) return;
 
@@ -4229,7 +4346,7 @@
             xyScheduleState.isRunning = false;
             try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
-            // 用户特别诉求：跑完后进入彻底手动暂停
+            
             appState.mode = 'manual'; 
             GM_setValue('xy_play_mode', 'manual');
             updateCourseUI();
@@ -4260,7 +4377,7 @@
         const currentNodeId = getNodeId();
         const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
 
-        // 判断是否在目标节点
+        
         if (currentGroupId != currentTask.groupId || currentNodeId != currentTask.nodeId) {
             if (!appState.isJumping) {
                 appState.isJumping = true;
@@ -4270,16 +4387,16 @@
                 logMsg(`🚀 计划调度：跨空间跳跃前往【${(currentTask.name||'未知').substring(0,10)}】...`, 'info', false);
                 
                 setTimeout(() => {
-                    sessionStorage.setItem('xy_sch_jumping', '1'); // 🔑 标记调度跳转，防止初始化时重置
+                    sessionStorage.setItem('xy_sch_jumping', '1'); 
                     window.location.href = `/app/jx-web/${pathPrefix}/${currentTask.groupId}/resource/${currentTask.resourceId}/${currentTask.nodeId}`;
                 }, 1500);
             }
             return;
         }
 
-        // --- 已在目标页面，接管主引擎，智能调度时长与提交 ---
         
-        // 核心妙招：根据策略，强行改写主引擎的模式，让它为调度器打工！
+        
+        
         const desiredMode = currentTask.strategy === 'until_done' ? 'sequence' : 'loop';
         if (appState.mode !== desiredMode) {
             appState.mode = desiredMode;
@@ -4289,30 +4406,30 @@
         
         currentTask.elapsedSec = (currentTask.elapsedSec || 0) + 1;
         
-        // 刷新本地防死锁狗，保证调度不被原生框架干掉
+        
         watchdogLastActiveTime = Date.now();
 
-        if (currentTask.elapsedSec % 5 === 0) saveScheduleState(); // 5秒存一次进度
+        if (currentTask.elapsedSec % 5 === 0) saveScheduleState(); 
 
-        updateSchCard(); // 刷新课程页调度卡片
+        updateSchCard(); 
 
-        // 更新调度中心界面UI时间 (如果打开着)
+        
         if (window.xyUpdateScheduleProgress) window.xyUpdateScheduleProgress(currentTask);
 
         let isDone = false;
         
         if (currentTask.strategy === 'until_done') {
-            // 只要底层的雷达/提交器判定完成了，且给它至少留了 5 秒的初始缓冲期，我们就认为这关过了
+            
             if (appState.isTaskCompleted && currentTask.elapsedSec > 5) {
                 isDone = true;
             }
         } else if (currentTask.strategy === 'duration') {
-            // 固定时长策略，时间到了就行
+            
             if (currentTask.elapsedSec >= currentTask.duration * 60) {
                 isDone = true;
             }
         }
-        // infinite 永远不会变成 isDone
+        
 
         if (isDone) {
             logMsg(`✅ 计划调度：任务【${(currentTask.name||'未知').substring(0,8)}...】已达标！即将进行下一项。`, 'success', false);
@@ -4321,16 +4438,16 @@
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
         }
 
-    }, 1000, 300); // maxCatchUp=300：切后台最长补 5 分钟
+    }, 1000, 300); 
 
 
     function dismissSplash() {
         try { if (window._xySplashDismiss) window._xySplashDismiss(); } catch(e) {}
     }
 
-    // ═══════════════════════════════════════════
-    //  作业区 — 数据处理 & docx 导出
-    // ═══════════════════════════════════════════
+    
+    
+    
 
     function hwEscapeHTML(v) { return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function hwSafeText(v) { return String(v??'').slice(0,32767); }
@@ -4445,7 +4562,7 @@
         return{state:'submitted',canShowStandardAnswer:canShow,totalScore:hwToNum(pd?.total_score),actualScore:hwToNum(ar.actual_score??ar.score),answerNum:hwToNum(ar.answer_num||hwQuestionsData.length),correctNum:hwToNum(ar.answer_correct_num),questionResults:qrs};
     }
 
-    // 🆕 保护标志：hwProcessPaperData 刚执行完时阻止路由重置
+    
     let _hwDataJustLoaded = false;
 
     function hwProcessPaperData(json) {
@@ -4459,7 +4576,7 @@
         if(!hwNodeId)hwNodeId=getNodeId()||'';
         const qs=json.data.questions;
         hwQuestionsData=[];hwImageAssets=[];hwPdfQuestions=[];
-        let tpl='【小雅辅助工具：AI 作答模板】\n请根据以下题目，严格按指定格式输出答案，不要输出解析、注释或额外说明。\n【输出格式要求】\n单选/判断：1 => A\n多选：2 => A,C\n填空：3 => const | let\n简答：21 => 完整文字答案\n匹配：10 => A:a,d | B:b,c\n附件题无需回答。\n\n--- 以下为考试内容 ---\n';
+        let tpl='📌 答题任务单\n按下列题目作答，只输出答案本身，不要附带解析或任何说明文字。\n【答案格式】\n单选/判断 → 题号 => 大写字母（如 1 => A）\n多选 → 题号 => 字母，逗号分隔（如 2 => A,C）\n填空 → 题号 => 各空用竖线分隔（如 3 => const | let）\n简答 → 题号 => 完整文字\n匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）\n附件题无需作答。\n\n════════════════════\n以下为题目内容：\n════════════════════\n';
         qs.forEach((q,idx)=>{const qi=idx+1;const pt=hwParseRichContent(q.title);let qTitle=pt.text;let qType=hwTypeLabel(q.type);const rOpts=[],mLeft=[],mRight=[];hwCollectImages(qi,pt);tpl+=qi+'. '+qTitle+' '+qType+'\n';
         let sItems=Array.isArray(q.answer_items)?[...q.answer_items]:[];if(q.answer_items_sort&&Array.isArray(q.answer_items)){const si=String(q.answer_items_sort).split(',');sItems=si.map(id=>q.answer_items.find(it=>String(it.id)===String(id))).filter(Boolean)}
         const pq={index:qi,type:q.type,typeLabel:qType,titleSegments:pt.segments&&pt.segments.length?pt.segments:(qTitle?[{type:'text',value:qTitle}]:[]),options:[],matchingLeftItems:[],matchingRightItems:[],blankCount:sItems.length};
@@ -4468,13 +4585,13 @@
         else if(q.type===7)tpl+='   附件题无需回答。\n';
         else if(q.type===13){const li=sItems.filter(it=>it&&it.is_target_opt!==true),ri=sItems.filter(it=>it&&it.is_target_opt===true);tpl+='   左侧：\n';li.forEach((opt,ii)=>{const ol=String.fromCharCode(65+ii);const po=hwParseRichContent(opt.value);const ot=po.text,segs=po.segments&&po.segments.length?po.segments:(ot?[{type:'text',value:ot}]:[]);hwCollectImages(qi,po,ol);const d={id:opt.id,letter:ol,text:ot,segments:segs};mLeft.push(d);pq.matchingLeftItems.push(d);tpl+='   '+ol+'. '+ot+'\n'});tpl+='\n   右侧候选：\n';ri.forEach((opt,ii)=>{const ol=String.fromCharCode(97+ii);const po=hwParseRichContent(opt.value);const ot=po.text,segs=po.segments&&po.segments.length?po.segments:(ot?[{type:'text',value:ot}]:[]);hwCollectImages(qi,po,ol);const d={id:opt.id,letter:ol,text:ot,segments:segs};mRight.push(d);pq.matchingRightItems.push(d);tpl+='   '+ol+'. '+ot+'\n'})}
         tpl+='\n';hwQuestionsData.push({index:qi,id:q.id,type:q.type,score:q.score,titleText:qTitle,options:rOpts,matchingLeftItems:mLeft,matchingRightItems:mRight,sItems});hwPdfQuestions.push(pq)});
-        hwExtractedText=tpl;hwActiveTaskKey=hwBuildTaskKey(hwGroupId,hwNodeId,hwPaperId);hwSubmissionResult=hwBuildSubmissionResult(json.data);
+        hwExtractedText=tpl;hwActiveTaskKey=hwBuildTaskKey(hwGroupId,hwNodeId,hwPaperId);hwSubmissionResult=hwBuildSubmissionResult(json.data);hwActiveTab='answer';
         console.log('[小雅辅助·作业区] 数据清洗完毕：', hwQuestionsData.length, '题,', hwImageAssets.length, '图, 已提交:', hwSubmissionResult.state);
         if(hwQuestionsData.length) switchToZone('hw');
         hwUpdateUI();
     }
 
-    // 🆕 主动拉取作业题目数据（SPA 导航时拦截器不会触发）
+    
     let _hwProactiveFetching = false;
     async function hwProactiveFetchData() {
         if (_hwProactiveFetching) return;
@@ -4484,13 +4601,13 @@
             let groupId = urlObj.searchParams.get('group_id');
             let nodeId = urlObj.searchParams.get('node_id');
             let paperId = urlObj.searchParams.get('paper_id');
-            // 路径参数兜底：URL 格式 /mycourse/{group_id}/resource/{node_id}/{paper_id}
+            
             if (!groupId || !nodeId || !paperId) {
                 if (!groupId) groupId = getCourseGroupId();
                 if (!nodeId) nodeId = getResourceNodeId();
                 if (!paperId) paperId = getPaperId();
             }
-            // /resource/ 页面：queryStuPaper/v2 一定返回 404，改用 queryResource/v3
+            
             const isResourcePage = window.location.href.includes('/resource/') && !window.location.href.includes('/course_paper/');
             if (isResourcePage && groupId && paperId) {
                 _hwProactiveFetching = true;
@@ -4505,7 +4622,7 @@
                         const questions = data.data.resource.questions;
                         console.log('[小雅辅助·作业区] queryResource/v3 获取到题目:', questions.length, '题');
                         const paperIdFromRes = data.data.resource.id || paperId;
-                        // 展开子题目（type=9 材料题）
+                        
                         const allQuestions = [];
                         questions.forEach(q => {
                             allQuestions.push(q);
@@ -4545,18 +4662,18 @@
             console.log('[小雅辅助·作业区] 主动拉取参数:', { groupId, nodeId, paperId, isResourcePage: window.location.href.includes('/resource/') });
             const token = getCookie();
             if (!token) { _hwProactiveFetching = false; return; }
-            // 重试策略：最多尝试 6 次（200ms/600ms/1.4s/3s/6.2s/12.6s）
+            
             let data = null;
             for (let attempt = 0; attempt < 6; attempt++) {
-                if (hwQuestionsData.length > 0) { data = true; break; } // 拦截器已处理
+                if (hwQuestionsData.length > 0) { data = true; break; } 
                 try {
                     const url = `https://${domain}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(nodeId)}&paper_id=${encodeURIComponent(paperId)}`;
-                    // 用 window.fetch（经过拦截器），拦截器会自动调 hwProcessPaperData
+                    
                     const res = await window.fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-                    if (!res.ok) { /* 不直接解析，由拦截器处理 */ }
-                } catch(e) { /* 重试 */ }
-                if (hwQuestionsData.length > 0) { data = true; break; } // 拦截器已处理
-                if (attempt < 5) await sleep(200 * Math.pow(2, attempt)); // 200, 400, 800, 1600, 3200ms
+                    if (!res.ok) {  }
+                } catch(e) {  }
+                if (hwQuestionsData.length > 0) { data = true; break; } 
+                if (attempt < 5) await sleep(200 * Math.pow(2, attempt)); 
             }
             if (data) {
                 console.log('[小雅辅助·作业区] 主动拉取题目数据成功');
@@ -4574,7 +4691,7 @@
         }
     }
 
-    // ── docx 导出 ──
+    
 
     function hwDataUrlToArrayBuffer(dataUrl){const b64=dataUrl.split(',')[1];const bs=atob(b64);const bytes=new Uint8Array(bs.length);for(let i=0;i<bs.length;i++)bytes[i]=bs.charCodeAt(i);return bytes.buffer}
     function hwGetImageSize(ab){return new Promise((resolve,reject)=>{const blob=new Blob([ab]);const url=URL.createObjectURL(blob);const img=new Image();img.onload=()=>{const d={width:img.width,height:img.height};URL.revokeObjectURL(url);resolve(d)};img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('无法获取图片尺寸'))};img.src=url})}
@@ -4595,13 +4712,13 @@
     if(pq.type===4){blk.push(new Paragraph({children:[new TextRun({text:'（共 '+pq.blankCount+' 个填空）',size:20,color:'#6b7280'})],spacing:{before:60,after:40},indent:{left:240}}))}
     if(pq.type===13){blk.push(new Paragraph({children:[new TextRun({text:'左侧：',bold:true,size:22})],spacing:{before:80,after:40}}));(pq.matchingLeftItems||[]).forEach(it=>{blk.push(new Paragraph({children:[new TextRun({text:it.letter+'.',bold:true,size:22})],spacing:{before:40,after:20},indent:{left:240}}));blk.push(...hwRenderSegments(it.segments,imMap,1))});blk.push(new Paragraph({children:[new TextRun({text:'右侧候选：',bold:true,size:22})],spacing:{before:80,after:40}}));(pq.matchingRightItems||[]).forEach(it=>{blk.push(new Paragraph({children:[new TextRun({text:it.letter+'.',bold:true,size:22})],spacing:{before:40,after:20},indent:{left:240}}));blk.push(...hwRenderSegments(it.segments,imMap,1))})}
     if(pq.type===7)blk.push(new Paragraph({children:[new TextRun({text:'附件题，无需作答。',size:20,italics:true,color:'#b45309'})],spacing:{before:60,after:40}}));
-    // 我的答案
+    
     blk.push(new Paragraph({children:[new TextRun({text:'我的答案：',bold:true,size:22})],spacing:{before:120,after:40}}));
     let uSegs=null;if(ri&&ri.rawUserAnswer!=null){const raw=ri.rawUserAnswer;if(typeof raw==='string'&&raw.includes('"blocks"')){const p=hwParseRichContent(raw);if(p.segments&&p.segments.length)uSegs=p.segments}}
     if(uSegs){blk.push(...hwRenderSegments(uSegs,imMap,0))}else{let ua=ri?ri.userAnswer:(qd?hwFormatAnswer(qd,null):'');if(qd&&qd.options&&qd.options.length&&/^\d{8,}$/.test(String(ua||'').trim())){const o=qd.options.find(o=>String(o.id)===String(ua).trim());if(o)ua=o.letter+'. '+(o.text||'')}blk.push(new Paragraph({children:[new TextRun({text:hwSafeText(ua||'未作答'),size:22})],spacing:{before:20,after:40}}))}
-    // 标准答案
+    
     if(ri&&ri.standardAnswer){blk.push(new Paragraph({children:[new TextRun({text:'标准答案：',bold:true,size:22,color:'#19865f'})],spacing:{before:40,after:40}}));let sSegs=null;if(qd&&qd.sItems){if(qd.type===6&&qd.sItems[0]&&qd.sItems[0].answer){const p=hwParseRichContent(qd.sItems[0].answer);if(p.segments&&p.segments.length)sSegs=p.segments}else if(qd.type===4){const fp=[];qd.sItems.forEach((it,i)=>{if(i>0)fp.push({type:'text',value:' | '});const v=hwExtractRichDisplay(it.answer);fp.push({type:'text',value:'空'+(i+1)+'：'+(v||'未填')})});sSegs=fp}}if(sSegs)blk.push(...hwRenderSegments(sSegs,imMap,0));else blk.push(new Paragraph({children:[new TextRun({text:hwSafeText(ri.standardAnswer),size:22,color:'#19865f'})],spacing:{before:20,after:40}}))}
-    // 得分
+    
     if(ri){blk.push(new Paragraph({children:[new TextRun({text:(ri.stateLabel||'')+'  '+(ri.scoreText||''),size:20,color:'#6b7280',italics:true})],spacing:{before:40,after:60}}))}
     blk.push(new Paragraph({children:[new TextRun({text:'—'.repeat(40),size:16,color:'#d1d5db'})],alignment:AlignmentType.CENTER,spacing:{before:60,after:60}}));
     return blk}
@@ -4628,13 +4745,308 @@
         logMsg('✅ .docx 作答文档已导出','success');
     }
 
+    
+    
+    
+
+    function hwBuildAiPrompt() {
+        const lines = ['📌 答题任务单','按下列题目作答，只输出答案本身，不要附带解析或任何说明文字。','【答案格式】','单选/判断 → 题号 => 大写字母（如 1 => A）','多选 → 题号 => 字母，逗号分隔（如 2 => A,C）','填空 → 题号 => 各空用竖线分隔（如 3 => const | let）','简答 → 题号 => 完整文字','匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）','附件题无需作答。','','════════════════════','以下为题目内容：','════════════════════',''];
+        hwQuestionsData.forEach(q => {
+            lines.push(`${q.index}. ${q.titleText} ${hwTypeLabel(q.type)}`);
+            if (q.type === 1 || q.type === 2 || q.type === 5) {
+                (q.options || []).forEach(o => lines.push(`   ${o.letter}. ${o.text}`));
+            } else if (q.type === 4) {
+                lines.push(`   (本题共 ${q.sItems ? q.sItems.length : 0} 个填空)`);
+            } else if (q.type === 7) {
+                lines.push(`   附件题无需回答。`);
+            } else if (q.type === 13) {
+                lines.push(`   左侧：`);
+                (q.matchingLeftItems || []).forEach(it => lines.push(`   ${it.letter}. ${it.text}`));
+                lines.push('');
+                lines.push(`   右侧候选：`);
+                (q.matchingRightItems || []).forEach(it => lines.push(`   ${it.letter}. ${it.text}`));
+            }
+            lines.push('');
+        });
+        return lines.join('\n');
+    }
+
+    function hwCopyText(text) {
+        const val = String(text || '');
+        if (!val) return false;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            try { navigator.clipboard.writeText(val); return true; } catch(e) {}
+        }
+        const ta = document.createElement('textarea');
+        ta.value = val;
+        ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+        document.body.appendChild(ta);
+        ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch(e) {}
+        ta.remove();
+        return ok;
+    }
+
+    function hwCopyAiPrompt() {
+        if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法复制','error'); return; }
+        const text = hwBuildAiPrompt();
+        hwExtractedText = text;
+        if (hwCopyText(text)) { logMsg(`✅ 已复制 ${hwQuestionsData.length} 道题给 AI，去聊天窗口粘贴吧`,'success'); showToast('📋 题目模板已复制', 'success'); }
+        else { logMsg('复制失败，请手动复制','error'); showToast('复制失败，请手动复制', 'error'); }
+    }
+
+    async function hwGetRecordId() {
+        if (!hwGroupId || !hwNodeId) throw new Error('未获取到课程或节点参数');
+        const token = getCookie();
+        if (!token) throw new Error('未获取到登录 Token');
+        const url = `${window.location.origin}/api/jx-iresource/survey/course/task/flow/v2?node_id=${encodeURIComponent(hwNodeId)}&group_id=${encodeURIComponent(hwGroupId)}`;
+        const res = await _hw_nativeFetch(url, { headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' }, credentials: 'include' });
+        if (!res.ok) throw new Error(`Record ID 请求失败：${res.status}`);
+        const data = await res.json();
+        if (data && data.success && data.data) {
+            if (data.data.task_flow_record && data.data.task_flow_record[0] && data.data.task_flow_record[0].answer_record_id) return data.data.task_flow_record[0].answer_record_id;
+            if (data.data.task_flow_template && data.data.task_flow_template[0] && data.data.task_flow_template[0].answer_record_id) return data.data.task_flow_template[0].answer_record_id;
+        }
+        throw new Error('无法获取 Record ID');
+    }
+
+    function hwParseAiBlocks(text) {
+        const blocks = [];
+        let cur = null;
+        String(text || '').split(/\r?\n/).forEach(line => {
+            const m = line.match(/^\s*(\d+)\s*=>\s*(.*)$/);
+            if (m) {
+                if (cur) { cur.answer = cur.lines.join('\n').trim(); blocks.push(cur); }
+                cur = { index: parseInt(m[1], 10), lines: [m[2].trim()] };
+                return;
+            }
+            if (cur) cur.lines.push(line.trimEnd());
+        });
+        if (cur) { cur.answer = cur.lines.join('\n').trim(); blocks.push(cur); }
+        return blocks.filter(b => Number.isFinite(b.index) && b.answer);
+    }
+
+    function hwCreateRichAnswer(text) {
+        const lines = String(text || '').trim().split(/\r?\n/);
+        return JSON.stringify({ blocks: lines.map((line, i) => ({ key: `ans-${i}`, text: line, type: 'unstyled', depth: 0, inlineStyleRanges: [], entityRanges: [], data: {} })), entityMap: {} });
+    }
+
+    function hwBuildMatchingPayload(qd, answerStr) {
+        const leftByLetter = new Map((qd.matchingLeftItems || []).map(it => [String(it.letter).toUpperCase(), it]));
+        const rightByLetter = new Map((qd.matchingRightItems || []).map(it => [String(it.letter).toLowerCase(), it]));
+        const payload = {};
+        String(answerStr || '').split(/[|｜;\n；]+/).map(s => s.trim()).filter(Boolean).forEach(segment => {
+            const m = segment.match(/^\s*([A-Za-z])\s*(?:=>|->|[:：=])\s*(.+?)\s*$/);
+            if (!m) return;
+            const left = leftByLetter.get(m[1].toUpperCase());
+            if (!left) return;
+            const rightIds = m[2].split(/[,，、\s]+/).map(t => t.trim().replace(/[.。]/g, '').toLowerCase()).filter(Boolean).map(letter => {
+                const r = rightByLetter.get(letter);
+                return r ? r.id : null;
+            }).filter(Boolean);
+            if (rightIds.length) payload[left.id] = rightIds.join(',');
+        });
+        return Object.keys(payload).length ? payload : null;
+    }
+
+    function hwBuildAnswerPayload(qd, answerStr) {
+        if (!qd) return null;
+        const str = String(answerStr || '').trim();
+        if (!str) return null;
+        if (qd.type === 1 || qd.type === 2 || qd.type === 5) {
+            const byLetter = new Map((qd.options || []).map(o => [String(o.letter).toUpperCase(), o.id]));
+            const ids = str.split(/[,，、\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean).map(L => byLetter.get(L)).filter(Boolean);
+            return ids.length ? ids : null;
+        }
+        if (qd.type === 4) {
+            const blanks = str.split(/[|｜]/).map(s => s.trim());
+            const obj = {};
+            (qd.sItems || []).forEach((it, i) => { if (blanks[i]) obj[it.id] = blanks[i]; });
+            return Object.keys(obj).length ? [obj] : null;
+        }
+        if (qd.type === 6) return [hwCreateRichAnswer(str)];
+        if (qd.type === 13) {
+            const m = hwBuildMatchingPayload(qd, str);
+            return m ? [m] : null;
+        }
+        return null; 
+    }
+
+    async function hwSubmitAnswer(qd, payload) {
+        if (!hwPaperId) throw new Error('未获取到 paper_id');
+        const token = getCookie();
+        if (!token) throw new Error('未获取到登录 Token');
+        const res = await _hw_nativeFetch(`${window.location.origin}/api/jx-iresource/survey/answer`, {
+            method: 'POST',
+            headers: { 'accept': '*/*', 'authorization': `Bearer ${token}`, 'content-type': 'application/json; charset=UTF-8' },
+            credentials: 'include',
+            body: JSON.stringify({ record_id: hwRecordId, question_id: qd.id, answer: payload, ext_answer: '', group_id: hwGroupId, paper_id: hwPaperId, is_try: 0 })
+        });
+        let data = null;
+        try { data = await res.json(); } catch(e) {}
+        if (!res.ok || (data && data.success === false)) {
+            const msg = (data && (data.message || data.error)) || `保存作答失败：${res.status}`;
+            throw new Error(msg);
+        }
+        return data;
+    }
+
+    async function hwRefreshPaperData() {
+        if (!hwGroupId || !hwPaperId) return false;
+        const token = getCookie();
+        if (!token) return false;
+        const nodeId = hwNodeId || getResourceNodeId() || '';
+        const url = `${window.location.origin}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(hwGroupId)}&node_id=${encodeURIComponent(nodeId)}&paper_id=${encodeURIComponent(hwPaperId)}`;
+        for (let attempt = 0; attempt < 5; attempt++) {
+            try {
+                
+                await window.fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+            } catch(e) {}
+            if (hwSubmissionResult.state === 'submitted') return true;
+            if (attempt < 4) await sleep(400 * (attempt + 1));
+        }
+        return hwSubmissionResult.state === 'submitted';
+    }
+
+    async function hwSaveAnswers(aiText) {
+        if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存作答','error'); return; }
+        if (!String(aiText || '').trim()) { logMsg('请先粘贴 AI 返回的答案','error'); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
+        logMsg('正在初始化提交参数...','info');
+        try {
+            hwRecordId = await hwGetRecordId();
+        } catch(e) {
+            logMsg('初始化提交参数失败：' + e.message,'error');
+            showToast('保存失败：' + e.message, 'error');
+            return;
+        }
+        const blocks = hwParseAiBlocks(aiText);
+        let ok = 0, fail = 0, skip = 0;
+        for (let i = 0; i < blocks.length; i++) {
+            const block = blocks[i];
+            const qd = hwQuestionsData.find(q => q.index === block.index);
+            if (!qd) { fail++; logMsg(`第 ${block.index} 题未在题目列表中找到，已跳过`,'warning'); continue; }
+            const payload = hwBuildAnswerPayload(qd, block.answer);
+            if (!payload) { skip++; continue; }
+            try {
+                await hwSubmitAnswer(qd, payload);
+                ok++;
+                logMsg(`第 ${block.index} 题作答已保存`,'success',true);
+            } catch(e) {
+                fail++;
+                logMsg(`第 ${block.index} 题保存失败：${e.message}`,'error');
+            }
+            if (i < blocks.length - 1) await sleep(150);
+        }
+        if (ok > 0) {
+            hwResultOpen = true;
+            hwActiveTab = 'result';
+            const refreshed = await hwRefreshPaperData();
+            hwUpdateUI();
+            logMsg(`✅ 保存作答完成：成功 ${ok} 题，失败 ${fail} 题，跳过 ${skip} 题`,'success');
+            showToast(`✅ 已保存 ${ok} 道题作答` + (refreshed ? '，结果已刷新' : ''), 'success');
+        } else {
+            showToast(`未保存任何答案（成功 ${ok} / 失败 ${fail} / 跳过 ${skip}）`, fail ? 'error' : 'warning');
+            logMsg(`未保存任何答案：成功 ${ok}，失败 ${fail}，跳过 ${skip}`, fail ? 'error' : 'warning');
+        }
+    }
+
+    function hwRenderResultPanel() {
+        const box = document.getElementById('xy-hw-result');
+        if (!box) return;
+        box.innerHTML = '';
+        if (!hwQuestionsData.length) { box.style.display = 'none'; return; }
+        const result = hwSubmissionResult;
+        if (!result || result.state !== 'submitted') {
+            const show = hwResultOpen || hwActiveTab === 'result';
+            box.style.display = show ? 'block' : 'none';
+            if (show) {
+                const el = document.createElement('div');
+                el.style.cssText = `font-size:11px;color:${T('#94a3b8','#64748b')};text-align:center;padding:12px;border:1px dashed ${T('rgba(71,85,105,0.3)','#e2e8f0')};border-radius:10px;`;
+                el.textContent = (result && result.message) || '尚未检测到已提交的作答记录，保存作答后自动展示。';
+                box.appendChild(el);
+            }
+            return;
+        }
+        box.style.display = 'block';
+        const qrs = Array.isArray(result.questionResults) ? result.questionResults : [];
+        const wrong = qrs.filter(r => r.tone === 'bad').length;
+        const partial = qrs.filter(r => r.tone === 'partial').length;
+        const pending = qrs.filter(r => r.tone === 'pending').length;
+        const correct = qrs.filter(r => r.tone === 'ok').length;
+
+        const sum = document.createElement('div');
+        sum.style.cssText = `border-radius:11px;background:${T('rgba(6,182,212,0.08)','#f0f9ff')};border:1px solid ${T('rgba(6,182,212,0.22)','#bae6fd')};padding:12px 14px;margin-bottom:10px;`;
+        sum.innerHTML = `
+            <div style="display:flex;align-items:baseline;gap:6px;">
+                <span style="font-size:26px;font-weight:800;color:${T('#22d3ee','#0e7490')};">${escapeHtml(result.actualScore ?? '-')}</span>
+                <span style="font-size:12px;font-weight:600;color:${T('#94a3b8','#64748b')};">/ ${escapeHtml(result.totalScore ?? '-')} 分</span>
+            </div>
+            <div style="display:flex;gap:12px;margin-top:8px;font-size:10.5px;">
+                <span style="color:${T('#4ade80','#15803d')};">● 正确 ${escapeHtml(correct)}</span>
+                <span style="color:${T('#f87171','#dc2626')};">● 错误 ${escapeHtml(wrong)}</span>
+                ${partial ? `<span style="color:${T('#fbbf24','#b45309')};">● 部分 ${escapeHtml(partial)}</span>` : ''}
+                <span style="color:${T('#94a3b8','#64748b')};">● 待批 ${escapeHtml(pending)}</span>
+            </div>`;
+        box.appendChild(sum);
+
+        const tabs = document.createElement('div');
+        tabs.style.cssText = `display:flex;gap:6px;margin-bottom:8px;`;
+        [['all','全部 '+qrs.length],['bad','错题 '+(wrong+partial)],['pending','待批 '+pending]].forEach(([key,label]) => {
+            const t = document.createElement('button');
+            t.type = 'button';
+            t.textContent = label;
+            const on = hwResultFilter === key;
+            t.style.cssText = `border:1px solid ${on ? T('rgba(34,211,238,0.5)','#67e8f9') : T('rgba(71,85,105,0.3)','#e2e8f0')};background:${on ? T('rgba(34,211,238,0.12)','#cffafe') : 'transparent'};color:${on ? T('#67e8f9','#0e7490') : T('#94a3b8','#64748b')};font-size:10.5px;font-weight:600;padding:4px 12px;border-radius:999px;cursor:pointer;`;
+            t.onclick = () => { hwResultFilter = key; hwRenderResultPanel(); };
+            tabs.appendChild(t);
+        });
+        box.appendChild(tabs);
+
+        const list = document.createElement('div');
+        list.style.cssText = `max-height:300px;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:8px;`;
+        const filtered = qrs.filter(r => {
+            if (hwResultFilter === 'all') return true;
+            if (hwResultFilter === 'bad') return r.tone === 'bad' || r.tone === 'partial';
+            return r.tone === hwResultFilter;
+        });
+        if (!filtered.length) {
+            const el = document.createElement('div');
+            el.style.cssText = `font-size:11px;color:${T('#94a3b8','#64748b')};text-align:center;padding:14px;`;
+            el.textContent = hwResultFilter === 'all' ? '暂无题目结果。' : '当前筛选项没有题目。';
+            list.appendChild(el);
+        } else {
+            filtered.forEach(r => {
+                const row = document.createElement('div');
+                row.style.cssText = `border:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')};border-radius:9px;background:${T('rgba(15,23,42,0.35)','#ffffff')};padding:9px 11px;`;
+                const toneColor = r.tone==='ok' ? T('#4ade80','#15803d') : r.tone==='bad' ? T('#f87171','#dc2626') : r.tone==='partial' ? T('#fbbf24','#b45309') : T('#94a3b8','#64748b');
+                const toneBg = r.tone==='ok' ? T('rgba(52,211,153,0.12)','#dcfce7') : r.tone==='bad' ? T('rgba(248,113,113,0.12)','#fee2e2') : r.tone==='partial' ? T('rgba(251,191,36,0.12)','#fef3c7') : T('rgba(148,163,184,0.15)','#f1f5f9');
+                let html = `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                    <span style="font-size:11.5px;font-weight:700;color:${T('#e2e8f0','#0f172a')};">${String(r.index).padStart(2,'0')} · ${escapeHtml(r.typeLabel)}</span>
+                    <span style="display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:${toneColor};background:${toneBg};border-radius:999px;padding:2px 9px;white-space:nowrap;">${escapeHtml(r.stateLabel)}</span>
+                </div>`;
+                html += `<div style="font-size:10px;color:${T('#64748b','#94a3b8')};margin-top:3px;">${escapeHtml(r.scoreText)}</div>`;
+                if (r.title) html += `<div style="font-size:11px;color:${T('#cbd5e1','#334155')};margin-top:6px;line-height:1.5;overflow-wrap:anywhere;">${escapeHtml(r.title)}</div>`;
+                const ansLine = (label, value, color) => `<div style="display:flex;gap:6px;font-size:11px;line-height:1.5;margin-top:4px;">
+                    <span style="flex-shrink:0;color:${T('#64748b','#94a3b8')};font-size:10px;margin-top:1px;">${label}</span>
+                    <span style="flex:1;min-width:0;overflow-wrap:anywhere;color:${color};">${escapeHtml(value || '未作答')}</span>
+                </div>`;
+                html += ansLine('我的答案', r.userAnswer, T('#cbd5e1','#334155'));
+                if (r.standardAnswer) html += ansLine('标准答案', r.standardAnswer, T('#6ee7b7','#15803d'));
+                row.innerHTML = html;
+                list.appendChild(row);
+            });
+        }
+        box.appendChild(list);
+    }
+
 
     function createUI() {
         if (document.getElementById('xy-super-console')) return;
         if (!document.body) { requestAnimationFrame(createUI); return; }
-        // 强力清理：移除任何残留的旧面板 DOM（避免 SPA 重复创建）
+        
         document.querySelectorAll('#xy-super-console').forEach(el => { try { el.remove(); } catch(e) {} });
-        // 同时清理可能残留的悬浮球、toast 容器等辅助元素
+        
         ['xy-splash','xy-toast-box'].forEach(id => {
             const el = document.getElementById(id);
             if (el) try { el.remove(); } catch(e) {}
@@ -4976,8 +5388,15 @@
                     </div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 11px; color: ${T('#94a3b8','#64748b')};">
                         <span id="xy-dl-file-count">0 个文件</span>
+                        <select id="xy-dl-sort" class="xy-input-box" title="排序方式" style="width:auto; max-width:150px; padding:4px 6px; font-size:11px; text-align:left;">
+                            <option value="unit">📂 单元顺序</option>
+                            <option value="time_desc">🕐 上传时间 新→旧</option>
+                            <option value="time_asc">🕐 上传时间 旧→新</option>
+                            <option value="name_asc">🔤 文件名 A→Z</option>
+                            <option value="name_desc">🔤 文件名 Z→A</option>
+                        </select>
                     </div>
-                    <div style="max-height:200px; overflow-y:auto; margin-bottom:8px;" id="xy-dl-file-list">
+                    <div style="max-height:200px; overflow:auto; margin-bottom:8px;" id="xy-dl-file-list">
                         <div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">暂无课件资源</div>
                     </div>
                     <div id="xy-dl-progress-wrap" style="display:none; margin-bottom: 10px;">
@@ -5001,15 +5420,36 @@
             </div>
 
             <div id="xy-view-hw" style="display:none; flex-shrink: 0;">
-                <div style="padding: 10px 14px; border-radius: 8px; background: ${T('rgba(236,72,153,0.08)','#fdf2f8')}; border: 1px solid ${T('rgba(236,72,153,0.2)','#fbcfe8')}; font-size: 12px; font-weight: 600; margin-bottom: 10px; text-align: center; color: ${T('#f9a8d4','#9d174d')};" id="xy-hw-status">等待题目数据...</div>
-                <div class="xy-panel">
-                    <div class="xy-panel-title">
-                        <span>📝 作业导出</span>
+                <!-- 顶部状态条 -->
+                <div style="display:flex; align-items:center; gap:9px; padding:11px 14px; border-radius:10px; background: ${T('rgba(6,182,212,0.07)','#f0f9ff')}; border: 1px solid ${T('rgba(6,182,212,0.18)','#bae6fd')}; margin-bottom:10px;">
+                    <span style="width:8px; height:8px; border-radius:99px; background:#22d3ee; box-shadow:0 0 10px rgba(34,211,238,.6); flex-shrink:0;"></span>
+                    <span style="font-size:12.5px; font-weight:700; color:${T('#e2e8f0','#0f172a')};">作业答题台</span>
+                    <span id="xy-hw-status" style="margin-left:auto; font-size:10px; color:${T('#94a3b8','#64748b')};">等待题目数据...</span>
+                </div>
+                <!-- 分段切换：作答 / 结果 -->
+                <div style="display:flex; gap:4px; padding:4px; border-radius:10px; background:${T('rgba(15,23,42,0.4)','#eef2f7')}; border:1px solid ${T('rgba(71,85,105,0.25)','#dbe4ee')}; margin-bottom:10px;">
+                    <button id="xy-hw-tab-answer" type="button" style="flex:1; border:none; background:${T('#0e7490','#0ea5e9')}; color:#fff; font-size:12px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer;">✍️ 作答</button>
+                    <button id="xy-hw-tab-result" type="button" style="flex:1; border:none; background:transparent; color:${T('#94a3b8','#64748b')}; font-size:12px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer;">📊 结果</button>
+                </div>
+                <!-- 作答面板 -->
+                <div id="xy-hw-pane-answer">
+                    <div style="border:1px solid ${T('rgba(71,85,105,0.25)','#dbe4ee')}; border-radius:11px; background:${T('rgba(15,23,42,0.45)','#ffffff')}; overflow:hidden;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-bottom:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')};">
+                            <b style="font-size:11.5px; color:${T('#cbd5e1','#1e293b')};">粘贴 AI 回答</b>
+                            <span style="font-size:10px; color:${T('#64748b','#94a3b8')};">支持多行简答 · 匹配题</span>
+                        </div>
+                        <textarea id="xy-hw-ai-input" placeholder="1 => A&#10;2 => B,C&#10;3 => const | let&#10;10 => A:a,d | B:b,c" style="width:100%; min-height:96px; resize:vertical; border:none; background:transparent; color:${T('#dde6f2','#0f172a')}; font:12px/1.6 Consolas, Monaco, monospace; padding:11px 12px; outline:none; box-sizing:border-box;"></textarea>
                     </div>
-                    <div style="display:flex; gap:8px; margin-bottom: 10px;">
-                        <button class="xy-action-btn" id="xy-hw-docx-btn" style="flex:1; font-size:12px; background:${T('rgba(236,72,153,0.12)','#fdf2f8')}; border-color:${T('rgba(236,72,153,0.25)','#fbcfe8')}; color:${T('#f9a8d4','#9d174d')};">📄 导出作答文档 (.docx)</button>
+                    <div style="display:flex; gap:8px; margin-top:12px;">
+                        <button class="xy-action-btn" id="xy-hw-copy-btn" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(6,182,212,0.1)','#e0f2fe')}; border-color:${T('rgba(6,182,212,0.25)','#bae6fd')}; color:${T('#67e8f9','#0e7490')};">📤 提取题目模板</button>
+                        <button class="xy-action-btn" id="xy-hw-docx-btn" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(236,72,153,0.12)','#fdf2f8')}; border-color:${T('rgba(236,72,153,0.25)','#fbcfe8')}; color:${T('#f9a8d4','#9d174d')};">📄 导出作答文档</button>
                     </div>
-                    <div style="font-size:10px; color:${T('#64748b','#94a3b8')}; text-align:center;">检测到测验/作业时自动切换至此区</div>
+                    <button class="xy-action-btn" id="xy-hw-save-btn" style="width:100%; min-height:38px; margin-top:8px; font-size:12px; background:linear-gradient(135deg,#06b6d4,#0891b2); border-color:transparent; color:#fff;">🚀 提交并保存</button>
+                    <div style="font-size:10px; color:${T('#64748b','#94a3b8')}; text-align:center; margin-top:10px;">格式：题号 => 答案 · 提交后自动刷新成绩</div>
+                </div>
+                <!-- 结果面板 -->
+                <div id="xy-hw-pane-result" style="display:none;">
+                    <div id="xy-hw-result"></div>
                 </div>
             </div>
 
@@ -5163,7 +5603,7 @@
                 btn.style.color = appState.deepCamouflage ? T('#c4b5fd','#7c3aed') : T('#94a3b8','#64748b');
             }
         };
-        // 恢复上次的模拟状态
+        
         if (appState.mouseSimActive) { scheduleMouseSim(); }
         document.getElementById('xy-btn-dashboard').onclick = openGlobalTaskDashboard;
         document.getElementById('xy-btn-dashboard-standby').onclick = openGlobalTaskDashboard;
@@ -5174,12 +5614,32 @@
             quickKillCurrentTask();
         };
 
-        // ── 作业区按钮 ──
+        
         const hwDocxBtn = document.getElementById('xy-hw-docx-btn');
         if (hwDocxBtn) hwDocxBtn.onclick = async () => {
             hwDocxBtn.disabled = true; hwDocxBtn.textContent = '⏳ 正在导出...';
             try { await hwExportDocx(); } catch(e) { logMsg('导出失败: '+e.message,'error'); }
-            hwDocxBtn.disabled = false; hwDocxBtn.textContent = '📄 导出作答文档 (.docx)';
+            hwDocxBtn.disabled = false; hwDocxBtn.textContent = '📄 导出作答文档';
+        };
+
+        
+        const hwTabA = document.getElementById('xy-hw-tab-answer');
+        if (hwTabA) hwTabA.onclick = () => { hwActiveTab = 'answer'; hwUpdateTabs(); };
+        const hwTabR = document.getElementById('xy-hw-tab-result');
+        if (hwTabR) hwTabR.onclick = () => { hwActiveTab = 'result'; hwUpdateTabs(); };
+
+        
+        const hwCopyBtn = document.getElementById('xy-hw-copy-btn');
+        if (hwCopyBtn) hwCopyBtn.onclick = () => hwCopyAiPrompt();
+
+        const hwSaveBtn = document.getElementById('xy-hw-save-btn');
+        if (hwSaveBtn) hwSaveBtn.onclick = async () => {
+            if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存作答','error'); return; }
+            const aiText = document.getElementById('xy-hw-ai-input')?.value || '';
+            if (!aiText.trim()) { logMsg('请先在下方输入 AI 返回的答案','warning'); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
+            hwSaveBtn.disabled = true; hwSaveBtn.textContent = '⏳ 正在保存...';
+            try { await hwSaveAnswers(aiText); } catch(e) { logMsg('保存作答异常：'+e.message,'error'); }
+            hwSaveBtn.disabled = false; hwSaveBtn.textContent = '🚀 提交并保存';
         };
 
 
@@ -5194,13 +5654,23 @@
         const btnEditReply = document.getElementById('xy-btn-edit-reply');
         if (btnEditReply) btnEditReply.onclick = openReplySettingsModal;
 
-        // ── 下载区事件 ──
+        
         const dlSearchInput = document.getElementById('xy-dl-search');
         if (dlSearchInput) {
             dlSearchInput.addEventListener('input', () => {
                 appState.downloadSearchKeyword = dlSearchInput.value;
                 renderDownloadList();
             });
+        }
+        
+        const dlSortSelect = document.getElementById('xy-dl-sort');
+        if (dlSortSelect) {
+            dlSortSelect.value = appState.downloadSortMode || 'unit';
+            dlSortSelect.onchange = () => {
+                appState.downloadSortMode = dlSortSelect.value;
+                try { GM_setValue('xy_dl_sort', dlSortSelect.value); } catch(e) {}
+                renderDownloadList();
+            };
         }
         document.getElementById('xy-dl-select-all').onclick = () => {
             const keyword = (appState.downloadSearchKeyword || '').toLowerCase().trim();
@@ -5321,7 +5791,7 @@
             minBtn.title = isMin ? '展开面板' : '最小化面板';
         };
 
-        // ── 折叠面板通用绑定 ──
+        
         const bindSection = (hdrId, bodyId, arrId) => {
             const hdr = document.getElementById(hdrId), bd = document.getElementById(bodyId), arr = document.getElementById(arrId);
             if (!hdr || !bd) return;
@@ -5336,7 +5806,7 @@
 
         const themeBtn = document.getElementById('xy-theme-toggle');
         if (themeBtn) themeBtn.onclick = () => {
-            // Cycle: auto → light → dark → auto
+            
             if (appState.theme === 'auto') appState.theme = 'light';
             else if (appState.theme === 'light') appState.theme = 'dark';
             else appState.theme = 'auto';
@@ -5345,7 +5815,7 @@
             showToast(appState.theme === 'auto' ? '🌓 主题：跟随系统' : appState.theme === 'light' ? '☀️ 主题：浅色模式' : '🌙 主题：深色模式', 'info');
         };
 
-        // ── 反馈链接 ──
+        
         const feedbackLink = document.getElementById('xy-feedback-link');
         if (feedbackLink) feedbackLink.onclick = () => xyShowFeedbackSurvey();
 
@@ -5397,13 +5867,13 @@
         _uiCreating = false;
     }
 
-    // ==========================================
-    // 🛡️ 启动系统与全局路由监听
-    // ==========================================
+    
+    
+    
     let _uiCreating = false;
     function ensureUI() {
         if (_uiCreating) return;
-        // 巡检：定期清理残留重复面板（SPA 多次重绘可能遗留旧 DOM）
+        
         const allPanels = document.querySelectorAll('#xy-super-console');
         if (allPanels.length > 1) {
             for (let i = 1; i < allPanels.length; i++) {
@@ -5415,7 +5885,7 @@
             createUI();
         }
 
-        // 后台保活引擎初始化
+        
         if (appState.keepaliveEnabled && !keepaliveWatchdogTimer) {
             startKeepaliveWatchdog();
         }
@@ -5423,7 +5893,7 @@
         runLowLevelScanner().then(() => {
             updateCourseUI();
             updateDiscUI();
-            // 作业区：如果已有 paper_id 参数但数据为空，主动拉取
+            
             if (hwQuestionsData.length === 0 && (new URL(window.location.href).searchParams.get('paper_id') || getPaperId())) {
                 setTimeout(hwProactiveFetchData, 200);
             }
@@ -5431,12 +5901,12 @@
     }
 
     const observer = new MutationObserver(() => ensureUI());
-    try { observer.observe(document.body, { childList: true, subtree: false }); } catch(e) { /* body 暂未就绪，由 DOMContentLoaded 兜底 */ }
+    try { observer.observe(document.body, { childList: true, subtree: false }); } catch(e) {  }
 
-    // ── 作业区路由监听 ──
+    
     function hwHandleRouteChange() {
         setTimeout(() => {
-            // 保护期：数据刚加载完成时不重置（防止 SPA 二次导航打断）
+            
             if (_hwDataJustLoaded) return;
             if (!hwActiveTaskKey) return;
             const href = window.location.href;
@@ -5479,7 +5949,7 @@
         ensureUI();
     }
 
-    // 🆕 导出控制台快捷命令
+    
     window.xyKeepaliveStatus = () => {
         console.log('[小雅] 后台保活:', appState.keepaliveEnabled ? 'ON' : 'OFF');
         console.log('[小雅] 看门狗:', keepaliveWatchdogTimer ? '运行中' : '未启动');
@@ -5492,7 +5962,7 @@
         console.log('\n💡 复制上面的 JSON 即可手动导入');
     };
 
-    // 交互式配置 Google 表单：自动提取 entry ID
+    
     window.xySetupFeedbackForm = () => {
         const formUrl = prompt(
             '📋 配置 Google 表单反馈\n\n' +
@@ -5504,7 +5974,7 @@
         );
         if (!formUrl) { console.log('已取消'); return; }
 
-        // 从 URL 中提取 form ID
+        
         const match1 = formUrl.match(/\/d\/e\/([^/]+)/);
         const match2 = formUrl.match(/forms\.gle\/([^/]+)/);
         let formId = match1 ? match1[1] : (match2 ? match2[1] : null);
@@ -5515,7 +5985,7 @@
             return;
         }
 
-        // 打开表单预览页，自动检测 entry ID
+        
         const previewUrl = `https://docs.google.com/forms/d/e/${formId}/viewform`;
         console.log('🔍 正在分析表单...');
         console.log('   如果自动检测失败，请打开此链接手动获取：' + previewUrl);
@@ -5534,7 +6004,7 @@
                     console.log('   Entry ID: ' + entryId);
                     console.log('   现在提交反馈即可自动上传到 Google Sheets！');
                 } else {
-                    // 手动输入兜底
+                    
                     const manual = prompt(
                         '⚠ 自动检测失败\n\n请在浏览器打开：' + previewUrl + '\n' +
                         '右键 → 查看页面源代码 → 搜索 "entry."\n' +
@@ -5559,11 +6029,11 @@
             });
     };
 
-    // ==========================================
-    // 📋 用户反馈问卷
-    // ==========================================
+    
+    
+    
 
-    // SurveyJS 暗色主题覆盖样式
+    
     function xyInjectFeedbackStyle() {
         GM_addStyle(`
             /* ── 反馈问卷遮罩 ── */
@@ -5641,8 +6111,8 @@
             answers: surveyData
         };
 
-        // ScriptCat 公开 API：零 Token、零配置，直接提交
-        // https://scriptcat.org/zh-CN/script-show-page/5881/issue
+        
+        
         const feedbackText = JSON.stringify(payload, null, 2);
 
         GM_xmlhttpRequest({
@@ -5678,7 +6148,7 @@
         try {
             const localFeedbacks = JSON.parse(GM_getValue('xy_local_feedbacks', '[]'));
             localFeedbacks.push(payload);
-            // 最多保留 50 条本地反馈
+            
             if (localFeedbacks.length > 50) localFeedbacks.splice(0, localFeedbacks.length - 50);
             GM_setValue('xy_local_feedbacks', JSON.stringify(localFeedbacks));
             logMsg('📦 反馈已暂存本地（共 ' + localFeedbacks.length + ' 条）', 'info', false);
