@@ -3559,6 +3559,16 @@
         const tasks = await fetchGlobalTasks(); renderGlobalDashboardContent(tasks);
     }
 
+    async function fetchCourseResourcesForRadar(gid) {
+        try {
+            const token = await getAuthToken();
+            const res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${gid}`, { headers: { "authorization": `Bearer ${token}` } });
+            const data = await res.json();
+            if (data.success && data.data) return data.data;
+        } catch(e) {}
+        return null;
+    }
+
     function buildUnitNameMap(nodes, parentName, map) {
         if (!map) map = new Map();
         (Array.isArray(nodes) ? nodes : []).forEach(n => {
@@ -3659,7 +3669,7 @@
             let unitMap = null;
             if (gid) {
                 try {
-                    const res = await loadCourseResources(gid);
+                    const res = await fetchCourseResourcesForRadar(gid);
                     if (res) unitMap = buildUnitNameMap(buildDirTree(res));
                 } catch(e) {}
             }
@@ -3687,21 +3697,26 @@
                     <div id="${safeId}" class="xy-global-group-content" style="padding:20px; display:flex; flex-direction:column; gap:16px;">
             `;
             const unitGroups = courseUnits[courseName];
+            const flatFallback = unitGroups.size === 1 && unitGroups.has('未分组');
             let ui = 0;
-            unitGroups.forEach((unitTasks, unitName) => {
-                const unitId = safeId + '-u' + ui++;
-                html += `
-                    <div style="margin-bottom:12px;">
-                        <div class="xy-global-unit-header" data-target="${unitId}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; border:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')}; cursor:pointer; user-select:none;">
-                            <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📂 ${escapeHtml(unitName)}</span>
-                            <span style="background:${T('rgba(99,102,241,0.15)','#e0e7ff')}; color:${T('#a5b4fc','#3730a3')}; padding:2px 10px; border-radius:10px; font-size:12px; font-weight:700; white-space:nowrap;">${unitTasks.length} 个任务</span>
-                            <span class="xy-global-unit-arrow" style="transition:transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size:11px;">▼</span>
-                        </div>
-                        <div id="${unitId}" class="xy-global-unit-content" style="display:flex; flex-direction:column; gap:12px; padding:12px 0 4px 14px;">
-                `;
-                unitTasks.forEach(task => { html += buildRadarTaskCard(task); });
-                html += `</div></div>`;
-            });
+            if (flatFallback) {
+                courseTasks.forEach(task => { html += buildRadarTaskCard(task); });
+            } else {
+                unitGroups.forEach((unitTasks, unitName) => {
+                    const unitId = safeId + '-u' + ui++;
+                    html += `
+                        <div style="margin-bottom:12px;">
+                            <div class="xy-global-unit-header" data-target="${unitId}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; border:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')}; cursor:pointer; user-select:none;">
+                                <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📂 ${escapeHtml(unitName)}</span>
+                                <span style="background:${T('rgba(99,102,241,0.15)','#e0e7ff')}; color:${T('#a5b4fc','#3730a3')}; padding:2px 10px; border-radius:10px; font-size:12px; font-weight:700; white-space:nowrap;">${unitTasks.length} 个任务</span>
+                                <span class="xy-global-unit-arrow" style="transition:transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size:11px;">▼</span>
+                            </div>
+                            <div id="${unitId}" class="xy-global-unit-content" style="display:flex; flex-direction:column; gap:12px; padding:12px 0 4px 14px;">
+                    `;
+                    unitTasks.forEach(task => { html += buildRadarTaskCard(task); });
+                    html += `</div></div>`;
+                });
+            }
             html += `</div></div>`;
         });
         html += `</div>`; contentBox.innerHTML = html;
