@@ -3,24 +3,18 @@
   "version": "0.0.1",
   "updatedAt": "2026-08-03",
   "items": [
+    "🔮 小雅辅助工具脚本：https://scriptcat.org/zh-CN/script-show-page/5881",
+    "📥 小雅作业提醒（桌面挂件）v0.0.1 安装包（点击即下载）：https://gitee.com/fieldlu/xiaoya-reminder-assistant/releases/download/v0.0.1/xiaoya-reminder-setup.exe",
     "🆕 新软件发布：小雅作业提醒（Windows 桌面挂件）v0.0.1 试用版",
     "🎯 把小雅里的待完成作业实时显示在桌面，带截止倒计时，到期自动提醒，彻底告别漏作业！",
-    "",
-    "📥 点击下方链接，一键下载安装包（约 24MB，点击即下载）：",
-    "  👉 https://gitee.com/fieldlu/xiaoya-reminder-assistant/releases/download/v0.0.1/xiaoya-reminder-setup.exe",
-    "",
     "✨ 主要亮点：",
     "📋 桌面小卡片：所有待完成作业 + 剩余时间，一目了然",
     "⏰ 到期自动提醒，作业截止不错过",
     "📂 全部 / 可完成 / 逾期 / 本周 视图 + 按时间/课程/名称排序",
     "🎯 点一下直达对应作业页，立刻开做",
     "👤 多账号管理、自动登录、开机自启、自动更新，一劳永逸",
-    "",
     "💡 安装超简单：下载 → 双击安装包 → 一直点下一步 → 完成 → 登录小雅账号即可使用",
-    "",
     "🔒 隐私：账号密码加密存在本机，仅用于拉取作业，绝不外传",
-    "⚠️ 仅供个人学习使用，禁止商用，使用者自负风险",
-    "",
-    "🔮 小雅辅助工具脚本（继续保留）：https://scriptcat.org/zh-CN/script-show-page/5881"
+    "⚠️ 仅供个人学习使用，禁止商用，使用者自负风险"
   ]
 }
