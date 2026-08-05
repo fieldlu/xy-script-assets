@@ -37,7 +37,8 @@
     
     (function initSplash() {
         try {
-            
+            // 默认关闭开机动画（如需开启：GM_setValue('xy_no_splash', false)）
+            if (GM_getValue('xy_no_splash', true)) return;
             if (sessionStorage.getItem('xy_splash_done')) return;
             sessionStorage.setItem('xy_splash_done', '1');
 
