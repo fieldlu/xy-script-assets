@@ -71,23 +71,17 @@
     }
 
     function xyUpdateHeaderButton() {
-        const btn = document.getElementById('xy-update-btn');
+        const btn = document.getElementById('xy-seg-update');
         if (!btn) return;
+        btn.classList.remove('is-new', 'is-checking');
         if (xyUpdateState.isChecking) {
-            btn.textContent = '⏳ 检查中';
-            btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = '';
-            btn.style.pointerEvents = 'none'; btn.style.opacity = '0.7';
+            btn.classList.add('is-checking');
+            btn.innerHTML = '⏳ 检查中<span class="xy-seg-dot"></span>';
+        } else if (xyUpdateState.hasNew) {
+            btn.classList.add('is-new');
+            btn.innerHTML = '🎉 有新版<span class="xy-seg-dot"></span>';
         } else {
-            btn.style.pointerEvents = ''; btn.style.opacity = '';
-            if (xyUpdateState.hasNew) {
-                btn.textContent = '🎉 有新版';
-                btn.style.background = T('rgba(52,211,153,0.2)', '#d1fae5');
-                btn.style.color = T('#34d399', '#065f46');
-                btn.style.borderColor = T('rgba(52,211,153,0.3)', '#a7f3d0');
-            } else {
-                btn.textContent = '↻ 检查更新';
-                btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = '';
-            }
+            btn.innerHTML = '↻ 检查更新<span class="xy-seg-dot"></span>';
         }
     }
 
@@ -830,21 +824,6 @@
             wrapper.classList.remove('xy-theme-light');
         }
         
-        const badge = document.getElementById('xy-zone-badge');
-        if (badge && appState.activeZone !== 'uninitialized') {
-            const isLight = effective === 'light';
-            if (appState.activeZone === 'course') {
-                badge.style.background = isLight ? '#dbeafe' : 'rgba(99,102,241,0.15)';
-                badge.style.color = isLight ? '#1e40af' : '#a5b4fc';
-            } else if (appState.activeZone === 'disc') {
-                badge.style.background = isLight ? '#ffedd5' : 'rgba(245,158,11,0.15)';
-                badge.style.color = isLight ? '#c2410c' : '#fcd34d';
-            } else {
-                badge.style.background = isLight ? '#f1f5f9' : 'rgba(71,85,105,0.2)';
-                badge.style.color = isLight ? '#475569' : '#94a3b8';
-            }
-        }
-        
         const btn = document.getElementById('xy-theme-toggle');
         if (btn) {
             if (appState.theme === 'auto') {
@@ -994,8 +973,8 @@
             superConsole.style.display = 'flex';
         }
         
-        const viewC = document.getElementById('xy-view-course'), viewD = document.getElementById('xy-view-disc'), viewS = document.getElementById('xy-view-standby'), viewDL = document.getElementById('xy-view-download'), viewHW = document.getElementById('xy-view-hw'), viewDIR = document.getElementById('xy-view-dir'), badge = document.getElementById('xy-zone-badge');
-        if (viewC && viewD && viewS && viewDL && badge) {
+        const viewC = document.getElementById('xy-view-course'), viewD = document.getElementById('xy-view-disc'), viewS = document.getElementById('xy-view-standby'), viewDL = document.getElementById('xy-view-download'), viewHW = document.getElementById('xy-view-hw'), viewDIR = document.getElementById('xy-view-dir'), segZone = document.getElementById('xy-seg-zone');
+        if (viewC && viewD && viewS && viewDL && segZone) {
             viewC.style.display = newZone === 'course' ? 'block' : 'none';
             viewD.style.display = newZone === 'disc' ? 'block' : 'none';
             viewS.style.display = newZone === 'standby' ? 'flex' : 'none';
@@ -1003,32 +982,9 @@
             if (viewHW) viewHW.style.display = newZone === 'hw' ? 'block' : 'none';
             if (viewDIR) viewDIR.style.display = newZone === 'dir' ? 'block' : 'none';
 
-            const isLight = resolveTheme() === 'light';
-            if (newZone === 'course') {
-                badge.innerHTML = '📚 刷课区';
-                badge.style.background = isLight ? '#dbeafe' : 'rgba(99,102,241,0.15)';
-                badge.style.color = isLight ? '#1e40af' : '#a5b4fc';
-            } else if (newZone === 'disc') {
-                badge.innerHTML = '💭 讨论区';
-                badge.style.background = isLight ? '#ffedd5' : 'rgba(245,158,11,0.15)';
-                badge.style.color = isLight ? '#c2410c' : '#fcd34d';
-            } else if (newZone === 'download') {
-                badge.innerHTML = '📥 下载区';
-                badge.style.background = isLight ? '#d1fae5' : 'rgba(52,211,153,0.12)';
-                badge.style.color = isLight ? '#065f46' : '#6ee7b7';
-            } else if (newZone === 'hw') {
-                badge.innerHTML = '📝 作业区';
-                badge.style.background = isLight ? '#fce7f3' : 'rgba(236,72,153,0.15)';
-                badge.style.color = isLight ? '#9d174d' : '#f9a8d4';
-            } else if (newZone === 'dir') {
-                badge.innerHTML = '📂 课程目录';
-                badge.style.background = isLight ? '#e0e7ff' : 'rgba(129,140,248,0.15)';
-                badge.style.color = isLight ? '#4338ca' : '#a5b4fc';
-            } else {
-                badge.innerHTML = '🏝️ 待命区';
-                badge.style.background = isLight ? '#f1f5f9' : 'rgba(71,85,105,0.2)';
-                badge.style.color = isLight ? '#475569' : '#94a3b8';
-            }
+            const zoneLabel = newZone === 'course' ? '📚 刷课区' : newZone === 'disc' ? '💭 讨论区' : newZone === 'download' ? '📥 下载区' : newZone === 'hw' ? '📝 作业区' : newZone === 'dir' ? '📂 课程目录' : '🏝️ 待命区';
+            segZone.innerHTML = zoneLabel;
+            segZone.classList.add('active');
         }
 
         if (oldZone !== 'uninitialized') {
@@ -5724,6 +5680,10 @@
                 #xy-super-console.xy-theme-light .xy-mini-btn:hover {
                     background: #f8fafc; color: #0f172a; border-color: #cbd5e1;
                 }
+                #xy-super-console.xy-theme-light .xy-seg { background: #f1f5f9; border-color: #e2e8f0; }
+                #xy-super-console.xy-theme-light .xy-seg-item:hover { background: #ffffff; color: #0f172a; }
+                #xy-super-console.xy-theme-light .xy-seg-item.active { color: #4338ca; background: #e0e7ff; box-shadow: 0 0 0 1px rgba(79,70,229,0.12); }
+                #xy-super-console.xy-theme-light .xy-seg-item.is-new { color: #059669; }
                 #xy-super-console.xy-theme-light .xy-stat-box {
                     background: #f0fdf4; border-color: #bbf7d0;
                 }
@@ -5770,6 +5730,14 @@
                 .xy-action-btn.inactive-guard { background: rgba(51,65,85,0.4); border-color: var(--xy-border); color: var(--xy-text-muted); }
                 .xy-mini-btn { background: rgba(51,65,85,0.4); color: var(--xy-text2); border-radius: 7px; padding: 7px 11px; font-size: 12px; font-weight: 600; border: 1px solid var(--xy-border); cursor:pointer; transition: all 0.2s; }
                 .xy-mini-btn:hover { background: rgba(71,85,105,0.5); color: var(--xy-text); border-color: rgba(129,140,248,0.3); transform: translateY(-1px); }
+                .xy-seg { display: flex; padding: 3px; gap: 3px; background: rgba(15,23,42,0.6); border: 1px solid var(--xy-border); border-radius: 11px; flex-shrink: 0; }
+                .xy-seg-item { flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 8px 2px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--xy-text2); cursor: pointer; white-space: nowrap; user-select: none; transition: all 0.15s; min-width: 0; }
+                .xy-seg-item:hover { color: var(--xy-text); background: rgba(71,85,105,0.3); }
+                .xy-seg-item.active { color: #a5b4fc; background: linear-gradient(135deg, rgba(99,102,241,0.35), rgba(79,70,229,0.25)); box-shadow: 0 0 12px rgba(99,102,241,0.15); }
+                .xy-seg-item.is-new { color: var(--xy-success); }
+                .xy-seg-item.is-new .xy-seg-dot { display: inline-block; }
+                .xy-seg-item.is-checking { opacity: 0.65; pointer-events: none; }
+                .xy-seg-dot { display: none; width: 6px; height: 6px; border-radius: 99px; background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,0.9); flex-shrink: 0; }
                 .xy-stat-box { display: flex; justify-content: space-between; align-items: center; background: linear-gradient(145deg, rgba(52,211,153,0.08), rgba(16,185,129,0.04)); border: 1px solid rgba(52,211,153,0.18); padding: 14px 18px; border-radius: 12px; }
                 .xy-section-hdr { transition: all 0.2s; }
                 .xy-section-hdr:hover { color: var(--xy-text) !important; }
@@ -5795,11 +5763,11 @@
                         <div id="xy-minimize" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 7px; border-radius: 6px; font-size: 14px; transition: 0.2s; font-weight:700;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}'; this.style.color='${T('#e2e8f0','#0f172a')}';" onmouseout="this.style.background='transparent'; this.style.color='${T('#64748b','#94a3b8')}';">⊟</div>
                     </div>
                 </div>
-                <div id="xy-handle-row2" style="display: flex; align-items: center; gap: 8px;">
-                    <div id="xy-zone-badge" class="xy-badge xy-badge-info"></div>
-                    <span id="xy-feedback-link" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s;" title="反馈问题或建议" onmouseover="this.style.background='${T('rgba(129,140,248,0.25)','#c7d2fe')}';" onmouseout="this.style.background='${T('rgba(129,140,248,0.15)','#e0e7ff')}';">💬 反馈</span>
-                    <span id="xy-qq-group" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s;" title="点击复制QQ群号" onmouseover="this.style.background='${T('rgba(129,140,248,0.25)','#c7d2fe')}';" onmouseout="this.style.background='${T('rgba(129,140,248,0.15)','#e0e7ff')}';">QQ群: 1095232169</span>
-                    <span id="xy-update-btn" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s; user-select:none;" title="检查脚本更新">↻ 检查更新</span>
+                <div id="xy-handle-row2" class="xy-seg">
+                    <div id="xy-seg-zone" class="xy-seg-item active" title="当前区域">🏝️ 待命区</div>
+                    <div id="xy-seg-feedback" class="xy-seg-item" title="反馈问题或建议">💬 反馈</div>
+                    <div id="xy-seg-qq" class="xy-seg-item" title="点击复制QQ群号">👥 QQ群</div>
+                    <div id="xy-seg-update" class="xy-seg-item" title="检查脚本更新">↻ 检查更新<span class="xy-seg-dot"></span></div>
                 </div>
             </div>
 
@@ -6111,7 +6079,7 @@
             logMsg('📡 全局雷达网持续扫描中...', 'silent', true);
         }
 
-        const qqBadge = document.getElementById('xy-qq-group');
+        const qqBadge = document.getElementById('xy-seg-qq');
         if (qqBadge) {
             qqBadge.onclick = async (e) => {
                 e.stopPropagation();
@@ -6122,7 +6090,7 @@
             };
         }
 
-        const updateBtn = document.getElementById('xy-update-btn');
+        const updateBtn = document.getElementById('xy-seg-update');
         if (updateBtn) updateBtn.onclick = (e) => { e.stopPropagation(); xyShowUpdateModal(); };
 
         const bcToggle = document.getElementById('xy-bc-toggle');
@@ -6497,13 +6465,13 @@
         };
 
         
-        const feedbackLink = document.getElementById('xy-feedback-link');
+        const feedbackLink = document.getElementById('xy-seg-feedback');
         if (feedbackLink) feedbackLink.onclick = () => xyShowFeedbackSurvey();
 
         let isDragging = false, dragStartX = 0, dragStartY = 0, initialLeft = 0, initialTop = 0;
         
         handle.addEventListener('mousedown', (e) => {
-            if(e.target.tagName === 'BUTTON' || e.target === minBtn || e.target.tagName === 'INPUT' || e.target.id === 'xy-qq-group' || e.target.id === 'xy-bc-toggle') return;
+            if(e.target.tagName === 'BUTTON' || e.target === minBtn || e.target.tagName === 'INPUT' || e.target.closest('.xy-seg-item') || e.target.id === 'xy-bc-toggle') return;
             isDragging = true;
             dragStartX = e.clientX;
             dragStartY = e.clientY;
