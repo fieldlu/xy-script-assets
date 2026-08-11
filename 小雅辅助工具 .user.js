@@ -506,7 +506,8 @@
 
     
     const appState = {
-        activeZone: 'uninitialized', 
+        activeZone: 'uninitialized',
+        discScrapeAbort: false,
         mode: GM_getValue('xy_play_mode', 'sequence'), 
         recordActive: false,
         guardActive: GM_getValue('xy_guard_active', true),
@@ -3015,30 +3016,38 @@
     async function fetchCurrentUsers() {
         if (appState.activeZone !== 'disc') return;
         if(!appState.discussionId) { logMsg('未拦截到讨论区ID，请随便点击一下任意评论！', 'warning'); return; }
-        const btn = document.getElementById('xy-btn-fetch-users'); const originalText = btn ? btn.innerText : ''; 
+        const btn = document.getElementById('xy-btn-fetch-users'); const originalText = btn ? btn.innerText : '';
+        const stopBtn = document.getElementById('xy-btn-stop-scrape');
         if(btn) { btn.disabled = true; btn.innerText = "深潜抓取中..."; }
-        
+
         logMsg('🧹 正在深度扫描全部评论页，自动去重收录...', 'info');
 
         try {
+            appState.discScrapeAbort = false;
+            if (stopBtn) { stopBtn.style.display = 'inline-block'; stopBtn.disabled = false; }
             let pageIndex = 1;
-            while (true) { 
+            const seenIds = new Set();
+            while (true) {
+                if (appState.discScrapeAbort) { logMsg('⏹ 已手动停止深度抓取', 'warning'); break; }
                 if(btn) btn.innerText = `深潜抓取中 (第${pageIndex}页)...`;
-                const list = await fetchDiscussions(20, pageIndex); 
+                const list = await fetchDiscussions(20, pageIndex);
                 if (!list || list.length === 0) break;
-                
-                list.forEach(item => { 
-                    const realName = decodeNickname(item.nickname); 
+
+                let newInPage = 0;
+                list.forEach(item => {
+                    if (item && item.id && !seenIds.has(item.id)) { seenIds.add(item.id); newInPage++; }
+                    const realName = decodeNickname(item.nickname);
                     if (realName && realName !== "匿名" && !realName.includes("=")) {
                         if (!appState.targetNames.includes(realName)) {
                             appState.targetNames.push(realName);
                         }
-                    } 
+                    }
                 });
-                if (list.length < 20) break; 
-                await sleep(300); 
+                if (newInPage === 0) break;
+                if (list.length < 20) break;
+                await sleep(300);
                 pageIndex++;
-                if (pageIndex > 300) break; 
+                if (pageIndex > 300) break;
             }
 
             const domNames = scanDomForUserNames();
@@ -3049,9 +3058,9 @@
             });
 
             GM_setValue('xy_target_names', JSON.stringify(appState.targetNames));
-            renderTargetList(document.getElementById('xy-name-search')?.value || ''); 
-            logMsg(`✅ 全量扫描到底！总库现存 ${appState.targetNames.length} 人。`, 'success');
-        } catch (error) { logMsg('抓取失败，请检查网络或刷新重试', 'error'); } finally { if(btn) { btn.disabled = false; btn.innerText = originalText || "🔄 手动刷新名单"; } }
+            renderTargetList(document.getElementById('xy-name-search')?.value || '');
+            logMsg(appState.discScrapeAbort ? `⏸ 已停止，总库现存 ${appState.targetNames.length} 人。` : `✅ 扫描到底！总库现存 ${appState.targetNames.length} 人。`, 'success');
+        } catch (error) { logMsg('抓取失败，请检查网络或刷新重试', 'error'); } finally { if(stopBtn) stopBtn.style.display = 'none'; if(btn) { btn.disabled = false; btn.innerText = originalText || "🔄 手动刷新名单"; } }
     }
 
     function getCheckedTargetNames() { return Array.from(appState.selectedNames); }
@@ -5922,6 +5931,7 @@
 
                     <div style="display: flex; gap: 8px; margin-bottom: 12px;">
                         <button class="xy-mini-btn" id="xy-btn-fetch-users" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; color:${T('#c7d2fe','#4338ca')}; border-color:${T('rgba(129,140,248,0.25)','#c7d2fe')}; flex:1;">🔄 刷新名单</button>
+                        <button class="xy-mini-btn" id="xy-btn-stop-scrape" style="display:none; flex:1; background:${T('rgba(248,113,113,0.15)','#fee2e2')}; color:${T('#f87171','#dc2626')}; border-color:${T('rgba(248,113,113,0.3)','#fecaca')};">⏹ 停止</button>
                         <button class="xy-mini-btn" id="xy-btn-clear-names" style="flex:1;">清空全库</button>
                     </div>
 
@@ -6394,6 +6404,8 @@
             } catch(e) { showToast('复制失败，可能是浏览器限制', 'error'); }
         };
         document.getElementById('xy-btn-fetch-users').onclick = fetchCurrentUsers;
+        const stopScrapeBtn = document.getElementById('xy-btn-stop-scrape');
+        if (stopScrapeBtn) stopScrapeBtn.onclick = () => { appState.discScrapeAbort = true; stopScrapeBtn.disabled = true; };
         document.getElementById('xy-btn-clear-names').onclick = () => { 
             appState.targetNames = []; appState.selectedNames.clear();
             GM_setValue('xy_target_names', JSON.stringify([])); 
