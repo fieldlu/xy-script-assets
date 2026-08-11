@@ -1,10 +1,10 @@
 {
-  "version": "3.6.3",
+  "version": "3.6.2",
   "notes": [
-    "✔️ 版本清单已生效：version 高于脚本当前版本时即提示更新",
-    "📝 发布新版时，请把这里替换成真实的更新内容",
+    "📋 版本清单：version 与脚本 @version 一致时显示「已是最新版本」",
+    "⬆️ 发布新版：改脚本 @version → 推送 user.js → 同步改本文件 version + notes",
     "🔗 发布页：https://scriptcat.org/zh-CN/script-show-page/5881"
   ],
-  "downloadURL": "https://scriptcat.org/zh-CN/script-show-page/5881",
+  "downloadURL": "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js",
   "changelogURL": "https://scriptcat.org/zh-CN/script-show-page/5881"
 }
