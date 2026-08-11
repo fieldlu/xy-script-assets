@@ -2,6 +2,7 @@
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
 // @version      3.6.3
+// @downloadURL  https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      仅供个人学习使用，禁止修改、复制或用于商业用途
