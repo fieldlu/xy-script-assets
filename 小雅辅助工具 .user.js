@@ -38,7 +38,7 @@
     // 与 WHUT教务小助手一致：从 Gitee 版本清单 JSON 拉取最新版本号，比对后提示
     const SCRIPT_UPDATE = {
         infoURL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/xy-script.latest.json',
-        downloadURL: 'https://scriptcat.org/zh-CN/script-show-page/5881',
+        downloadURL: 'https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js',
         projectURL: 'https://scriptcat.org/zh-CN/script-show-page/5881'
     };
 
