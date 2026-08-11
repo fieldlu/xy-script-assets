@@ -1,0 +1,11 @@
+{
+  "version": "3.6.3",
+  "notes": [
+    "🔮 示例：请把 version 改成实际最新版本号",
+    "📋 每条 notes 会显示在更新面板的「更新内容」里",
+    "⬆️ 版本号高于脚本当前版本时，才会提示有新版",
+    "↻ 发布新版脚本时，同步更新本文件并推送到 Gitee"
+  ],
+  "downloadURL": "https://scriptcat.org/zh-CN/script-show-page/5881",
+  "changelogURL": "https://scriptcat.org/zh-CN/script-show-page/5881"
+}
