@@ -5,7 +5,7 @@
 // @downloadURL  https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
-// @license      仅供个人学习使用，禁止修改、复制或用于商业用途
+// @license      GPL-3.0-or-later
 // @match        https://*.ai-augmented.com/*
 // @noframes
 // @run-at       document-start
@@ -3237,7 +3237,7 @@
         "items": [
             "🔮 更新链接：https://scriptcat.org/zh-CN/script-show-page/5881",
             "🔒 隐私声明：本脚本不收集任何个人信息，数据仅存本地浏览器",
-            "⚠️ 免责声明：仅供个人学习使用，禁止用于商业用途，使用者自负风险",
+            "⚠️ 免责声明：本脚本按 GPL-3.0 协议开源，使用者自负风险",
             "",
             "🔥 === v3.6.3 更新 ===",
             "↻ 新增脚本更新模块：面板头部一键「检查更新」",
