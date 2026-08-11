@@ -34,6 +34,200 @@
 
     const domain = window.location.hostname;
 
+    // ================= 脚本更新模块 =================
+    // 与 WHUT教务小助手一致：从 Gitee 版本清单 JSON 拉取最新版本号，比对后提示
+    const SCRIPT_UPDATE = {
+        infoURL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/xy-script.latest.json',
+        downloadURL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js',
+        projectURL: 'https://scriptcat.org/zh-CN/script-show-page/5881'
+    };
+
+    function compareVersion(a, b) {
+        const pa = String(a || '0').split(/[^\d]+/).filter(Boolean).map(Number);
+        const pb = String(b || '0').split(/[^\d]+/).filter(Boolean).map(Number);
+        const len = Math.max(pa.length, pb.length, 1);
+        for (let i = 0; i < len; i++) {
+            const av = Number.isFinite(pa[i]) ? pa[i] : 0;
+            const bv = Number.isFinite(pb[i]) ? pb[i] : 0;
+            if (av !== bv) return av > bv ? 1 : -1;
+        }
+        return 0;
+    }
+
+    const xyUpdateState = {
+        isLoaded: false, isChecking: false, info: null, error: '', hasNew: false
+    };
+    let xyUpdateModal = null;
+
+    function xyCloseUpdateModal() {
+        const modal = xyUpdateModal;
+        if (!modal || !document.body.contains(modal)) return;
+        const box = modal.querySelector('#xy-update-box');
+        modal.style.opacity = '0';
+        if (box) box.style.transform = 'scale(0.95)';
+        setTimeout(() => modal.remove(), 300);
+        xyUpdateModal = null;
+    }
+
+    function xyUpdateHeaderButton() {
+        const btn = document.getElementById('xy-update-btn');
+        if (!btn) return;
+        if (xyUpdateState.isChecking) {
+            btn.textContent = '⏳ 检查中';
+            btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = '';
+            btn.style.pointerEvents = 'none'; btn.style.opacity = '0.7';
+        } else {
+            btn.style.pointerEvents = ''; btn.style.opacity = '';
+            if (xyUpdateState.hasNew) {
+                btn.textContent = '🎉 有新版';
+                btn.style.background = T('rgba(52,211,153,0.2)', '#d1fae5');
+                btn.style.color = T('#34d399', '#065f46');
+                btn.style.borderColor = T('rgba(52,211,153,0.3)', '#a7f3d0');
+            } else {
+                btn.textContent = '↻ 检查更新';
+                btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = '';
+            }
+        }
+    }
+
+    function xyUpdateRenderModal() {
+        const modal = xyUpdateModal;
+        if (!modal || !document.body.contains(modal)) return;
+        const box = modal.querySelector('#xy-update-box');
+        if (!box) return;
+        const current = SCRIPT_VERSION;
+        const info = xyUpdateState.info || {};
+        const latest = info.version || '-';
+        const hasInfo = !!info.version;
+        const hasNew = hasInfo && compareVersion(latest, current) > 0;
+        const statusText = xyUpdateState.isChecking
+            ? '⏳ 正在检查更新...'
+            : (xyUpdateState.error ? `❌ 检查失败：${escapeHtml(xyUpdateState.error)}` : (hasInfo ? (hasNew ? `🎉 发现新版本 ${escapeHtml(latest)}` : '✅ 当前已是最新版本') : '尚未检查'));
+        const statusColor = xyUpdateState.error ? T('#f87171', '#dc2626') : (hasNew ? T('#34d399', '#059669') : T('#818cf8', '#4f46e5'));
+        const notes = Array.isArray(info.notes) ? info.notes : [];
+        const downloadURL = info.downloadURL || SCRIPT_UPDATE.downloadURL;
+        const changelogURL = info.changelogURL || info.projectURL || SCRIPT_UPDATE.projectURL;
+        box.innerHTML = `
+            <div style="background: ${T('linear-gradient(145deg, #1e293b, #0f172a)', '#ffffff')}; border-radius: 16px; width: 520px; max-width: 94%; max-height: 84vh; overflow-y: auto; padding: 28px; box-shadow: ${T('0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(71,85,105,0.3)', '0 20px 50px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)')}; border: 1px solid ${T('rgba(71,85,105,0.2)', '#e2e8f0')}; transform: scale(0.95); transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #818cf8, #6366f1); opacity: 0.8;"></div>
+                <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 20px;">
+                    <div style="width: 44px; height: 44px; border-radius: 12px; background: ${T('rgba(129,140,248,0.12)', '#eef2ff')}; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 1px solid ${T('rgba(129,140,248,0.2)', '#c7d2fe')};">↻</div>
+                    <div>
+                        <h3 style="margin: 0; color: ${T('#f1f5f9', '#0f172a')}; font-size: 18px; font-weight: 700;">脚本更新</h3>
+                        <div style="color: ${T('#94a3b8', '#64748b')}; font-size: 12px; margin-top: 2px;">通过 Gitee 版本清单检查新版，交由脚本管理器确认安装</div>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+                    <div style="background: ${T('rgba(30,41,59,0.6)', '#f8fafc')}; border: 1px solid ${T('rgba(71,85,105,0.25)', '#e2e8f0')}; border-radius: 12px; padding: 14px;">
+                        <div style="font-size: 11px; font-weight: 700; color: ${T('#94a3b8', '#64748b')}; margin-bottom: 5px;">当前版本</div>
+                        <div style="color: ${T('#818cf8', '#4f46e5')}; font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums;">${escapeHtml(current)}</div>
+                    </div>
+                    <div style="background: ${T('rgba(30,41,59,0.6)', '#f8fafc')}; border: 1px solid ${hasNew ? T('rgba(52,211,153,0.3)', '#a7f3d0') : T('rgba(71,85,105,0.25)', '#e2e8f0')}; border-radius: 12px; padding: 14px;">
+                        <div style="font-size: 11px; font-weight: 700; color: ${T('#94a3b8', '#64748b')}; margin-bottom: 5px;">最新版本</div>
+                        <div style="color: ${hasNew ? T('#34d399', '#059669') : T('#818cf8', '#4f46e5')}; font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums;">${escapeHtml(latest)}</div>
+                    </div>
+                </div>
+                <div style="color: ${statusColor}; font-size: 13px; font-weight: 800; margin-bottom: 14px;">${statusText}</div>
+                ${notes.length ? `<div style="margin-bottom: 14px; padding: 12px 14px; background: ${T('rgba(129,140,248,0.06)', '#f8fafc')}; border: 1px solid ${T('rgba(71,85,105,0.2)', '#e2e8f0')}; border-radius: 12px;">
+                    <div style="font-size: 12px; font-weight: 800; color: ${T('#e2e8f0', '#0f172a')}; margin-bottom: 7px;">📋 更新内容</div>
+                    <ul style="margin: 0; padding-left: 18px; color: ${T('#cbd5e1', '#475569')}; line-height: 1.7; font-size: 13px;">${notes.map(n => `<li style="margin: 3px 0;">${escapeHtml(n)}</li>`).join('')}</ul>
+                </div>` : ''}
+                <div style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
+                    <button id="xy-upd-check" style="padding: 10px 20px; border: 1px solid ${T('rgba(129,140,248,0.3)', '#c7d2fe')}; background: ${T('rgba(129,140,248,0.1)', '#eef2ff')}; color: ${T('#a5b4fc', '#4f46e5')}; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;" ${xyUpdateState.isChecking ? 'disabled' : ''}>${xyUpdateState.isChecking ? '⏳ 检查中...' : '↻ 重新检查'}</button>
+                    <button id="xy-upd-open" data-url="${escapeHtml(downloadURL)}" style="padding: 10px 20px; border: none; background: linear-gradient(135deg, #818cf8, #6366f1); color: white; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(99,102,241,0.25); transition: all 0.2s; font-family: inherit;" ${hasNew ? '' : 'disabled'}>${hasNew ? '⬇ 打开更新文件' : '已是最新'}</button>
+                    <button id="xy-upd-log" data-url="${escapeHtml(changelogURL)}" style="padding: 10px 20px; border: 1px solid ${T('rgba(71,85,105,0.3)', '#e2e8f0')}; background: ${T('rgba(30,41,59,0.4)', '#ffffff')}; color: ${T('#cbd5e1', '#475569')}; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;">查看发布页</button>
+                </div>
+            </div>`;
+        requestAnimationFrame(() => { box.firstElementChild.style.transform = 'scale(1)'; });
+        const checkBtn = box.querySelector('#xy-upd-check');
+        if (checkBtn) checkBtn.onclick = (e) => { e.stopPropagation(); xyUpdateCheck(true); };
+        const openBtn = box.querySelector('#xy-upd-open');
+        if (openBtn) openBtn.onclick = (e) => { e.stopPropagation(); window.open(openBtn.dataset.url || SCRIPT_UPDATE.downloadURL, '_blank'); };
+        const logBtn = box.querySelector('#xy-upd-log');
+        if (logBtn) logBtn.onclick = (e) => { e.stopPropagation(); window.open(logBtn.dataset.url || SCRIPT_UPDATE.projectURL, '_blank'); };
+    }
+
+    function xyShowUpdateModal() {
+        if (!document.body) return;
+        if (xyUpdateModal && document.body.contains(xyUpdateModal)) { xyUpdateModal.style.opacity = '1'; return; }
+        const modal = document.createElement('div');
+        modal.style.cssText = `position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2147483647; opacity: 0; transition: all 0.25s; backdrop-filter: blur(10px); padding: 20px;`;
+        modal.appendChild(document.createElement('div')).id = 'xy-update-box';
+        document.body.appendChild(modal);
+        xyUpdateModal = modal;
+        modal.addEventListener('click', (e) => { if (e.target === modal) xyCloseUpdateModal(); });
+        requestAnimationFrame(() => { modal.style.opacity = '1'; });
+        xyUpdateRenderModal();
+        if (!xyUpdateState.isLoaded && !xyUpdateState.isChecking) xyUpdateCheck(false);
+    }
+
+    function xyUpdateCheck(manual = false) {
+        if (xyUpdateState.isChecking) return;
+        xyUpdateState.isChecking = true;
+        xyUpdateState.error = '';
+        xyUpdateHeaderButton();
+        xyUpdateRenderModal();
+        try {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `${SCRIPT_UPDATE.infoURL}?t=${Date.now()}`,
+                timeout: 12000,
+                onload: (resp) => {
+                    try {
+                        const info = JSON.parse(resp.responseText);
+                        if (!info.version) throw new Error('更新清单缺少 version 字段');
+                        const hasNew = compareVersion(info.version, SCRIPT_VERSION) > 0;
+                        xyUpdateState.info = info;
+                        xyUpdateState.isLoaded = true;
+                        xyUpdateState.hasNew = hasNew;
+                        GM_setValue('xy_update_last_check', Date.now());
+                        if (!manual && hasNew) {
+                            const notifyKey = `xy_update_notified_${info.version}`;
+                            if (GM_getValue(notifyKey, '0') !== '1') {
+                                showToast(`🎉 发现脚本新版本 ${info.version}，点击面板「↻ 检查更新」可查看`, 'success');
+                                GM_setValue(notifyKey, '1');
+                            }
+                        }
+                    } catch (e) {
+                        xyUpdateState.error = e.message || '更新检查失败';
+                        xyUpdateState.hasNew = false;
+                    } finally {
+                        xyUpdateState.isChecking = false;
+                        xyUpdateHeaderButton();
+                        xyUpdateRenderModal();
+                    }
+                },
+                onerror: () => {
+                    xyUpdateState.error = '网络请求失败';
+                    xyUpdateState.hasNew = false;
+                    xyUpdateState.isChecking = false;
+                    xyUpdateHeaderButton();
+                    xyUpdateRenderModal();
+                },
+                ontimeout: () => {
+                    xyUpdateState.error = '请求超时，请稍后重试';
+                    xyUpdateState.hasNew = false;
+                    xyUpdateState.isChecking = false;
+                    xyUpdateHeaderButton();
+                    xyUpdateRenderModal();
+                }
+            });
+        } catch (e) {
+            xyUpdateState.error = e.message || '更新检查失败';
+            xyUpdateState.hasNew = false;
+            xyUpdateState.isChecking = false;
+            xyUpdateHeaderButton();
+            xyUpdateRenderModal();
+        }
+    }
+
+    function xyUpdateAutoCheck() {
+        const interval = 6 * 60 * 60 * 1000;
+        const last = parseInt(GM_getValue('xy_update_last_check', '0'), 10);
+        if (Date.now() - last < interval) return;
+        xyUpdateCheck(false);
+    }
+
     
     (function initSplash() {
         try {
@@ -5599,6 +5793,7 @@
                     <div id="xy-zone-badge" class="xy-badge xy-badge-info"></div>
                     <span id="xy-feedback-link" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s;" title="反馈问题或建议" onmouseover="this.style.background='${T('rgba(129,140,248,0.25)','#c7d2fe')}';" onmouseout="this.style.background='${T('rgba(129,140,248,0.15)','#e0e7ff')}';">💬 反馈</span>
                     <span id="xy-qq-group" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s;" title="点击复制QQ群号" onmouseover="this.style.background='${T('rgba(129,140,248,0.25)','#c7d2fe')}';" onmouseout="this.style.background='${T('rgba(129,140,248,0.15)','#e0e7ff')}';">QQ群: 1095232169</span>
+                    <span id="xy-update-btn" class="xy-badge xy-badge-info" style="cursor:pointer; transition:all 0.2s; user-select:none;" title="检查脚本更新">↻ 检查更新</span>
                 </div>
             </div>
 
@@ -5920,6 +6115,9 @@
                 } catch(err) { showToast('请手动复制 QQ群号: 1095232169', 'error'); }
             };
         }
+
+        const updateBtn = document.getElementById('xy-update-btn');
+        if (updateBtn) updateBtn.onclick = (e) => { e.stopPropagation(); xyShowUpdateModal(); };
 
         const bcToggle = document.getElementById('xy-bc-toggle');
         const bcContent = document.getElementById('xy-bc-content');
@@ -6339,6 +6537,7 @@
 
         setTimeout(() => syncHardwareMute(), 100);
         fetchCloudIntelligence();
+        setTimeout(() => xyUpdateAutoCheck(), 2500);
         appState.isTaskCompleted = false;
         applyThemeClasses();
         _uiCreating = false;
