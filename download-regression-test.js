@@ -14,7 +14,9 @@ assert.match(SCRIPT, /dlCollectResources\(data\.data\)|dlCollectResources\(resou
 assert.match(SCRIPT, /data-quote-id=\"\$\{escapeHtml\(quoteId\)\}\"/);
 assert.match(SCRIPT, /getAttribute\('data-quote-id'\)/);
 assert.match(SCRIPT, /function downloadFile\(url, filename, signal, onProgress\)/);
-assert.match(SCRIPT, /updateDownloadProgress\(done \+ failed, total, file\.name, progress\.percent\)/);
+assert.match(SCRIPT, /updateDownloadProgress\(done \+ failed, total, file\.name, progress\.percent, progress\.receivedBytes, progress\.totalBytes\)/);
+assert.match(SCRIPT, /Content-Range/);
+assert.match(SCRIPT, /已接收/);
 assert.match(SCRIPT, /await downloadFile\(url, file\.name, signal/);
 assert.match(SCRIPT, /done\+\+;/);
 assert.match(SCRIPT, /failed\+\+;/);
@@ -160,7 +162,7 @@ handleClick(button, {
 // 直接执行 userscript 中的 downloadFile：验证参考脚本的流式读取、Blob、a.click
 // 和 Promise resolve/reject，而不是只检查字符串是否存在。
 const downloadFileStart = SCRIPT.indexOf('    function downloadFile(');
-const downloadFileEnd = SCRIPT.indexOf('    function updateDownloadProgress', downloadFileStart);
+const downloadFileEnd = SCRIPT.indexOf('    function formatDownloadBytes', downloadFileStart);
 assert(downloadFileStart >= 0 && downloadFileEnd > downloadFileStart, 'downloadFile function not found');
 const downloadFileSource = SCRIPT.slice(downloadFileStart, downloadFileEnd).trim();
 let fetchImpl;
@@ -228,12 +230,40 @@ assert.equal(progressEvents.at(-1).percent, 100);
 assert.equal(progressEvents.at(-1).receivedBytes, 3);
 assert.deepEqual(revoked, [], 'object URL should not be revoked synchronously');
 
+// Content-Length 缺失时，Content-Range 仍应提供当前文件总大小，避免进度一直停在未知状态。
+const rangeProgress = [];
+fetchImpl = async () => ({
+  ok: true,
+  headers: {
+    get(name) {
+      if (name === 'Content-Range') return 'bytes 0-2/3';
+      if (name === 'Content-Type') return 'application/octet-stream';
+      return null;
+    }
+  },
+  body: {
+    getReader() {
+      let done = false;
+      return {
+        async read() {
+          if (done) return { done: true, value: undefined };
+          done = true;
+          return { done: false, value: new Uint8Array([4, 5, 6]) };
+        }
+      };
+    }
+  }
+});
+await downloadFile('https://cdn.example/range.zip', 'range.zip', undefined, event => rangeProgress.push(event));
+assert.equal(rangeProgress.at(-1).totalBytes, 3);
+assert.equal(rangeProgress.at(-1).percent, 100);
+
 fetchImpl = async () => ({ ok: false, status: 503, headers: { get() { return null; } } });
 await assert.rejects(
     () => downloadFile('https://cdn.example/fail.zip', 'fail.zip'),
     /HTTP 503/
   );
-assert.equal(clicks.length, 1, 'failed response must not trigger a download click');
+assert.equal(clicks.length, 2, 'failed response must not trigger a download click');
 console.log('stream download resolve/reject: PASS');
 // Abort 必须取消流并阻止最后一步的 Blob/a.click 副作用。
 let abortReader;
@@ -267,7 +297,7 @@ await readerReady;
 abortController.abort();
 await assert.rejects(abortPromise, error => error && error.name === 'AbortError');
 assert.equal(abortReader.cancelled, true);
-assert.equal(clicks.length, 1, 'aborted stream must not trigger a download click');
+assert.equal(clicks.length, 2, 'aborted stream must not trigger a download click');
 console.log('abort download cancellation: PASS');
 }).catch(error => {
   console.error(error);
