@@ -1,12 +1,8 @@
 {
-  "version": "3.6.4",
+  "version": "3.6.5",
   "notes": [
-    "🧹 修复下载区课程切换竞态：旧请求不会覆盖当前课程资源、目录树和排序信息",
-    "🔁 修复下载资源请求失败后无法自动重试的问题",
-    "🛡️ 外部下载请求不再携带站点登录 Authorization",
-    "🔐 统一转义动态 HTML 内容，降低动态内容注入风险",
-    "🧩 统一下载资源 ID，修复批量下载与目录树 ID 不一致",
-    "🧯 优化 UI 观察器、持久定时器和异步异常处理"
+    "🔁 按参考脚本恢复下载链路：携带站点 Authorization 并采用流式读取",
+    "🛠️ 修复部分 CDN/对象存储资源下载失效问题"
   ],
   "downloadURL": "https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
   "changelogURL": "https://scriptcat.org/zh-CN/script-show-page/5881"

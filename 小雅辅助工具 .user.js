@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.6.4
+// @version      3.6.5
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -1198,7 +1198,7 @@
                         const accessToken = auth.data?.access_group_token;
                         if (accessToken) {
                             res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
-                                headers: { 'authorization': `Bearer ${token}`, 'X-Course-Access': accessToken }
+                                headers: { 'authorization': `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8', 'X-Course-Access': accessToken }
                             });
                             data = await res.json();
                         }
@@ -1462,7 +1462,7 @@
                 const token = getCookie();
                 if (!token) return null;
                 let res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
-                    headers: { 'authorization': `Bearer ${token}` }
+                    headers: { 'authorization': `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' }
                 });
                 let data = await res.json();
                 if (data.code === 50007) {
@@ -1531,7 +1531,7 @@
             try {
                 const token = getCookie();
                 if (!token) continue;
-                const res = await fetch(`https://${domain}/api/jx-oresource/cloud/file_url/${encodeURIComponent(normalizedQuoteId)}`, {
+                const res = await fetch(`https://${domain}/api/jx-oresource/cloud/file_url/${normalizedQuoteId}`, {
                     headers: { 'authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
@@ -1556,25 +1556,31 @@
                 if (signal.aborted) { abortHandler(); return; }
                 signal.addEventListener('abort', abortHandler, { once: true });
             }
-            const targetUrl = new URL(url, document.baseURI || window.location.href);
-            const headers = {};
-            if (token && targetUrl.origin === window.location.origin) {
-                headers.Authorization = `Bearer ${token}`;
-            }
-            fetch(targetUrl.href, {
-                headers,
-                signal: signal || undefined
-            }).then(res => {
+            fetch(url, {
+                signal: signal || undefined,
+                headers: { Authorization: `Bearer ${token}` }
+            }).then(async res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.blob();
+                // 按参考脚本使用流式读取，避免大文件直接 blob() 导致下载失败或内存压力过大。
+                if (!res.body || typeof res.body.getReader !== 'function') return res.blob();
+                const reader = res.body.getReader();
+                const chunks = [];
+                while (true) {
+                    const result = await reader.read();
+                    if (result.done) break;
+                    if (result.value) chunks.push(result.value);
+                }
+                return new Blob(chunks, { type: res.headers?.get?.('Content-Type') || 'application/octet-stream' });
             }).then(blob => {
                 const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
+                const objectUrl = URL.createObjectURL(blob);
+                a.href = objectUrl;
                 a.download = filename;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+                if (signal) signal.removeEventListener('abort', abortHandler);
                 resolve(true);
             }).catch(err => {
                 if (signal) signal.removeEventListener('abort', abortHandler);
@@ -3419,16 +3425,17 @@
     
     
     const EMBEDDED_NOTICE = {
-        "title": "🎉 v3.6.4 脚本更新 · 下载区稳定性与安全修复",
-        "version": "3.6.4",
+        "title": "🎉 v3.6.5 脚本更新 · 恢复原有下载方式",
+        "version": "3.6.5",
         "updatedAt": "2026-08-17",
         "items": [
             "🔮 更新链接：https://scriptcat.org/zh-CN/script-show-page/5881",
             "🔒 隐私声明：本脚本不收集任何个人信息，数据仅存本地浏览器",
             "⚠️ 免责声明：本脚本按 GPL-3.0 协议开源，使用者自负风险",
             "",
-            "🔥 === v3.6.4 更新 ===",
-            "🛡️ 下载请求安全增强：跨域资源不再携带站点 Authorization",
+            "🔥 === v3.6.5 更新 ===",
+            "🔁 按参考脚本恢复下载链路：携带站点 Authorization 并采用流式读取",
+            "🛠️ 修复部分 CDN/对象存储资源下载失效问题",
             "🧹 修复下载区课程切换竞态，旧请求不会覆盖当前课程数据",
             "🧩 统一下载资源 ID 规范化，修复批量下载与目录树 ID 不一致",
             "🧯 优化 UI 观察器、持久定时器与异步补偿的稳定性",
