@@ -1631,7 +1631,11 @@
                     });
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-                    const totalBytes = Number(res.headers?.get?.('Content-Length')) || 0;
+                    const contentLength = Number(res.headers?.get?.('Content-Length')) || 0;
+                    const contentRange = res.headers?.get?.('Content-Range') || '';
+                    const rangeMatch = /\/([0-9]+)$/.exec(contentRange);
+                    const rangeTotal = rangeMatch ? Number(rangeMatch[1]) : 0;
+                    const totalBytes = contentLength || rangeTotal;
                     let receivedBytes = 0;
                     let blob;
                     if (res.body && typeof res.body.getReader === 'function') {
@@ -1683,7 +1687,15 @@
         });
     }
 
-    function updateDownloadProgress(done, total, currentName, currentPercent) {
+    function formatDownloadBytes(bytes) {
+        const value = Number(bytes) || 0;
+        if (value < 1024) return `${value} B`;
+        if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+        if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+        return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
+
+    function updateDownloadProgress(done, total, currentName, currentPercent, currentBytes, currentTotalBytes) {
         const bar = document.getElementById('xy-dl-progress-bar');
         const text = document.getElementById('xy-dl-progress-text');
         if (bar) bar.style.width = total > 0 ? `${Math.max(0, Math.min(done / total * 100, 100)).toFixed(0)}%` : '0%';
@@ -1693,15 +1705,19 @@
             } else {
                 const totalPercent = (done / total * 100).toFixed(0);
                 const hasFileProgress = currentName && Number.isFinite(currentPercent);
+                const hasByteProgress = currentName && Number(currentBytes) > 0;
                 text.textContent = hasFileProgress
                     ? `${done}/${total} (${totalPercent}%) · ${currentName} ${Math.max(0, Math.min(currentPercent, 100)).toFixed(0)}%`
-                    : `${done}/${total} (${totalPercent}%)`;
+                    : hasByteProgress
+                        ? `${done}/${total} (${totalPercent}%) · ${currentName} · 已接收 ${formatDownloadBytes(currentBytes)}${Number(currentTotalBytes) > 0 ? ` / ${formatDownloadBytes(currentTotalBytes)}` : ''}`
+                        : currentName
+                            ? `${done}/${total} (${totalPercent}%) · ${currentName} · 正在下载…`
+                            : `${done}/${total} (${totalPercent}%)`;
             }
         }
         const wrap = document.getElementById('xy-dl-progress-wrap');
         if (wrap) wrap.style.display = total > 0 ? 'block' : 'none';
     }
-
     function setDownloadButtonsState(downloading, paused) {
         const batchBtn = document.getElementById('xy-dl-batch-download');
         const stopBtn = document.getElementById('xy-dl-stop');
@@ -1780,7 +1796,7 @@
                     logMsg(`❌ 获取失败: ${file.name}`, 'error', true);
                 } else {
                     await downloadFile(url, file.name, signal, progress => {
-                        updateDownloadProgress(done + failed, total, file.name, progress.percent);
+                        updateDownloadProgress(done + failed, total, file.name, progress.percent, progress.receivedBytes, progress.totalBytes);
                     });
                     done++;
                     logMsg(`📥 已下载: ${file.name}`, 'success', true);
@@ -3586,6 +3602,7 @@
             "",
             "🔥 === v3.6.4 更新 ===",
             "🔁 按参考脚本恢复下载链路：携带站点 Authorization 并采用流式读取",
+            "📦 文件服务器缺少 Content-Length 时显示当前文件名和已接收字节数，并支持从 Content-Range 推断总大小",
             "🖱️ 修复下载按钮事件委托与资源 ID 映射，点击后会正确进入获取链接和下载流程",
             "🧩 兼容数组/对象两种课程资源返回结构，补齐 quote_id 与嵌套资源识别",
             "🧹 修复下载区课程切换竞态，旧请求不会覆盖当前课程数据",
