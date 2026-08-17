@@ -2,8 +2,10 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 
-const SCRIPT = fs.readFileSync('小雅辅助工具 .user.js', 'utf8');
+const SCRIPT = fs.readFileSync(path.join(__dirname, '小雅辅助工具 .user.js'), 'utf8');
 assert.match(SCRIPT, /@version\s+3\.6\.4/);
 assert.doesNotMatch(SCRIPT, /@version\s+3\.6\.5/);
 assert.match(SCRIPT, /button\.onclick = event =>/);
@@ -11,6 +13,11 @@ assert.match(SCRIPT, /handleSingleDownloadClick\(event, button\)/);
 assert.match(SCRIPT, /dlCollectResources\(data\.data\)|dlCollectResources\(resources\)/);
 assert.match(SCRIPT, /data-quote-id=\"\$\{escapeHtml\(quoteId\)\}\"/);
 assert.match(SCRIPT, /getAttribute\('data-quote-id'\)/);
+assert.match(SCRIPT, /function downloadFile\(url, filename, signal, onProgress\)/);
+assert.match(SCRIPT, /updateDownloadProgress\(done \+ failed, total, file\.name, progress\.percent\)/);
+assert.match(SCRIPT, /await downloadFile\(url, file\.name, signal/);
+assert.match(SCRIPT, /done\+\+;/);
+assert.match(SCRIPT, /failed\+\+;/);
 
 function normalizeDownloadId(value) {
   if (value === null || value === undefined) return null;
@@ -148,6 +155,120 @@ handleClick(button, {
     ['downloadFile', 'https://cdn.example/direct', 'direct.pdf']
   ]);
   console.log('direct quote-id fallback: PASS');
+}).then(async () => {
+
+// 直接执行 userscript 中的 downloadFile：验证参考脚本的流式读取、Blob、a.click
+// 和 Promise resolve/reject，而不是只检查字符串是否存在。
+const downloadFileStart = SCRIPT.indexOf('    function downloadFile(');
+const downloadFileEnd = SCRIPT.indexOf('    function updateDownloadProgress', downloadFileStart);
+assert(downloadFileStart >= 0 && downloadFileEnd > downloadFileStart, 'downloadFile function not found');
+const downloadFileSource = SCRIPT.slice(downloadFileStart, downloadFileEnd).trim();
+let fetchImpl;
+const clicks = [];
+const appended = [];
+const revoked = [];
+const progressEvents = [];
+const fetchCalls = [];
+const context = {
+  Blob,
+  DOMException,
+  console,
+  setTimeout() { return 1; },
+  getCookie() { return 'test-token'; },
+  URL: {
+    createObjectURL() { return 'blob:test-download'; },
+    revokeObjectURL(url) { revoked.push(url); }
+  },
+  document: {
+    body: {
+      appendChild(node) { appended.push(node); },
+      removeChild(node) { appended.splice(appended.indexOf(node), 1); }
+    },
+    createElement() {
+      return {
+        href: '',
+        download: '',
+        click() { clicks.push({ href: this.href, download: this.download }); }
+      };
+    }
+  },
+  fetch(...args) { fetchCalls.push(args); return fetchImpl(...args); }
+};
+const downloadFile = vm.runInNewContext(`(${downloadFileSource})`, context);
+
+fetchImpl = async (url, options) => ({
+  ok: true,
+  headers: {
+    get(name) {
+      if (name === 'Content-Length') return '3';
+      if (name === 'Content-Type') return 'application/octet-stream';
+      return null;
+    }
+  },
+  body: {
+    getReader() {
+      const chunks = [new Uint8Array([1, 2]), new Uint8Array([3])];
+      let index = 0;
+      return {
+        async read() {
+          if (index >= chunks.length) return { done: true, value: undefined };
+          return { done: false, value: chunks[index++] };
+        }
+      };
+    }
+  }
+});
+await downloadFile('https://cdn.example/software.zip', 'software.zip', undefined, event => progressEvents.push(event));
+assert.equal(fetchCalls[0][0], 'https://cdn.example/software.zip');
+assert.equal(fetchCalls[0][1].headers.Authorization, 'Bearer test-token');
+assert.equal(clicks.length, 1);
+assert.deepEqual(clicks[0], { href: 'blob:test-download', download: 'software.zip' });
+assert.equal(appended.length, 0);
+assert.equal(progressEvents.at(-1).percent, 100);
+assert.equal(progressEvents.at(-1).receivedBytes, 3);
+assert.deepEqual(revoked, [], 'object URL should not be revoked synchronously');
+
+fetchImpl = async () => ({ ok: false, status: 503, headers: { get() { return null; } } });
+await assert.rejects(
+    () => downloadFile('https://cdn.example/fail.zip', 'fail.zip'),
+    /HTTP 503/
+  );
+assert.equal(clicks.length, 1, 'failed response must not trigger a download click');
+console.log('stream download resolve/reject: PASS');
+// Abort 必须取消流并阻止最后一步的 Blob/a.click 副作用。
+let abortReader;
+let readerReadyResolve;
+const readerReady = new Promise(resolve => { readerReadyResolve = resolve; });
+fetchImpl = async () => ({
+  ok: true,
+  headers: { get(name) { return name === 'Content-Length' ? '3' : 'application/octet-stream'; } },
+  body: {
+    getReader() {
+      let pendingResolve;
+      abortReader = {
+        cancelled: false,
+        read() {
+          return new Promise(resolve => { pendingResolve = resolve; });
+        },
+        cancel() {
+          this.cancelled = true;
+          if (pendingResolve) pendingResolve({ done: true, value: undefined });
+          return Promise.resolve();
+        }
+      };
+      readerReadyResolve(abortReader);
+      return abortReader;
+    }
+  }
+});
+const abortController = new AbortController();
+const abortPromise = downloadFile('https://cdn.example/abort.zip', 'abort.zip', abortController.signal);
+await readerReady;
+abortController.abort();
+await assert.rejects(abortPromise, error => error && error.name === 'AbortError');
+assert.equal(abortReader.cancelled, true);
+assert.equal(clicks.length, 1, 'aborted stream must not trigger a download click');
+console.log('abort download cancellation: PASS');
 }).catch(error => {
   console.error(error);
   process.exitCode = 1;

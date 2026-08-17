@@ -1587,52 +1587,117 @@
         return null;
     }
 
-    function downloadFile(url, filename, signal) {
+    // 与“小雅爬爬爬”的 handleFetchDownload 保持同一条链路：
+    // fetch(带 Authorization) → ReadableStream 逐块读取 → Blob → a.click()。
+    // onProgress 只用于显示当前文件进度，不改变批量下载的完成计数。
+    function downloadFile(url, filename, signal, onProgress) {
         return new Promise((resolve, reject) => {
             const token = getCookie();
-            const abortHandler = () => reject(new DOMException('用户终止下载', 'AbortError'));
+            let settled = false;
+            let reader = null;
+            const cleanup = () => {
+                if (signal) signal.removeEventListener('abort', abortHandler);
+            };
+            const fail = error => {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                reject(error);
+            };
+            const abortHandler = () => {
+                if (reader && typeof reader.cancel === 'function') {
+                    Promise.resolve(reader.cancel()).catch(() => {});
+                }
+                fail(new DOMException('用户终止下载', 'AbortError'));
+            };
+            const ensureActive = () => {
+                if (settled) return false;
+                if (signal?.aborted) {
+                    abortHandler();
+                    return false;
+                }
+                return true;
+            };
             if (signal) {
                 if (signal.aborted) { abortHandler(); return; }
                 signal.addEventListener('abort', abortHandler, { once: true });
             }
-            fetch(url, {
-                signal: signal || undefined,
-                headers: { Authorization: `Bearer ${token}` }
-            }).then(async res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                // 按参考脚本使用流式读取，避免大文件直接 blob() 导致下载失败或内存压力过大。
-                if (!res.body || typeof res.body.getReader !== 'function') return res.blob();
-                const reader = res.body.getReader();
-                const chunks = [];
-                while (true) {
-                    const result = await reader.read();
-                    if (result.done) break;
-                    if (result.value) chunks.push(result.value);
+
+            (async () => {
+                try {
+                    const res = await fetch(url, {
+                        signal: signal || undefined,
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+                    const totalBytes = Number(res.headers?.get?.('Content-Length')) || 0;
+                    let receivedBytes = 0;
+                    let blob;
+                    if (res.body && typeof res.body.getReader === 'function') {
+                        reader = res.body.getReader();
+                        const chunks = [];
+                        while (true) {
+                            const result = await reader.read();
+                            if (result.done) break;
+                            if (!result.value) continue;
+                            chunks.push(result.value);
+                            receivedBytes += result.value.byteLength ?? result.value.length ?? 0;
+                            if (typeof onProgress === 'function') {
+                                const percent = totalBytes > 0 ? receivedBytes / totalBytes * 100 : null;
+                                onProgress({ receivedBytes, totalBytes, percent });
+                            }
+                        }
+                        if (!ensureActive()) return;
+                        blob = new Blob(chunks, { type: res.headers?.get?.('Content-Type') || 'application/octet-stream' });
+                    } else {
+                        blob = await res.blob();
+                        receivedBytes = blob.size || 0;
+                        if (typeof onProgress === 'function') {
+                            onProgress({ receivedBytes, totalBytes: totalBytes || receivedBytes, percent: 100 });
+                        }
+                    }
+
+                    if (typeof onProgress === 'function') {
+                        onProgress({ receivedBytes, totalBytes, percent: totalBytes > 0 ? 100 : null });
+                    }
+                    if (!ensureActive()) return;
+                    const objectUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = objectUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    // 不能在 a.click() 后立即释放，部分浏览器会因此取消实际保存。
+                    setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+                    if (!settled) {
+                        settled = true;
+                        cleanup();
+                        resolve(true);
+                    }
+                } catch (error) {
+                    fail(error);
                 }
-                return new Blob(chunks, { type: res.headers?.get?.('Content-Type') || 'application/octet-stream' });
-            }).then(blob => {
-                const a = document.createElement('a');
-                const objectUrl = URL.createObjectURL(blob);
-                a.href = objectUrl;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
-                if (signal) signal.removeEventListener('abort', abortHandler);
-                resolve(true);
-            }).catch(err => {
-                if (signal) signal.removeEventListener('abort', abortHandler);
-                reject(err);
-            });
+            })();
         });
     }
 
-    function updateDownloadProgress(done, total) {
+    function updateDownloadProgress(done, total, currentName, currentPercent) {
         const bar = document.getElementById('xy-dl-progress-bar');
         const text = document.getElementById('xy-dl-progress-text');
-        if (bar) bar.style.width = total > 0 ? `${(done / total * 100).toFixed(0)}%` : '0%';
-        if (text) text.textContent = total > 0 ? `${done}/${total} (${(done/total*100).toFixed(0)}%)` : '';
+        if (bar) bar.style.width = total > 0 ? `${Math.max(0, Math.min(done / total * 100, 100)).toFixed(0)}%` : '0%';
+        if (text) {
+            if (total <= 0) {
+                text.textContent = '';
+            } else {
+                const totalPercent = (done / total * 100).toFixed(0);
+                const hasFileProgress = currentName && Number.isFinite(currentPercent);
+                text.textContent = hasFileProgress
+                    ? `${done}/${total} (${totalPercent}%) · ${currentName} ${Math.max(0, Math.min(currentPercent, 100)).toFixed(0)}%`
+                    : `${done}/${total} (${totalPercent}%)`;
+            }
+        }
         const wrap = document.getElementById('xy-dl-progress-wrap');
         if (wrap) wrap.style.display = total > 0 ? 'block' : 'none';
     }
@@ -1699,37 +1764,39 @@
                 return;
             }
             const file = selected[i];
-            const url = await getDownloadUrl(file.quoteId);
-            if (signal.aborted) {
-                updateDownloadProgress(done + failed, total);
-                setDownloadButtonsState(false, false);
-                const btn = document.getElementById('xy-dl-batch-download');
-                if (btn) btn.innerText = '⬇️ 下载选中';
-                showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
-                setTimeout(() => updateDownloadProgress(-1, 0), 3000);
-                return;
-            }
-            if (url) {
-                try {
-                    await downloadFile(url, file.name, signal);
+            try {
+                const url = await getDownloadUrl(file.quoteId);
+                if (signal.aborted) {
+                    updateDownloadProgress(done + failed, total);
+                    setDownloadButtonsState(false, false);
+                    const btn = document.getElementById('xy-dl-batch-download');
+                    if (btn) btn.innerText = '⬇️ 下载选中';
+                    showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
+                    setTimeout(() => updateDownloadProgress(-1, 0), 3000);
+                    return;
+                }
+                if (!url) {
+                    failed++;
+                    logMsg(`❌ 获取失败: ${file.name}`, 'error', true);
+                } else {
+                    await downloadFile(url, file.name, signal, progress => {
+                        updateDownloadProgress(done + failed, total, file.name, progress.percent);
+                    });
                     done++;
                     logMsg(`📥 已下载: ${file.name}`, 'success', true);
-                } catch (e) {
-                    if (e.name === 'AbortError') {
-                        updateDownloadProgress(done + failed, total);
-                        setDownloadButtonsState(false, false);
-                        const btn = document.getElementById('xy-dl-batch-download');
-                        if (btn) btn.innerText = '⬇️ 下载选中';
-                        showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
-                        setTimeout(() => updateDownloadProgress(-1, 0), 3000);
-                        return;
-                    }
-                    failed++;
-                    logMsg(`❌ 下载失败: ${file.name}`, 'error', true);
                 }
-            } else {
+            } catch (e) {
+                if (e.name === 'AbortError') {
+                    updateDownloadProgress(done + failed, total);
+                    setDownloadButtonsState(false, false);
+                    const btn = document.getElementById('xy-dl-batch-download');
+                    if (btn) btn.innerText = '⬇️ 下载选中';
+                    showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
+                    setTimeout(() => updateDownloadProgress(-1, 0), 3000);
+                    return;
+                }
                 failed++;
-                logMsg(`❌ 获取失败: ${file.name}`, 'error', true);
+                logMsg(`❌ 下载失败: ${file.name}`, 'error', true);
             }
             updateDownloadProgress(done + failed, total);
             if (i < selected.length - 1 && !signal.aborted && !appState.downloadPaused) {
