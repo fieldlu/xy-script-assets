@@ -1,8 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.6.3
-// @downloadURL  https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js
+// @version      3.6.4
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -550,6 +549,7 @@
         customReplies: [],
         downloadFiles: [],
         downloadCourseName: '',
+        downloadCourseGroupKey: '',
         downloadSelectedIds: new Set(),
         downloadSearchKeyword: '',
         downloadSortMode: GM_getValue('xy_dl_sort', 'unit'),
@@ -733,7 +733,10 @@
     
     let recordIntervalTimer = null; 
     let realTimeTimer = null;
-    let isFetchingResources = false;
+    const courseResourceRequests = new Map();
+    const courseResourcesCacheByGroup = new Map();
+    const downloadResourceRequests = new Map();
+    let downloadPanelRequestSeq = 0;
     let isSubmittingLock = false;
     let isJumpingLock = false;
     let isRecordSending = false;
@@ -784,7 +787,12 @@
     function getCookie(keyword = 'prd-access-token') { for (const cookie of document.cookie.split('; ')) { const [name, value] = cookie.split('='); if (name.includes(keyword)) return value; } return null; }
     async function getAuthToken() { const token = getCookie(); if (token) return token; throw new Error('未找到Token'); }
     function cleanName(str) { if (!str) return ""; return str.replace(/[\u200B-\u200D\uFEFF]/g, '').trim(); }
-    function escapeHtml(str) { if (!str) return ''; const div = document.createElement('div'); div.textContent = str; return div.innerHTML; }
+    function escapeHtml(value) { if (value === null || value === undefined) return ''; const div = document.createElement('div'); div.textContent = String(value); return div.innerHTML; }
+    function normalizeDownloadId(value) {
+        if (value === null || value === undefined) return null;
+        const id = String(value).trim();
+        return id ? id : null;
+    }
     function escapeRegex(str) { if (!str) return ''; return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
     async function getCourseNameFromAPI(groupId) {
@@ -896,7 +904,8 @@
                 
                 const nextUnitPath = (seg && !FILE_EXT_RE.test(seg)) ? unitPath.concat(seg) : unitPath;
                 
-                const nextIdPath = idPath.concat(item.id !== undefined && item.id !== null ? String(item.id) : '__x' + __seq);
+                const itemId = normalizeDownloadId(item.id) ?? normalizeDownloadId(item.resource_id);
+                const nextIdPath = idPath.concat(itemId ?? '__x' + __seq);
                 if (item.children) walk(item.children, nextUnitPath, nextIdPath);
                 if (item.child_nodes) walk(item.child_nodes, nextUnitPath, nextIdPath);
                 if (item.items) walk(item.items, nextUnitPath, nextIdPath);
@@ -942,7 +951,8 @@
     
     function dlBuildSortMap(nodes, map) {
         (Array.isArray(nodes) ? nodes : []).forEach(n => {
-            if (n && n.id !== undefined && n.id !== null) map[String(n.id)] = Number(n.sort_position) || 0;
+            const id = n ? (normalizeDownloadId(n.id) ?? normalizeDownloadId(n.resource_id)) : null;
+            if (id !== null) map[id] = Number(n.sort_position) || 0;
             if (n && n.children) dlBuildSortMap(n.children, map);
             if (n && n.child_nodes) dlBuildSortMap(n.child_nodes, map);
             if (n && n.items) dlBuildSortMap(n.items, map);
@@ -1034,9 +1044,35 @@
 
     async function runLowLevelScanner() {
         
-        if (appState.activeZone === 'download') return;
+        if (appState.activeZone === 'download') {
+            const currentGroupId = getCourseGroupId();
+            const currentGroupKey = courseGroupKey(currentGroupId);
+            if (!currentGroupKey) {
+                downloadPanelRequestSeq++;
+                appState.downloadCourseGroupKey = '';
+                appState.downloadCourseName = '';
+                appState.downloadFiles = [];
+                appState.downloadSelectedIds.clear();
+                appState.downloadSearchKeyword = '';
+                appState.downloadSortMap = {};
+                appState.downloadDirTree = null;
+                renderDownloadList();
+                switchToZone('standby');
+                return;
+            }
+            if (appState.downloadCourseGroupKey !== currentGroupKey) {
+                void loadDownloadPanel(currentGroupId).catch(e => {
+                    console.warn('[小雅] 下载区课程切换加载失败:', e);
+                });
+            }
+            return;
+        }
         if (appState.discLockedUrl === window.location.href) { switchToZone('disc'); return; }
         const groupId = getCourseGroupId(); const nodeId = getNodeId() || getResourceNodeId() || getPaperId();
+        const scanGroupKey = courseGroupKey(groupId);
+        const scanNodeKey = courseGroupKey(nodeId);
+        const isSameScanContext = () => isCurrentCourseGroup(scanGroupKey)
+            && courseGroupKey(getNodeId() || getResourceNodeId() || getPaperId()) === scanNodeKey;
         if (!groupId || !nodeId) {
             if (isCourseDirPage()) {
                 if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', false);
@@ -1052,6 +1088,7 @@
 
         try {
             const radarData = await fetchRadarCached();
+            if (!isSameScanContext()) return;
             const paperIdForMatch = getPaperId();
             if (radarData.success && radarData.data) {
                 const rTask = radarData.data.find(t => t.node_id == nodeId || (paperIdForMatch && t.node_id == paperIdForMatch));
@@ -1059,6 +1096,7 @@
                     taskType = rTask.task_type;
                 } else {
                     const resources = await loadCourseResources(groupId);
+                    if (!isSameScanContext()) return;
                     if (resources) {
                         const flatRes = extractFilesFromResources(resources);
                         const currentRes = flatRes.find(r => r.node_id == nodeId || r.id == nodeId || (paperIdForMatch && (r.node_id == paperIdForMatch || r.id == paperIdForMatch)));
@@ -1073,6 +1111,7 @@
             }
         } catch(e) { console.warn('[小雅] 全局任务雷达请求失败', e); }
 
+        if (!isSameScanContext()) return;
         if (taskType === 1) { switchToZone('course'); return; }
         else if (taskType === 6) { switchToZone('disc'); return; }
         else if (taskType > 1 && taskType <= 5) {
@@ -1109,43 +1148,81 @@
         switchToZone('standby');
     }
 
-    async function loadCourseResources(groupId) {
-        if(appState.lastCourseGroupId === groupId && appState.courseResourcesCache) return appState.courseResourcesCache;
-        if(isFetchingResources) { let waitLoops = 0; while(isFetchingResources && waitLoops < 50) { await sleep(100); waitLoops++; } return appState.courseResourcesCache; }
-        isFetchingResources = true;
-        try {
-            const token = await getAuthToken(); 
-            let res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, { headers: { "authorization": `Bearer ${token}` } });
-            let data = await res.json();
-            if (data.code === 50007) {
-                const gvRes = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
-                    method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ group_id: groupId, role_type: 'normal' })
-                });
-                const gv = await gvRes.json();
-                const visitData = gv.data;
-                if (visitData && visitData.site_id) {
-                    const authRes = await fetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${visitData.site_id}&role_type=4`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    const auth = await authRes.json();
-                    const accessToken = auth.data?.access_group_token;
-                    if (accessToken) {
-                        res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, {
-                            headers: { 'authorization': `Bearer ${token}`, 'X-Course-Access': accessToken }
-                        });
-                        data = await res.json();
-                    }
-                }
-            }
-            if (data.success && data.data) { appState.courseResourcesCache = data.data; appState.lastCourseGroupId = groupId; }
-        } catch(e) { console.warn('[小雅] loadCourseResources 请求失败', e); } 
-        isFetchingResources = false;
-        return appState.courseResourcesCache;
+    function courseGroupKey(value) {
+        if (value === null || value === undefined) return '';
+        return String(value).trim();
     }
 
-    
-    
+    function isCurrentCourseGroup(groupId) {
+        const expected = courseGroupKey(groupId);
+        return !!expected && courseGroupKey(getCourseGroupId()) === expected;
+    }
+
+    async function loadCourseResources(groupId) {
+        const key = courseGroupKey(groupId);
+        if (!key) return null;
+
+        const cached = courseResourcesCacheByGroup.get(key);
+        if (cached) {
+            if (isCurrentCourseGroup(key)) {
+                appState.courseResourcesCache = cached;
+                appState.lastCourseGroupId = key;
+            }
+            return cached;
+        }
+
+        const inFlight = courseResourceRequests.get(key);
+        if (inFlight) return inFlight;
+
+        const request = (async () => {
+            try {
+                const token = await getAuthToken();
+                if (!token) return null;
+
+                let res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
+                    headers: { "authorization": `Bearer ${token}` }
+                });
+                let data = await res.json();
+                if (data.code === 50007) {
+                    const gvRes = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
+                        method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ group_id: key, role_type: 'normal' })
+                    });
+                    const gv = await gvRes.json();
+                    const visitData = gv.data;
+                    if (visitData && visitData.site_id) {
+                        const authRes = await fetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${encodeURIComponent(visitData.site_id)}&role_type=4`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
+                        });
+                        const auth = await authRes.json();
+                        const accessToken = auth.data?.access_group_token;
+                        if (accessToken) {
+                            res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
+                                headers: { 'authorization': `Bearer ${token}`, 'X-Course-Access': accessToken }
+                            });
+                            data = await res.json();
+                        }
+                    }
+                }
+
+                if (!data.success || !data.data) return null;
+                courseResourcesCacheByGroup.set(key, data.data);
+                if (isCurrentCourseGroup(key)) {
+                    appState.courseResourcesCache = data.data;
+                    appState.lastCourseGroupId = key;
+                }
+                return data.data;
+            } catch (e) {
+                console.warn('[小雅] loadCourseResources 请求失败', e);
+                return null;
+            } finally {
+                if (courseResourceRequests.get(key) === request) courseResourceRequests.delete(key);
+            }
+        })();
+        courseResourceRequests.set(key, request);
+        return request;
+    }
+
     
     function dirUnitChildren(n) {
         return (n && n._children) || [];
@@ -1169,9 +1246,9 @@
         const byId = new Map();
         (Array.isArray(resources) ? resources : []).forEach(r => {
             if (!r) return;
-            const id = r.id != null ? r.id : r.resource_id;
-            if (id == null) return;
-            byId.set(String(id), Object.assign({}, r, { _children: [], _id: String(id) }));
+            const id = normalizeDownloadId(r.id) ?? normalizeDownloadId(r.resource_id);
+            if (id === null) return;
+            byId.set(id, Object.assign({}, r, { _children: [], _id: id }));
         });
         const roots = [];
         byId.forEach(node => {
@@ -1213,7 +1290,9 @@
         const statusEl = document.getElementById('xy-dir-status');
         if (!box) return;
         const groupId = getCourseGroupId();
-        if (!groupId) {
+        const requestedGroupKey = courseGroupKey(groupId);
+        if (requestedGroupKey && !isCurrentCourseGroup(requestedGroupKey)) return;
+        if (!requestedGroupKey) {
             box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:24px 0;font-size:13px;">未检测到课程 ID</div>';
             if (statusEl) statusEl.textContent = '未检测到课程';
             return;
@@ -1222,6 +1301,7 @@
         if (statusEl) statusEl.textContent = '读取中...';
         try {
             const resources = await loadCourseResources(groupId);
+            if (!isCurrentCourseGroup(requestedGroupKey)) return;
             if (!resources || !resources.length) {
                 box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:24px 0;font-size:13px;">暂无课程目录数据</div>';
                 if (statusEl) statusEl.textContent = '目录为空';
@@ -1231,8 +1311,10 @@
             if (statusEl) statusEl.textContent = '✅ ' + countDirFiles(tree) + ' 项';
             renderCourseDirectory(tree);
         } catch (e) {
+            if (!isCurrentCourseGroup(requestedGroupKey)) return;
             box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:24px 0;font-size:13px;">课程目录读取失败</div>';
             if (statusEl) statusEl.textContent = '读取失败';
+            console.warn('[小雅] 课程目录读取失败:', e);
         }
     }
 
@@ -1240,11 +1322,13 @@
         const groupId = getCourseGroupId();
         if (!groupId || !r) return '';
         const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
-        const selfId = r.id != null ? r.id : r.resource_id;
+        const selfId = normalizeDownloadId(r.id) ?? normalizeDownloadId(r.resource_id);
+        if (selfId === null) return '';
         if (dirIsUnit(r)) {
             return `/app/jx-web/${pathPrefix}/${groupId}/resource/${selfId}`;
         }
-        const parentId = (r.parent_id != null && r.parent_id !== '1') ? r.parent_id : selfId;
+        const rawParentId = normalizeDownloadId(r.parent_id);
+        const parentId = rawParentId !== null && rawParentId !== '1' ? rawParentId : selfId;
         return `/app/jx-web/${pathPrefix}/${groupId}/resource/${parentId}/${selfId}`;
     }
 
@@ -1277,7 +1361,7 @@
                 html += `
                     <div data-dir-url="${escapeHtml(fUrl)}" title="点击跳转：${escapeHtml(name)}" style="display:flex; align-items:center; gap:8px; padding:5px 8px; margin-left:${depth * 14}px; border-radius:6px; cursor:pointer;" onmouseover="this.style.background='${T('rgba(129,140,248,0.12)','#eef2ff')}'" onmouseout="this.style.background='transparent'">
                         ${chip}
-                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; color:${T('#e2e8f0','#0f172a')};" title="${name}">${escapeHtml(name)}</span>
+                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; color:${T('#e2e8f0','#0f172a')};" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
                         <span style="font-size:10px; color:${T('#64748b','#94a3b8')}; flex-shrink:0;">${dirFileSize(n)}</span>
                         <span style="font-size:10px; color:${T('#a5b4fc','#6366f1')}; flex-shrink:0;">↗</span>
                     </div>`;
@@ -1316,17 +1400,17 @@
             } else {
                 if (!visibleIds.has(n._id)) return;
                 const name = n.name || n.title || '未知文件';
-                const checked = appState.downloadSelectedIds.has(n._id);
+                const checked = appState.downloadSelectedIds.has(String(n._id));
                 const sizeStr = dirFileSize(n);
                 html += `
                     <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; margin-left:${depth * 14}px; border-bottom:1px solid ${T('rgba(71,85,105,0.12)','#e2e8f0')}; font-size:13px; color:${T('#cbd5e1','#334155')};">
-                        <input type="checkbox" class="xy-dl-check" data-fid="${n._id}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
+                        <input type="checkbox" class="xy-dl-check" data-fid="${escapeHtml(n._id)}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
                         <span style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
                             <span>${dlFileChip(name)}</span>
-                            <button class="xy-mini-btn xy-dl-single" data-fid="${n._id}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
+                            <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(n._id)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
                         </span>
                         <span style="flex:1;">
-                            <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${name}">${escapeHtml(name)}</div>
+                            <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
                         </span>
                         <span style="font-size:11px; color:${T('#64748b','#94a3b8')}; flex-shrink:0;">${sizeStr}</span>
                     </div>`;
@@ -1368,67 +1452,86 @@
     }
 
     async function fetchDownloadResources(groupId) {
-        if (!groupId) return [];
-        try {
-            const token = getCookie();
-            if (!token) return [];
-            let res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, {
-                headers: { 'authorization': `Bearer ${token}` }
-            });
-            let data = await res.json();
-            
-            if (data.code === 50007) {
-                const gvRes = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
-                    method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ group_id: groupId, role_type: 'normal' })
+        const key = courseGroupKey(groupId);
+        if (!key) return [];
+        const inFlight = downloadResourceRequests.get(key);
+        if (inFlight) return inFlight;
+
+        const request = (async () => {
+            try {
+                const token = getCookie();
+                if (!token) return null;
+                let res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
+                    headers: { 'authorization': `Bearer ${token}` }
                 });
-                const gv = await gvRes.json();
-                const visitData = gv.data;
-                if (visitData && visitData.site_id) {
-                    const authRes = await fetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${visitData.site_id}&role_type=4`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
+                let data = await res.json();
+                if (data.code === 50007) {
+                    const gvRes = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
+                        method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ group_id: key, role_type: 'normal' })
                     });
-                    const auth = await authRes.json();
-                    const accessToken = auth.data?.access_group_token;
-                    if (accessToken) {
-                        res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${groupId}`, {
-                            headers: { 'authorization': `Bearer ${token}`, 'X-Course-Access': accessToken }
+                    const gv = await gvRes.json();
+                    const visitData = gv.data;
+                    if (visitData && visitData.site_id) {
+                        const authRes = await fetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${encodeURIComponent(visitData.site_id)}&role_type=4`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
                         });
-                        data = await res.json();
+                        const auth = await authRes.json();
+                        const accessToken = auth.data?.access_group_token;
+                        if (accessToken) {
+                            res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
+                                headers: { 'authorization': `Bearer ${token}`, 'X-Course-Access': accessToken }
+                            });
+                            data = await res.json();
+                        }
                     }
                 }
-            }
-            if (!data.success || !data.data) return [];
+                if (!data.success || !data.data) return null;
 
-            appState.downloadSortMap = {};
-            dlBuildSortMap(data.data, appState.downloadSortMap);
-            appState.downloadDirTree = buildDirTree(data.data);
-            const flat = extractFilesFromResources(data.data);
-            return flat.filter(r => {
-                const name = (r.name || r.title || '').toLowerCase();
-                return /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
-            }).map(r => ({
-                id: r.id || r.resource_id,
-                nodeId: r.node_id || r.id,
-                name: r.name || r.title || '未知文件',
-                type: /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test((r.name || '').toLowerCase()) ? 'video' : 'doc',
-                quoteId: r.quote_id || r.id,
-                size: r.file_size || r.size || 0,
-                order: r.__order || 0,
-                sortPos: Number(r.__sortPos) || 0,
-                path: r.__path || '',
-                unitPath: Array.isArray(r.__unitPath) ? r.__unitPath.slice(0, 3) : [],
-                createdAt: dlParseTs(r.__createdAt)
-            }));
-        } catch(e) { return []; }
+                const sortMap = {};
+                dlBuildSortMap(data.data, sortMap);
+                const dirTree = buildDirTree(data.data);
+                const flat = extractFilesFromResources(data.data);
+                const files = flat.filter(r => {
+                    const name = (r.name || r.title || '').toLowerCase();
+                    return /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+                }).map(r => {
+                    const id = normalizeDownloadId(r.id) ?? normalizeDownloadId(r.resource_id);
+                    if (id === null) return null;
+                    return {
+                        id,
+                        nodeId: normalizeDownloadId(r.node_id) ?? id,
+                        name: r.name || r.title || '未知文件',
+                        type: /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test((r.name || '').toLowerCase()) ? 'video' : 'doc',
+                        quoteId: normalizeDownloadId(r.quote_id) ?? id,
+                        size: r.file_size || r.size || 0,
+                        order: r.__order || 0,
+                        sortPos: Number(r.__sortPos) || 0,
+                        path: r.__path || '',
+                        unitPath: Array.isArray(r.__unitPath) ? r.__unitPath.slice(0, 3) : [],
+                        createdAt: dlParseTs(r.__createdAt)
+                    };
+                }).filter(Boolean);
+                return { files, sortMap, dirTree };
+            } catch (e) {
+                console.warn('[小雅] 获取下载资源失败:', e);
+                return null;
+            } finally {
+                if (downloadResourceRequests.get(key) === request) downloadResourceRequests.delete(key);
+            }
+        })();
+        downloadResourceRequests.set(key, request);
+        return request;
     }
 
     async function getDownloadUrl(quoteId) {
+        const normalizedQuoteId = normalizeDownloadId(quoteId);
+        if (normalizedQuoteId === null) return null;
         for (let i = 0; i < 3; i++) {
             try {
                 const token = getCookie();
                 if (!token) continue;
-                const res = await fetch(`https://${domain}/api/jx-oresource/cloud/file_url/${quoteId}`, {
+                const res = await fetch(`https://${domain}/api/jx-oresource/cloud/file_url/${encodeURIComponent(normalizedQuoteId)}`, {
                     headers: { 'authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
@@ -1453,8 +1556,13 @@
                 if (signal.aborted) { abortHandler(); return; }
                 signal.addEventListener('abort', abortHandler, { once: true });
             }
-            fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}` },
+            const targetUrl = new URL(url, document.baseURI || window.location.href);
+            const headers = {};
+            if (token && targetUrl.origin === window.location.origin) {
+                headers.Authorization = `Bearer ${token}`;
+            }
+            fetch(targetUrl.href, {
+                headers,
                 signal: signal || undefined
             }).then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1509,7 +1617,10 @@
     }
 
     async function batchDownloadSelected() {
-        const selected = appState.downloadFiles.filter(f => appState.downloadSelectedIds.has(f.id));
+        const selected = appState.downloadFiles.filter(f => {
+            const id = normalizeDownloadId(f.id);
+            return id !== null && appState.downloadSelectedIds.has(id);
+        });
         if (selected.length === 0) { showToast('请先勾选要下载的文件', 'warning'); return; }
         appState.downloadAbortController = new AbortController();
         appState.downloadPaused = false;
@@ -1684,7 +1795,7 @@
         const showTime = mode === 'time_desc' || mode === 'time_asc';
         let html = '';
         filtered.forEach(f => {
-            const checked = appState.downloadSelectedIds.has(f.id);
+            const checked = appState.downloadSelectedIds.has(String(f.id));
             const icon = dlFileChip(f.name);
             const sizeStr = f.size ? (f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : (f.size/1024).toFixed(0)+'KB') : '';
             const unitLabel = showUnit && Array.isArray(f.unitPath) && f.unitPath.length ? f.unitPath.join(' › ') : '';
@@ -1692,14 +1803,14 @@
             const metaLine = unitLabel || timeStr;
             html += `
                 <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid ${T('rgba(71,85,105,0.12)','#e2e8f0')}; font-size:13px; color:${T('#cbd5e1','#334155')};">
-                    <input type="checkbox" class="xy-dl-check" data-fid="${f.id}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
+                    <input type="checkbox" class="xy-dl-check" data-fid="${escapeHtml(f.id)}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
                     <span style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
                         <span>${icon}</span>
-                        <button class="xy-mini-btn xy-dl-single" data-fid="${f.id}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
+                        <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(f.id)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
                     </span>
                     <span style="flex:1;">
-                        <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${f.name}">${f.name}</div>
-                        ${metaLine ? `<div style="font-size:10px; color:${T('#64748b','#94a3b8')}; white-space:nowrap;" title="${metaLine}">${metaLine}</div>` : ''}
+                        <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+                        ${metaLine ? `<div style="font-size:10px; color:${T('#64748b','#94a3b8')}; white-space:nowrap;" title="${escapeHtml(metaLine)}">${escapeHtml(metaLine)}</div>` : ''}
                     </span>
                     <span style="font-size:11px; color:${T('#64748b','#94a3b8')}; flex-shrink:0;">${sizeStr}</span>
                 </div>`;
@@ -1708,8 +1819,17 @@
     }
 
     async function loadDownloadPanel(groupId) {
+        const requestId = ++downloadPanelRequestSeq;
         const statusEl = document.getElementById('xy-dl-status');
         const nameEl = document.getElementById('xy-dl-course-name');
+        const requestedGroupKey = courseGroupKey(groupId);
+        if (requestedGroupKey && !isCurrentCourseGroup(requestedGroupKey)) return;
+        const isCurrentPanelRequest = () => requestId === downloadPanelRequestSeq
+            && isCurrentCourseGroup(requestedGroupKey);
+        appState.downloadCourseGroupKey = requestedGroupKey;
+        appState.downloadCourseName = '';
+        appState.downloadSortMap = {};
+        appState.downloadDirTree = null;
         if (statusEl) statusEl.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">📡 正在加载课件资源...</span>`;
         if (nameEl) nameEl.textContent = '📦 课件资源';
 
@@ -1725,25 +1845,53 @@
             return;
         }
 
-        const apiName = await getCourseNameFromAPI(groupId);
-        appState.downloadCourseName = apiName || '课件资源';
-        if (nameEl) nameEl.textContent = '📦 ' + appState.downloadCourseName;
+        try {
+            const apiName = await getCourseNameFromAPI(groupId);
+            if (!isCurrentPanelRequest()) return;
+            appState.downloadCourseName = apiName || '课件资源';
+            if (nameEl) nameEl.textContent = '📦 ' + appState.downloadCourseName;
 
-        const files = await fetchDownloadResources(groupId);
-        appState.downloadFiles = files;
-        if (statusEl) {
-            statusEl.innerHTML = files.length > 0
-                ? `<span style="color:${T('#34d399','#065f46')};">✅ 已加载 ${files.length} 个课件文件</span>`
-                : `<span style="color:${T('#94a3b8','#64748b')};">📭 当前课程无可下载的课件</span>`;
+            const resourceResult = await fetchDownloadResources(groupId);
+            if (!isCurrentPanelRequest()) return;
+            if (resourceResult === null) {
+                appState.downloadCourseGroupKey = '';
+                appState.downloadCourseName = '';
+                appState.downloadFiles = [];
+                appState.downloadSortMap = {};
+                appState.downloadDirTree = null;
+                if (statusEl) statusEl.innerHTML = `<span style="color:${T('#f87171','#b91c1c')};">⚠️ 课件资源加载失败，可点击刷新重试</span>`;
+                renderDownloadList();
+                return;
+            }
+            appState.downloadSortMap = resourceResult.sortMap;
+            appState.downloadDirTree = resourceResult.dirTree;
+            appState.downloadFiles = resourceResult.files;
+            if (statusEl) {
+                statusEl.innerHTML = resourceResult.files.length > 0
+                    ? `<span style="color:${T('#34d399','#065f46')};">✅ 已加载 ${resourceResult.files.length} 个课件文件</span>`
+                    : `<span style="color:${T('#94a3b8','#64748b')};">📭 当前课程无可下载的课件</span>`;
+            }
+            renderDownloadList();
+        } catch (e) {
+            if (!isCurrentPanelRequest()) return;
+            appState.downloadCourseGroupKey = '';
+            appState.downloadCourseName = '';
+            appState.downloadFiles = [];
+            appState.downloadSortMap = {};
+            appState.downloadDirTree = null;
+            if (statusEl) statusEl.innerHTML = `<span style="color:${T('#f87171','#b91c1c')};">⚠️ 课件资源加载异常，可点击刷新重试</span>`;
+            renderDownloadList();
+            console.warn('[小雅] 下载区面板加载失败:', e);
         }
-        renderDownloadList();
     }
 
     function enterDownloadZone() {
         if (appState.activeZone !== 'download') appState.prevZone = appState.activeZone;
         const groupId = getCourseGroupId();
         switchToZone('download');
-        loadDownloadPanel(groupId);
+        void loadDownloadPanel(groupId).catch(e => {
+            console.warn('[小雅] 下载区加载失败:', e);
+        });
     }
 
     
@@ -1800,7 +1948,7 @@
         if (!container) { container = document.createElement('div'); container.id = 'xy-toast-box'; container.style.cssText = `position:fixed; top:32px; left:50%; transform:translateX(-50%); z-index:9999999; display:flex; flex-direction:column; gap:16px; pointer-events:none;`; document.body.appendChild(container); }
         const toast = document.createElement('div');
         toast.style.cssText = `background:${currentType.bg}; color:${currentType.text}; padding:14px 22px; border-radius:10px; font-weight:600; font-size:14px; box-shadow:${T('0 12px 30px rgba(0,0,0,0.4)','0 8px 24px rgba(0,0,0,0.08)')}, 0 0 0 1px ${currentType.border}; transition:all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-30px) scale(0.9); backdrop-filter: ${T('blur(12px)','none')}; display:flex; align-items:center; overflow:hidden; position:relative;`;
-        toast.innerHTML = `<span style="margin-right:10px; font-size:18px;">${currentType.icon}</span><span style="flex:1; z-index:1; line-height: 1.4;">${msg}</span><div style="position:absolute; bottom:0; left:0; height:3px; background:${currentType.accent}; width:100%; transform-origin:left; animation: xy-toast-progress 3s linear forwards; opacity: 0.5;"></div>`;
+        toast.innerHTML = `<span style="margin-right:10px; font-size:18px;">${currentType.icon}</span><span style="flex:1; z-index:1; line-height: 1.4;">${escapeHtml(msg)}</span><div style="position:absolute; bottom:0; left:0; height:3px; background:${currentType.accent}; width:100%; transform-origin:left; animation: xy-toast-progress 3s linear forwards; opacity: 0.5;"></div>`;
         container.appendChild(toast);
         if(!document.getElementById('xy-toast-style')) { const style = document.createElement('style'); style.id = 'xy-toast-style'; style.innerHTML = `@keyframes xy-toast-progress{from{transform:scaleX(1)}to{transform:scaleX(0)}}@keyframes xy-spin{to{transform:rotate(360deg)}}@keyframes xy-indeterminate{0%{transform:translateX(-100%)}50%{transform:translateX(150%)}100%{transform:translateX(350%)}}`; document.head.appendChild(style); }
         requestAnimationFrame(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0) scale(1)'; });
@@ -2619,46 +2767,77 @@
     }
 
     
-    const _persistentIntervals = [];
+    const _persistentIntervals = new Set();
     function createPersistentInterval(fn, ms, maxCatchUp = 20) {
+        if (typeof fn !== 'function') throw new TypeError('fn 必须是函数');
+        const intervalMs = Number(ms);
+        if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new RangeError('ms 必须是正数');
+        const rawCatchUp = Number(maxCatchUp);
+        if (!Number.isSafeInteger(rawCatchUp) || rawCatchUp < 0) throw new RangeError('maxCatchUp 必须是非负整数');
+        const catchUpLimit = rawCatchUp;
+
         let lastTick = Date.now();
         let timerId = null;
         let running = true;
+        let callbackRunning = false;
+        let pendingRuns = 0;
 
-        function tick() {
-            if (!running) return;
-            const now = Date.now();
-            const elapsed = now - lastTick;
-            if (elapsed >= ms) {
-                const missed = Math.min(Math.floor(elapsed / ms), maxCatchUp);
-                for (let i = 0; i < missed; i++) {
-                    try { fn(); } catch(e) {}
+        async function drain() {
+            if (callbackRunning || !running) return;
+            callbackRunning = true;
+            try {
+                while (running && pendingRuns > 0) {
+                    pendingRuns--;
+                    try {
+                        await fn();
+                    } catch (e) {
+                        console.warn('[小雅] 持久定时任务执行失败:', e);
+                    }
                 }
-                lastTick = now;
+            } finally {
+                callbackRunning = false;
+                if (running && pendingRuns > 0) void drain();
             }
         }
 
-        timerId = setInterval(tick, Math.max(ms / 4, 250));
-        _persistentIntervals.push({ fn, ms, maxCatchUp, lastTick: () => lastTick, tick, clear: () => { running = false; clearInterval(timerId); } });
+        const entry = {
+            catchUp(now = Date.now(), thresholdFactor = 1) {
+                if (!running) return;
+                const elapsed = now - lastTick;
+                if (elapsed < intervalMs * thresholdFactor) return;
+
+                const missed = Math.min(Math.floor(elapsed / intervalMs), catchUpLimit);
+                // 先推进时间基准，避免回调触发可见性事件时重复补偿。
+                lastTick = now;
+                pendingRuns = Math.min(catchUpLimit, pendingRuns + missed);
+                if (pendingRuns > 0) void drain();
+            },
+            clear() {
+                if (!running) return;
+                running = false;
+                pendingRuns = 0;
+                if (timerId !== null) clearInterval(timerId);
+                _persistentIntervals.delete(entry);
+            },
+            resetTimer() {
+                if (running) lastTick = Date.now();
+            }
+        };
+
+        timerId = setInterval(() => entry.catchUp(), Math.max(intervalMs / 4, 250));
+        _persistentIntervals.add(entry);
 
         return {
-            clear: () => { running = false; clearInterval(timerId); },
-            resetTimer: () => { lastTick = Date.now(); }
+            clear: () => entry.clear(),
+            resetTimer: () => entry.resetTimer()
         };
     }
 
     
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-            _persistentIntervals.forEach(p => {
-                const elapsed = Date.now() - p.lastTick();
-                if (elapsed >= p.ms * 1.2) {
-                    const missed = Math.min(Math.floor(elapsed / p.ms), p.maxCatchUp);
-                    for (let i = 0; i < missed; i++) {
-                        try { p.fn(); } catch(e) {}
-                    }
-                }
-            });
+            const now = Date.now();
+            _persistentIntervals.forEach(p => p.catchUp(now, 1.2));
             
             if (typeof updateSchCard === 'function') updateSchCard();
             if (typeof updateCourseUI === 'function') updateCourseUI();
@@ -3240,13 +3419,20 @@
     
     
     const EMBEDDED_NOTICE = {
-        "title": "🎉 v3.6.3 脚本更新 · 版本清单 · 检查更新",
-        "version": "3.6.3",
-        "updatedAt": "2026-08-11",
+        "title": "🎉 v3.6.4 脚本更新 · 下载区稳定性与安全修复",
+        "version": "3.6.4",
+        "updatedAt": "2026-08-17",
         "items": [
             "🔮 更新链接：https://scriptcat.org/zh-CN/script-show-page/5881",
             "🔒 隐私声明：本脚本不收集任何个人信息，数据仅存本地浏览器",
             "⚠️ 免责声明：本脚本按 GPL-3.0 协议开源，使用者自负风险",
+            "",
+            "🔥 === v3.6.4 更新 ===",
+            "🛡️ 下载请求安全增强：跨域资源不再携带站点 Authorization",
+            "🧹 修复下载区课程切换竞态，旧请求不会覆盖当前课程数据",
+            "🧩 统一下载资源 ID 规范化，修复批量下载与目录树 ID 不一致",
+            "🧯 优化 UI 观察器、持久定时器与异步补偿的稳定性",
+            "🔐 统一转义动态 HTML 内容，降低动态内容注入风险",
             "",
             "🔥 === v3.6.3 更新 ===",
             "↻ 新增脚本更新模块：面板头部一键「检查更新」",
@@ -5607,8 +5793,8 @@
 
 
     function createUI() {
-        if (document.getElementById('xy-super-console')) return;
-        if (!document.body) { requestAnimationFrame(createUI); return; }
+        if (document.getElementById('xy-super-console')) { _uiCreating = false; return; }
+        if (!document.body) { _uiCreating = false; scheduleEnsureUI(50); return; }
         
         document.querySelectorAll('#xy-super-console').forEach(el => { try { el.remove(); } catch(e) {} });
         
@@ -6325,7 +6511,10 @@
             const targets = keyword
                 ? appState.downloadFiles.filter(f => f.name.toLowerCase().includes(keyword))
                 : appState.downloadFiles;
-            targets.forEach(f => appState.downloadSelectedIds.add(f.id));
+            targets.forEach(f => {
+                const id = normalizeDownloadId(f.id);
+                if (id !== null) appState.downloadSelectedIds.add(id);
+            });
             renderDownloadList();
         };
         document.getElementById('xy-dl-deselect-all').onclick = () => {
@@ -6344,14 +6533,18 @@
         };
         document.getElementById('xy-dl-refresh').onclick = () => {
             const gid = getCourseGroupId();
-            if (gid) loadDownloadPanel(gid);
-            else showToast('未检测到课程 ID', 'warning');
+            if (gid) {
+                void loadDownloadPanel(gid).catch(e => {
+                    console.warn('[小雅] 下载区刷新失败:', e);
+                });
+            } else showToast('未检测到课程 ID', 'warning');
         };
         const dlFileList = document.getElementById('xy-dl-file-list');
         if (dlFileList) {
             dlFileList.addEventListener('change', (e) => {
                 if (e.target.classList.contains('xy-dl-check')) {
-                    const fid = e.target.getAttribute('data-fid');
+                    const fid = normalizeDownloadId(e.target.getAttribute('data-fid'));
+                    if (fid === null) return;
                     if (e.target.checked) appState.downloadSelectedIds.add(fid);
                     else appState.downloadSelectedIds.delete(fid);
                 }
@@ -6369,12 +6562,15 @@
                     return;
                 }
                 if (e.target.classList.contains('xy-dl-single')) {
-                    const fid = e.target.getAttribute('data-fid');
-                    const file = appState.downloadFiles.find(f => f.id == fid);
+                    const fid = normalizeDownloadId(e.target.getAttribute('data-fid'));
+                    const file = fid === null ? null : appState.downloadFiles.find(f => normalizeDownloadId(f.id) === fid);
                     if (file) {
-                        getDownloadUrl(file.quoteId).then(url => {
-                            if (url) downloadFile(url, file.name);
-                            else showToast('获取下载链接失败', 'error');
+                        void getDownloadUrl(file.quoteId).then(url => {
+                            if (url) return downloadFile(url, file.name);
+                            showToast('获取下载链接失败', 'error');
+                        }).catch(e => {
+                            console.warn('[小雅] 单文件下载失败:', e);
+                            showToast('文件下载失败', 'error');
                         });
                     }
                 }
@@ -6543,9 +6739,17 @@
             }
         }
         if (!document.getElementById('xy-super-console')) {
+            if (!document.body) { scheduleEnsureUI(50); return; }
             _uiCreating = true;
-            createUI();
+            try {
+                createUI();
+            } catch (e) {
+                _uiCreating = false;
+                console.error('[小雅] 创建面板失败', e);
+                return;
+            }
         }
+        if (!document.getElementById('xy-super-console')) return;
 
         
         if (appState.keepaliveEnabled && !keepaliveWatchdogTimer) {
@@ -6559,11 +6763,32 @@
             if (hwQuestionsData.length === 0 && (new URL(window.location.href).searchParams.get('paper_id') || getPaperId())) {
                 setTimeout(hwProactiveFetchData, 200);
             }
+        }).catch(e => {
+            console.warn('[小雅] 页面扫描失败:', e);
         });
     }
 
-    const observer = new MutationObserver(() => ensureUI());
-    try { observer.observe(document.body, { childList: true, subtree: false }); } catch(e) {  }
+    let _ensureUIScheduled = false;
+    function scheduleEnsureUI(delay = 0) {
+        if (_ensureUIScheduled) return;
+        _ensureUIScheduled = true;
+        setTimeout(() => {
+            _ensureUIScheduled = false;
+            ensureUI();
+        }, delay);
+    }
+
+    let _uiObserver = null;
+    function installUIObserver() {
+        if (_uiObserver || !document) return;
+        _uiObserver = new MutationObserver(() => {
+            // 只在面板被页面重建/移除时补建，避免 SPA 的普通 DOM 更新触发重复扫描。
+            if (!document.getElementById('xy-super-console')) scheduleEnsureUI(50);
+        });
+        _uiObserver.observe(document, { childList: true, subtree: true });
+    }
+
+    installUIObserver();
 
     
     function hwHandleRouteChange() {
@@ -6597,13 +6822,13 @@
         };
         wrap('pushState'); wrap('replaceState');
         window.addEventListener('popstate', hwHandleRouteChange);
-        window.addEventListener('hashchange', hwHandleRouteChange);
+        window.addEventListener('hashchange', () => { hwHandleRouteChange(); scheduleEnsureUI(100); });
     }
     hwInstallRouteWatcher();
 
-    const pushState = history.pushState; history.pushState = function () { pushState.apply(history, arguments); setTimeout(ensureUI, 100); };
-    const replaceState = history.replaceState; history.replaceState = function () { replaceState.apply(history, arguments); setTimeout(ensureUI, 100); };
-    window.addEventListener('popstate', () => setTimeout(ensureUI, 100));
+    const pushState = history.pushState; history.pushState = function () { pushState.apply(history, arguments); scheduleEnsureUI(100); };
+    const replaceState = history.replaceState; history.replaceState = function () { replaceState.apply(history, arguments); scheduleEnsureUI(100); };
+    window.addEventListener('popstate', () => scheduleEnsureUI(100));
 
     if (document.readyState === "loading") {
         document.addEventListener('DOMContentLoaded', () => { ensureUI(); });
