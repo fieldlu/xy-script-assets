@@ -1,7 +1,7 @@
 {
   "title": "🚀 作者新软件：小雅作业提醒（桌面挂件）",
-  "version": "0.0.4",
-  "updatedAt": "2026-08-09",
+  "version": "0.0.5",
+  "updatedAt": "2026-08-18",
   "items": [
     "🔮 小雅辅助工具脚本 v3.6.5（最新版）：https://scriptcat.org/zh-CN/script-show-page/5881",
     "📥 小雅作业提醒 v0.0.4（40MB）下载：https://gitee.com/fieldlu/xiaoya-reminder-assistant/releases/download/v0.0.5/xiaoya-reminder-setup.exe",
@@ -13,9 +13,5 @@
     "📂 全部 / 可完成 / 逾期 / 本周 + 排序",
     "🎯 点一下直达作业页",
     "👤 多账号 / 自动登录 / 开机自启 / 自动更新",
-    "🔧 v0.0.4：修复登录SSL校验失败，onedir打包不再依赖临时目录",
-    "💡 安装：下载 → 双击 → 下一步 → 完成 → 登录即用（详细见说明书）",
-    "🔒 隐私：密码加密存本机，仅拉作业不外传",
-    "⚠️ 仅供个人学习，禁止商用"
   ]
 }
