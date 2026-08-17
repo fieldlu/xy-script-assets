@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.6.5
+// @version      3.6.4
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -793,6 +793,45 @@
         const id = String(value).trim();
         return id ? id : null;
     }
+    function dlResourceId(resource) {
+        if (!resource || typeof resource !== 'object') return null;
+        return normalizeDownloadId(resource.id)
+            ?? normalizeDownloadId(resource.resource_id)
+            ?? normalizeDownloadId(resource.node_id)
+            ?? normalizeDownloadId(resource.resourceId)
+            ?? normalizeDownloadId(resource.nodeId);
+    }
+    function dlQuoteId(resource) {
+        if (!resource || typeof resource !== 'object') return null;
+        return normalizeDownloadId(resource.quote_id)
+            ?? normalizeDownloadId(resource.quoteId)
+            ?? dlResourceId(resource);
+    }
+    function dlResourceValues(value) {
+        if (Array.isArray(value)) return value.filter(item => item && typeof item === 'object');
+        if (!value || typeof value !== 'object') return [];
+        if (dlResourceId(value) !== null || dlQuoteId(value) !== null || value.name || value.title) return [value];
+        return Object.values(value).filter(item => item && typeof item === 'object');
+    }
+    function dlCollectResources(value) {
+        const result = [];
+        const seen = new Set();
+        const walk = input => {
+            dlResourceValues(input).forEach(item => {
+                const id = dlResourceId(item);
+                const key = id !== null ? `id:${id}` : item;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    result.push(item);
+                }
+                walk(item.children);
+                walk(item.child_nodes);
+                walk(item.items);
+            });
+        };
+        walk(value);
+        return result;
+    }
     function escapeRegex(str) { if (!str) return ''; return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
     async function getCourseNameFromAPI(groupId) {
@@ -895,16 +934,15 @@
     
     function extractFilesFromResources(arr) {
         let res = [];
-        if (!Array.isArray(arr)) return res;
         let __seq = 0;
         const FILE_EXT_RE = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i;
         function walk(list, unitPath, idPath) {
-            list.forEach(item => {
+            dlResourceValues(list).forEach(item => {
                 const seg = (item.name || item.title || '').trim();
                 
                 const nextUnitPath = (seg && !FILE_EXT_RE.test(seg)) ? unitPath.concat(seg) : unitPath;
                 
-                const itemId = normalizeDownloadId(item.id) ?? normalizeDownloadId(item.resource_id);
+                const itemId = dlResourceId(item);
                 const nextIdPath = idPath.concat(itemId ?? '__x' + __seq);
                 if (item.children) walk(item.children, nextUnitPath, nextIdPath);
                 if (item.child_nodes) walk(item.child_nodes, nextUnitPath, nextIdPath);
@@ -950,8 +988,8 @@
 
     
     function dlBuildSortMap(nodes, map) {
-        (Array.isArray(nodes) ? nodes : []).forEach(n => {
-            const id = n ? (normalizeDownloadId(n.id) ?? normalizeDownloadId(n.resource_id)) : null;
+        dlResourceValues(nodes).forEach(n => {
+            const id = dlResourceId(n);
             if (id !== null) map[id] = Number(n.sort_position) || 0;
             if (n && n.children) dlBuildSortMap(n.children, map);
             if (n && n.child_nodes) dlBuildSortMap(n.child_nodes, map);
@@ -1244,9 +1282,9 @@
 
     function buildDirTree(resources) {
         const byId = new Map();
-        (Array.isArray(resources) ? resources : []).forEach(r => {
+        dlCollectResources(resources).forEach(r => {
             if (!r) return;
-            const id = normalizeDownloadId(r.id) ?? normalizeDownloadId(r.resource_id);
+            const id = dlResourceId(r);
             if (id === null) return;
             byId.set(id, Object.assign({}, r, { _children: [], _id: id }));
         });
@@ -1402,12 +1440,13 @@
                 const name = n.name || n.title || '未知文件';
                 const checked = appState.downloadSelectedIds.has(String(n._id));
                 const sizeStr = dirFileSize(n);
+                const quoteId = dlQuoteId(n) ?? normalizeDownloadId(n._id);
                 html += `
                     <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; margin-left:${depth * 14}px; border-bottom:1px solid ${T('rgba(71,85,105,0.12)','#e2e8f0')}; font-size:13px; color:${T('#cbd5e1','#334155')};">
                         <input type="checkbox" class="xy-dl-check" data-fid="${escapeHtml(n._id)}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
                         <span style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
                             <span>${dlFileChip(name)}</span>
-                            <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(n._id)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
+                            <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(n._id)}" data-quote-id="${escapeHtml(quoteId)}" data-file-name="${escapeHtml(name)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
                         </span>
                         <span style="flex:1;">
                             <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
@@ -1496,14 +1535,14 @@
                     const name = (r.name || r.title || '').toLowerCase();
                     return /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
                 }).map(r => {
-                    const id = normalizeDownloadId(r.id) ?? normalizeDownloadId(r.resource_id);
+                    const id = dlResourceId(r);
                     if (id === null) return null;
                     return {
                         id,
-                        nodeId: normalizeDownloadId(r.node_id) ?? id,
+                        nodeId: normalizeDownloadId(r.node_id) ?? normalizeDownloadId(r.nodeId) ?? id,
                         name: r.name || r.title || '未知文件',
                         type: /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test((r.name || '').toLowerCase()) ? 'video' : 'doc',
-                        quoteId: normalizeDownloadId(r.quote_id) ?? id,
+                        quoteId: dlQuoteId(r) ?? id,
                         size: r.file_size || r.size || 0,
                         order: r.__order || 0,
                         sortPos: Number(r.__sortPos) || 0,
@@ -1759,6 +1798,48 @@
         return (a.order || 0) - (b.order || 0);
     }
 
+    async function handleSingleDownloadClick(event, singleButton) {
+        if (!singleButton) return;
+        event.preventDefault();
+        event.stopPropagation();
+
+        const fid = normalizeDownloadId(singleButton.getAttribute('data-fid'));
+        const file = fid === null ? null : appState.downloadFiles.find(f => [f.id, f.nodeId, f.quoteId]
+            .some(value => normalizeDownloadId(value) === fid));
+        // 优先使用按钮生成时绑定的值，避免列表刷新后状态映射短暂不一致。
+        const quoteId = normalizeDownloadId(singleButton.getAttribute('data-quote-id'))
+            ?? (file ? dlQuoteId(file) : null);
+        const fileName = singleButton.getAttribute('data-file-name') || file?.name || '未知文件';
+        if (quoteId === null) {
+            console.warn('[小雅] 单文件下载缺少 quote_id:', { fid, fileName, button: singleButton });
+            showToast('找不到下载资源编号，请刷新下载列表', 'error');
+            return;
+        }
+
+        const oldText = singleButton.textContent;
+        singleButton.disabled = true;
+        singleButton.textContent = '⏳';
+        try {
+            // 直接调用参考脚本同样的 quote_id → 获取链接 → 流式下载链路。
+            const url = await getDownloadUrl(quoteId);
+            if (!url) throw new Error('获取下载链接失败');
+            await downloadFile(url, fileName);
+        } catch (error) {
+            console.warn('[小雅] 单文件下载失败:', { file: fileName, quoteId, error });
+            showToast(error?.message || '文件下载失败', 'error');
+        } finally {
+            singleButton.disabled = false;
+            singleButton.textContent = oldText;
+        }
+    }
+
+    function bindDownloadButtons(container) {
+        if (!container) return;
+        container.querySelectorAll('.xy-dl-single').forEach(button => {
+            button.onclick = event => { void handleSingleDownloadClick(event, button); };
+        });
+    }
+
     function renderDownloadList() {
         const listDiv = document.getElementById('xy-dl-file-list');
         if (!listDiv) return;
@@ -1795,6 +1876,7 @@
             let treeHtml = buildDownloadTreeHtml(appState.downloadDirTree, visibleIds, 0);
             if (!treeHtml) treeHtml = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
             listDiv.innerHTML = treeHtml;
+            bindDownloadButtons(listDiv);
             return;
         }
         const showUnit = mode === 'unit';
@@ -1807,12 +1889,13 @@
             const unitLabel = showUnit && Array.isArray(f.unitPath) && f.unitPath.length ? f.unitPath.join(' › ') : '';
             const timeStr = showTime && f.createdAt ? new Date(f.createdAt).toLocaleDateString('zh-CN') : '';
             const metaLine = unitLabel || timeStr;
+            const quoteId = dlQuoteId(f) ?? normalizeDownloadId(f.quoteId) ?? normalizeDownloadId(f.id);
             html += `
                 <div style="display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid ${T('rgba(71,85,105,0.12)','#e2e8f0')}; font-size:13px; color:${T('#cbd5e1','#334155')};">
                     <input type="checkbox" class="xy-dl-check" data-fid="${escapeHtml(f.id)}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
                     <span style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
                         <span>${icon}</span>
-                        <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(f.id)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
+                        <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(f.id)}" data-quote-id="${escapeHtml(quoteId)}" data-file-name="${escapeHtml(f.name)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
                     </span>
                     <span style="flex:1;">
                         <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
@@ -1822,6 +1905,7 @@
                 </div>`;
         });
         listDiv.innerHTML = html;
+        bindDownloadButtons(listDiv);
     }
 
     async function loadDownloadPanel(groupId) {
@@ -3425,19 +3509,19 @@
     
     
     const EMBEDDED_NOTICE = {
-        "title": "🎉 v3.6.5 脚本更新 · 恢复原有下载方式",
-        "version": "3.6.5",
+        "title": "🎉 v3.6.4 脚本更新 · 下载点击与兼容性修复",
+        "version": "3.6.4",
         "updatedAt": "2026-08-17",
         "items": [
             "🔮 更新链接：https://scriptcat.org/zh-CN/script-show-page/5881",
             "🔒 隐私声明：本脚本不收集任何个人信息，数据仅存本地浏览器",
             "⚠️ 免责声明：本脚本按 GPL-3.0 协议开源，使用者自负风险",
             "",
-            "🔥 === v3.6.5 更新 ===",
+            "🔥 === v3.6.4 更新 ===",
             "🔁 按参考脚本恢复下载链路：携带站点 Authorization 并采用流式读取",
-            "🛠️ 修复部分 CDN/对象存储资源下载失效问题",
+            "🖱️ 修复下载按钮事件委托与资源 ID 映射，点击后会正确进入获取链接和下载流程",
+            "🧩 兼容数组/对象两种课程资源返回结构，补齐 quote_id 与嵌套资源识别",
             "🧹 修复下载区课程切换竞态，旧请求不会覆盖当前课程数据",
-            "🧩 统一下载资源 ID 规范化，修复批量下载与目录树 ID 不一致",
             "🧯 优化 UI 观察器、持久定时器与异步补偿的稳定性",
             "🔐 统一转义动态 HTML 内容，降低动态内容注入风险",
             "",
@@ -6549,37 +6633,29 @@
         const dlFileList = document.getElementById('xy-dl-file-list');
         if (dlFileList) {
             dlFileList.addEventListener('change', (e) => {
-                if (e.target.classList.contains('xy-dl-check')) {
-                    const fid = normalizeDownloadId(e.target.getAttribute('data-fid'));
-                    if (fid === null) return;
-                    if (e.target.checked) appState.downloadSelectedIds.add(fid);
-                    else appState.downloadSelectedIds.delete(fid);
-                }
+                const target = e.target && typeof e.target.closest === 'function'
+                    ? e.target
+                    : (e.target && e.target.parentElement);
+                if (!target || !target.classList?.contains('xy-dl-check')) return;
+                const fid = normalizeDownloadId(target.getAttribute('data-fid'));
+                if (fid === null) return;
+                if (target.checked) appState.downloadSelectedIds.add(fid);
+                else appState.downloadSelectedIds.delete(fid);
             });
+            // 目录标题使用委托，单文件下载按钮改为逐个绑定，和参考脚本保持一致。
             dlFileList.addEventListener('click', (e) => {
-                const unitHead = e.target.closest('.xy-dl-unit-head');
-                if (unitHead) {
-                    const body = unitHead.nextElementSibling;
-                    if (body) {
-                        const hidden = body.style.display === 'none';
-                        body.style.display = hidden ? '' : 'none';
-                        const marker = unitHead.querySelector('[data-dl-marker]');
-                        if (marker) marker.textContent = hidden ? '−' : '+';
-                    }
-                    return;
-                }
-                if (e.target.classList.contains('xy-dl-single')) {
-                    const fid = normalizeDownloadId(e.target.getAttribute('data-fid'));
-                    const file = fid === null ? null : appState.downloadFiles.find(f => normalizeDownloadId(f.id) === fid);
-                    if (file) {
-                        void getDownloadUrl(file.quoteId).then(url => {
-                            if (url) return downloadFile(url, file.name);
-                            showToast('获取下载链接失败', 'error');
-                        }).catch(e => {
-                            console.warn('[小雅] 单文件下载失败:', e);
-                            showToast('文件下载失败', 'error');
-                        });
-                    }
+                const target = e.target && typeof e.target.closest === 'function'
+                    ? e.target
+                    : (e.target && e.target.parentElement);
+                if (!target || typeof target.closest !== 'function') return;
+                const unitHead = target.closest('.xy-dl-unit-head');
+                if (!unitHead) return;
+                const body = unitHead.nextElementSibling;
+                if (body) {
+                    const hidden = body.style.display === 'none';
+                    body.style.display = hidden ? '' : 'none';
+                    const marker = unitHead.querySelector('[data-dl-marker]');
+                    if (marker) marker.textContent = hidden ? '−' : '+';
                 }
             });
         }
