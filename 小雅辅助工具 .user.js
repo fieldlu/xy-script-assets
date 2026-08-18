@@ -1696,27 +1696,43 @@
     }
 
     function updateDownloadProgress(done, total, currentName, currentPercent, currentBytes, currentTotalBytes) {
-        const bar = document.getElementById('xy-dl-progress-bar');
-        const text = document.getElementById('xy-dl-progress-text');
-        if (bar) bar.style.width = total > 0 ? `${Math.max(0, Math.min(done / total * 100, 100)).toFixed(0)}%` : '0%';
-        if (text) {
-            if (total <= 0) {
-                text.textContent = '';
-            } else {
-                const totalPercent = (done / total * 100).toFixed(0);
-                const hasFileProgress = currentName && Number.isFinite(currentPercent);
-                const hasByteProgress = currentName && Number(currentBytes) > 0;
-                text.textContent = hasFileProgress
-                    ? `${done}/${total} (${totalPercent}%) · ${currentName} ${Math.max(0, Math.min(currentPercent, 100)).toFixed(0)}%`
-                    : hasByteProgress
-                        ? `${done}/${total} (${totalPercent}%) · ${currentName} · 已接收 ${formatDownloadBytes(currentBytes)}${Number(currentTotalBytes) > 0 ? ` / ${formatDownloadBytes(currentTotalBytes)}` : ''}`
-                        : currentName
-                            ? `${done}/${total} (${totalPercent}%) · ${currentName} · 正在下载…`
-                            : `${done}/${total} (${totalPercent}%)`;
-            }
-        }
         const wrap = document.getElementById('xy-dl-progress-wrap');
-        if (wrap) wrap.style.display = total > 0 ? 'block' : 'none';
+        const bar = document.getElementById('xy-dl-progress-bar');
+        const state = document.getElementById('xy-dl-progress-state');
+        const count = document.getElementById('xy-dl-progress-count');
+        const percent = document.getElementById('xy-dl-progress-percent');
+        const file = document.getElementById('xy-dl-progress-file');
+        const detail = document.getElementById('xy-dl-progress-detail');
+        if (!wrap) return;
+        if (total <= 0) {
+            wrap.style.display = 'none';
+            return;
+        }
+
+        const batchPercent = Math.max(0, Math.min(done / total * 100, 100));
+        const hasFileProgress = Number.isFinite(currentPercent);
+        const filePercent = hasFileProgress ? Math.max(0, Math.min(currentPercent, 100)) : 0;
+        const visiblePercent = hasFileProgress ? filePercent : batchPercent;
+        const visiblePercentText = String(Math.round(visiblePercent)) + '%';
+        const stateText = done >= total ? '已完成' : currentName ? '下载中' : done > 0 ? '准备下一项' : '准备中';
+        wrap.style.display = 'block';
+        if (bar) bar.style.width = String(visiblePercent.toFixed(0)) + '%';
+        if (state) state.textContent = stateText;
+        if (count) count.textContent = String(done) + '/' + String(total);
+        if (percent) percent.textContent = hasFileProgress ? '文件 ' + visiblePercentText : '批量 ' + visiblePercentText;
+        if (file) {
+            file.textContent = currentName || '等待选择文件…';
+            file.title = currentName || '';
+            file.style.display = currentName ? 'block' : 'none';
+        }
+        if (detail) {
+            const received = Number(currentBytes) || 0;
+            const totalBytes = Number(currentTotalBytes) || 0;
+            detail.textContent = received > 0
+                ? '已接收 ' + formatDownloadBytes(received) + (totalBytes > 0 ? ' / ' + formatDownloadBytes(totalBytes) : '')
+                : currentName ? '正在连接文件服务器…' : done >= total ? '本批次已完成' : '等待开始…';
+            detail.title = detail.textContent;
+        }
     }
     function setDownloadButtonsState(downloading, paused) {
         const batchBtn = document.getElementById('xy-dl-batch-download');
@@ -3603,6 +3619,7 @@
             "🔥 === v3.6.4 更新 ===",
             "🔁 按参考脚本恢复下载链路：携带站点 Authorization 并采用流式读取",
             "📦 文件服务器缺少 Content-Length 时显示当前文件名和已接收字节数，并支持从 Content-Range 推断总大小",
+            "🎨 下载进度改为紧凑卡片布局，长文件名自动省略，进度信息分层显示",
             "🖱️ 修复下载按钮事件委托与资源 ID 映射，点击后会正确进入获取链接和下载流程",
             "🧩 兼容数组/对象两种课程资源返回结构，补齐 quote_id 与嵌套资源识别",
             "🧹 修复下载区课程切换竞态，旧请求不会覆盖当前课程数据",
@@ -6090,6 +6107,20 @@
                 #xy-super-console ::-webkit-scrollbar-thumb:hover { background: rgba(71,85,105,0.7); }
                 #xy-main-body > * { flex-shrink: 0 !important; }
                 .xy-panel { background: var(--xy-surface2); border: 1px solid var(--xy-border); border-radius: 12px; padding: 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); flex-shrink: 0; }
+                .xy-dl-progress-card { min-width: 0; overflow: hidden; padding: 10px 11px; border: 1px solid var(--xy-border); border-radius: 10px; background: linear-gradient(135deg, rgba(52,211,153,0.08), rgba(99,102,241,0.07)); }
+                .xy-dl-progress-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; margin-bottom: 7px; }
+                .xy-dl-progress-summary { display: flex; align-items: center; gap: 6px; min-width: 0; }
+                .xy-dl-progress-state { flex-shrink: 0; padding: 2px 6px; border-radius: 999px; background: rgba(52,211,153,0.14); color: var(--xy-success); font-size: 10px; font-weight: 700; line-height: 1.4; }
+                .xy-dl-progress-count, .xy-dl-progress-percent { flex-shrink: 0; color: var(--xy-text2); font-size: 10px; font-weight: 700; white-space: nowrap; }
+                .xy-dl-progress-percent { margin-left: auto; color: var(--xy-accent); }
+                .xy-dl-progress-file { display: block; min-width: 0; margin-bottom: 7px; overflow: hidden; color: var(--xy-text); font-size: 11px; font-weight: 600; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+                .xy-dl-progress-track { width: 100%; height: 7px; overflow: hidden; border-radius: 999px; background: rgba(148,163,184,0.22); }
+                .xy-dl-progress-fill { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #34d399, #818cf8); transition: width 0.25s ease; }
+                .xy-dl-progress-foot { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 7px; }
+                .xy-dl-progress-detail { min-width: 0; overflow: hidden; color: var(--xy-text-muted); font-size: 10px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+                .xy-dl-progress-actions { display: flex; flex-shrink: 0; gap: 4px; margin-left: auto; }
+                .xy-dl-progress-action { flex-shrink: 0; padding: 3px 6px; border-radius: 6px; font-size: 10px; line-height: 1.3; white-space: nowrap; }
+                .xy-dl-progress-action.xy-dl-stop { color: var(--xy-danger); border-color: rgba(248,113,113,0.28); background: rgba(248,113,113,0.08); }
                 .xy-panel-title { font-size: 13px; font-weight: 600; color: var(--xy-text2); margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
                 .xy-mode-btn { padding: 10px 8px; border-radius: 8px; border: 1px solid var(--xy-border); background: rgba(30,41,59,0.5); color: var(--xy-text2); font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; }
                 .xy-mode-btn:hover { background: rgba(51,65,85,0.6); border-color: rgba(99,102,241,0.3); color: var(--xy-text); }
@@ -6356,16 +6387,24 @@
                     <div style="max-height:200px; overflow:auto; margin-bottom:8px;" id="xy-dl-file-list">
                         <div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">暂无课件资源</div>
                     </div>
-                    <div id="xy-dl-progress-wrap" style="display:none; margin-bottom: 10px;">
-                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-                            <span id="xy-dl-progress-text" style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; white-space:nowrap;"></span>
-                            <div style="display:flex; gap:4px; margin-left:auto;">
-                                <button class="xy-mini-btn" id="xy-dl-pause" style="display:none; padding:2px 8px; font-size:11px;">⏸️ 暂停</button>
-                                <button class="xy-mini-btn" id="xy-dl-stop" style="display:none; padding:2px 8px; font-size:11px; color:#f87171; border-color:${T('rgba(248,113,113,0.25)','#fecaca')}; background:${T('rgba(248,113,113,0.08)','#fef2f2')};">⏹️ 终止</button>
+                    <div id="xy-dl-progress-wrap" class="xy-dl-progress-card" style="display:none; margin-bottom:10px;">
+                        <div class="xy-dl-progress-head">
+                            <div class="xy-dl-progress-summary">
+                                <span id="xy-dl-progress-state" class="xy-dl-progress-state">准备中</span>
+                                <span id="xy-dl-progress-count" class="xy-dl-progress-count">0/0</span>
                             </div>
+                            <span id="xy-dl-progress-percent" class="xy-dl-progress-percent">批量 0%</span>
                         </div>
-                        <div style="width:100%; height:8px; background:${T('rgba(71,85,105,0.2)','#e2e8f0')}; border-radius:4px; overflow:hidden;">
-                            <div id="xy-dl-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #34d399, #818cf8); border-radius:4px; transition: width 0.3s ease;"></div>
+                        <div id="xy-dl-progress-file" class="xy-dl-progress-file" title=""></div>
+                        <div class="xy-dl-progress-track" aria-hidden="true">
+                            <div id="xy-dl-progress-bar" class="xy-dl-progress-fill"></div>
+                        </div>
+                        <div class="xy-dl-progress-foot">
+                            <span id="xy-dl-progress-detail" class="xy-dl-progress-detail">等待开始…</span>
+                            <div class="xy-dl-progress-actions">
+                                <button class="xy-mini-btn xy-dl-progress-action" id="xy-dl-pause" style="display:none;" title="暂停下载">⏸ 暂停</button>
+                                <button class="xy-mini-btn xy-dl-progress-action xy-dl-stop" id="xy-dl-stop" style="display:none;" title="终止下载">⏹ 终止</button>
+                            </div>
                         </div>
                     </div>
                     <div style="display:flex; gap:8px;">
