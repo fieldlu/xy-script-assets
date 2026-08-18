@@ -12,8 +12,8 @@
 1. 单文件下载开始时调用 `updateDownloadProgress(0, 1, fileName)`。
 2. 单文件下载通过 `downloadFile` 的 `onProgress` 回调更新当前文件百分比、已接收字节数和进度条。
 3. 成功后调用 `updateDownloadProgress(1, 1, fileName, 100, ...)`，显示完成状态；失败时显示失败状态并在短暂延迟后隐藏卡片。
-4. 单文件下载使用独立的 `AbortController`，暂停/终止按钮继续复用现有状态函数，但不会改动批量下载的控制器。
-5. 批量下载进行中时，单文件按钮不启动第二个下载，避免一个进度卡片同时被两个任务覆盖。
+4. 单文件和批量下载统一进入 `runDownloadQueue(files, mode, activeButton)`，共用同一个 `AbortController`、进度更新、完成计数和状态恢复流程。
+5. 任一下载任务进行中时，另一种入口不会启动第二个任务；终止按钮统一终止当前队列，避免一个进度卡片被两个任务覆盖。
 6. 下载请求、鉴权、流式读取、Blob 保存链路不变。
 
 ## 验收标准

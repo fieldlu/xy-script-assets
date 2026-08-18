@@ -562,6 +562,7 @@
             return new Set(saved.length ? saved : all);
         })(),
         downloadAbortController: null,
+        downloadMode: 'idle',
         downloadPaused: false,
         prevZone: 'course',
         
@@ -1563,14 +1564,16 @@
         return request;
     }
 
-    async function getDownloadUrl(quoteId) {
+    async function getDownloadUrl(quoteId, signal) {
         const normalizedQuoteId = normalizeDownloadId(quoteId);
         if (normalizedQuoteId === null) return null;
         for (let i = 0; i < 3; i++) {
+            if (signal?.aborted) throw new DOMException('用户终止下载', 'AbortError');
             try {
                 const token = getCookie();
                 if (!token) continue;
                 const res = await fetch(`https://${domain}/api/jx-oresource/cloud/file_url/${normalizedQuoteId}`, {
+                    signal: signal || undefined,
                     headers: { 'authorization': `Bearer ${token}` }
                 });
                 const data = await res.json();
@@ -1581,7 +1584,11 @@
                     }
                     return fileUrl;
                 }
-            } catch(e) { console.warn('[小雅] getDownloadUrl 失败', e); }
+            } catch(e) {
+                if (e?.name === 'AbortError') throw e;
+                console.warn('[小雅] getDownloadUrl 失败', e);
+            }
+            if (signal?.aborted) throw new DOMException('用户终止下载', 'AbortError');
             await sleep(500);
         }
         return null;
@@ -1741,21 +1748,103 @@
         if (batchBtn) { batchBtn.style.display = downloading ? 'none' : ''; batchBtn.disabled = false; }
         if (stopBtn) stopBtn.style.display = downloading ? '' : 'none';
         if (pauseBtn) {
-            pauseBtn.style.display = downloading ? '' : 'none';
+            const canPause = appState.downloadMode === 'batch';
+            pauseBtn.style.display = downloading && canPause ? '' : 'none';
             pauseBtn.textContent = paused ? '▶️ 继续' : '⏸️ 暂停';
         }
     }
 
+    // 单个下载和批量下载统一走同一个队列执行器，确保进度、终止和状态互不打架。
     function stopBatchDownload() {
-        if (appState.downloadAbortController) {
-            appState.downloadAbortController.abort();
-            appState.downloadAbortController = null;
-        }
+        const mode = appState.downloadMode;
+        const controller = appState.downloadAbortController;
+        if (!controller) return;
+        controller.abort();
         appState.downloadPaused = false;
-        setDownloadButtonsState(false, false);
-        const btn = document.getElementById('xy-dl-batch-download');
-        if (btn) btn.innerText = '⬇️ 下载选中';
-        logMsg('⏹️ 用户终止了批量下载', 'info', true);
+        logMsg(mode === 'single' ? '⏹️ 用户终止了单文件下载' : '⏹️ 用户终止了批量下载', 'info', true);
+    }
+
+    async function runDownloadQueue(files, mode, activeButton = null) {
+        const queue = Array.isArray(files) ? files.filter(file => file && file.name) : [];
+        if (queue.length === 0) return;
+        if (appState.downloadAbortController) {
+            showToast('已有下载任务进行中，请等待完成或先终止当前任务', 'warning');
+            return;
+        }
+
+        const controller = new AbortController();
+        const signal = controller.signal;
+        const originalButtonText = activeButton ? activeButton.textContent : '';
+        const total = queue.length;
+        let done = 0;
+        let failed = 0;
+        appState.downloadAbortController = controller;
+        appState.downloadMode = mode;
+        appState.downloadPaused = false;
+        if (activeButton) {
+            activeButton.disabled = true;
+            activeButton.textContent = '⏳';
+        }
+        setDownloadButtonsState(true, false);
+        updateDownloadProgress(0, total);
+
+        try {
+            for (const file of queue) {
+                if (signal.aborted) throw new DOMException('用户终止下载', 'AbortError');
+                while (appState.downloadPaused && !signal.aborted) await sleep(300);
+                if (signal.aborted) throw new DOMException('用户终止下载', 'AbortError');
+
+                updateDownloadProgress(done + failed, total);
+                let lastProgress = { receivedBytes: 0, totalBytes: 0, percent: null };
+                let fileSucceeded = false;
+                try {
+                    const quoteId = normalizeDownloadId(file.quoteId) ?? dlQuoteId(file);
+                    const url = await getDownloadUrl(quoteId, signal);
+                    if (signal.aborted) throw new DOMException('用户终止下载', 'AbortError');
+                    if (!url) {
+                        failed++;
+                        logMsg('❌ 获取失败: ' + file.name, 'error', true);
+                    } else {
+                        await downloadFile(url, file.name, signal, progress => {
+                            lastProgress = progress;
+                            updateDownloadProgress(done + failed, total, file.name, progress.percent, progress.receivedBytes, progress.totalBytes);
+                        });
+                        done++;
+                        fileSucceeded = true;
+                        logMsg('📥 已下载: ' + file.name, 'success', true);
+                    }
+                } catch (error) {
+                    if (error?.name === 'AbortError') throw error;
+                    failed++;
+                    logMsg('❌ 下载失败: ' + file.name, 'error', true);
+                }
+
+                if (signal.aborted) throw new DOMException('用户终止下载', 'AbortError');
+                updateDownloadProgress(done + failed, total, file.name, fileSucceeded ? 100 : lastProgress.percent, lastProgress.receivedBytes, lastProgress.totalBytes);
+                if (done + failed < total && !appState.downloadPaused) await sleep(500);
+            }
+            showToast('下载完成: ' + done + '/' + total + ' 个文件' + (failed > 0 ? ' (' + failed + ' 个失败)' : ''), 'success');
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                updateDownloadProgress(done + failed, total);
+                showToast('下载已终止: ' + done + '/' + total + ' 个文件', 'warning');
+            } else {
+                console.warn('[小雅] 下载任务失败:', error);
+                showToast(error?.message || '文件下载失败', 'error');
+            }
+        } finally {
+            if (appState.downloadAbortController === controller) appState.downloadAbortController = null;
+            appState.downloadMode = 'idle';
+            appState.downloadPaused = false;
+            setDownloadButtonsState(false, false);
+            const btn = document.getElementById('xy-dl-batch-download');
+            if (btn) btn.innerText = '⬇️ 下载选中';
+            if (activeButton) {
+                activeButton.disabled = false;
+                activeButton.textContent = originalButtonText;
+            }
+            setTimeout(() => updateDownloadProgress(-1, 0), 3000);
+        }
     }
 
     async function batchDownloadSelected() {
@@ -1764,87 +1853,9 @@
             return id !== null && appState.downloadSelectedIds.has(id);
         });
         if (selected.length === 0) { showToast('请先勾选要下载的文件', 'warning'); return; }
-        appState.downloadAbortController = new AbortController();
-        appState.downloadPaused = false;
-        const signal = appState.downloadAbortController.signal;
-        setDownloadButtonsState(true, false);
-        let done = 0, failed = 0;
-        const total = selected.length;
-        updateDownloadProgress(0, total);
-        for (let i = 0; i < selected.length; i++) {
-            
-            if (signal.aborted) {
-                updateDownloadProgress(done + failed, total);
-                setDownloadButtonsState(false, false);
-                const btn = document.getElementById('xy-dl-batch-download');
-                if (btn) btn.innerText = '⬇️ 下载选中';
-                showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
-                setTimeout(() => updateDownloadProgress(-1, 0), 3000);
-                return;
-            }
-            
-            while (appState.downloadPaused && !signal.aborted) {
-                await sleep(300);
-            }
-            if (signal.aborted) {
-                updateDownloadProgress(done + failed, total);
-                setDownloadButtonsState(false, false);
-                const btn = document.getElementById('xy-dl-batch-download');
-                if (btn) btn.innerText = '⬇️ 下载选中';
-                showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
-                setTimeout(() => updateDownloadProgress(-1, 0), 3000);
-                return;
-            }
-            const file = selected[i];
-            try {
-                const url = await getDownloadUrl(file.quoteId);
-                if (signal.aborted) {
-                    updateDownloadProgress(done + failed, total);
-                    setDownloadButtonsState(false, false);
-                    const btn = document.getElementById('xy-dl-batch-download');
-                    if (btn) btn.innerText = '⬇️ 下载选中';
-                    showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
-                    setTimeout(() => updateDownloadProgress(-1, 0), 3000);
-                    return;
-                }
-                if (!url) {
-                    failed++;
-                    logMsg(`❌ 获取失败: ${file.name}`, 'error', true);
-                } else {
-                    await downloadFile(url, file.name, signal, progress => {
-                        updateDownloadProgress(done + failed, total, file.name, progress.percent, progress.receivedBytes, progress.totalBytes);
-                    });
-                    done++;
-                    logMsg(`📥 已下载: ${file.name}`, 'success', true);
-                }
-            } catch (e) {
-                if (e.name === 'AbortError') {
-                    updateDownloadProgress(done + failed, total);
-                    setDownloadButtonsState(false, false);
-                    const btn = document.getElementById('xy-dl-batch-download');
-                    if (btn) btn.innerText = '⬇️ 下载选中';
-                    showToast(`下载已终止: ${done}/${total} 个文件`, 'warning');
-                    setTimeout(() => updateDownloadProgress(-1, 0), 3000);
-                    return;
-                }
-                failed++;
-                logMsg(`❌ 下载失败: ${file.name}`, 'error', true);
-            }
-            updateDownloadProgress(done + failed, total);
-            if (i < selected.length - 1 && !signal.aborted && !appState.downloadPaused) {
-                await sleep(500);
-            }
-        }
-        appState.downloadAbortController = null;
-        appState.downloadPaused = false;
-        setDownloadButtonsState(false, false);
-        const btn = document.getElementById('xy-dl-batch-download');
-        if (btn) btn.innerText = '⬇️ 下载选中';
-        showToast(`下载完成: ${done}/${total} 个文件` + (failed > 0 ? ` (${failed} 个失败)` : ''), 'success');
-        setTimeout(() => updateDownloadProgress(-1, 0), 3000);
+        await runDownloadQueue(selected, 'batch');
     }
 
-    
     const DL_TYPES = [
         { key: 'video', label: '视频' },
         { key: 'audio', label: '音频' },
@@ -1915,21 +1926,7 @@
             return;
         }
 
-        const oldText = singleButton.textContent;
-        singleButton.disabled = true;
-        singleButton.textContent = '⏳';
-        try {
-            // 直接调用参考脚本同样的 quote_id → 获取链接 → 流式下载链路。
-            const url = await getDownloadUrl(quoteId);
-            if (!url) throw new Error('获取下载链接失败');
-            await downloadFile(url, fileName);
-        } catch (error) {
-            console.warn('[小雅] 单文件下载失败:', { file: fileName, quoteId, error });
-            showToast(error?.message || '文件下载失败', 'error');
-        } finally {
-            singleButton.disabled = false;
-            singleButton.textContent = oldText;
-        }
+        await runDownloadQueue([{ id: fid, quoteId, name: fileName }], 'single', singleButton);
     }
 
     function bindDownloadButtons(container) {
@@ -3620,6 +3617,7 @@
             "🔁 按参考脚本恢复下载链路：携带站点 Authorization 并采用流式读取",
             "📦 文件服务器缺少 Content-Length 时显示当前文件名和已接收字节数，并支持从 Content-Range 推断总大小",
             "🎨 下载进度改为紧凑卡片布局，长文件名自动省略，进度信息分层显示",
+            "📄 单个下载按钮也复用同一进度卡片，显示 0/1、文件百分比和已接收大小",
             "🖱️ 修复下载按钮事件委托与资源 ID 映射，点击后会正确进入获取链接和下载流程",
             "🧩 兼容数组/对象两种课程资源返回结构，补齐 quote_id 与嵌套资源识别",
             "🧹 修复下载区课程切换竞态，旧请求不会覆盖当前课程数据",

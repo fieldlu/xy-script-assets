@@ -14,6 +14,9 @@ assert.match(SCRIPT, /dlCollectResources\(data\.data\)|dlCollectResources\(resou
 assert.match(SCRIPT, /data-quote-id=\"\$\{escapeHtml\(quoteId\)\}\"/);
 assert.match(SCRIPT, /getAttribute\('data-quote-id'\)/);
 assert.match(SCRIPT, /function downloadFile\(url, filename, signal, onProgress\)/);
+assert.match(SCRIPT, /async function getDownloadUrl\(quoteId, signal\)/);
+assert.match(SCRIPT, /getDownloadUrl\(quoteId, signal\)/);
+assert.match(SCRIPT, /signal: signal \|\| undefined/);
 assert.match(SCRIPT, /updateDownloadProgress\(done \+ failed, total, file\.name, progress\.percent, progress\.receivedBytes, progress\.totalBytes\)/);
 assert.match(SCRIPT, /Content-Range/);
 assert.match(SCRIPT, /已接收/);
@@ -25,6 +28,11 @@ assert.match(SCRIPT, /id=\"xy-dl-progress-file\"/);
 assert.match(SCRIPT, /id=\"xy-dl-progress-detail\"/);
 assert.match(SCRIPT, /text-overflow: ellipsis/);
 assert.doesNotMatch(SCRIPT, /id=\"xy-dl-progress-text\"/);
+assert.match(SCRIPT, /async function runDownloadQueue/);
+assert.match(SCRIPT, /appState\.downloadMode = mode/);
+assert.match(SCRIPT, /await runDownloadQueue\(selected, 'batch'\)/);
+assert.match(SCRIPT, /await runDownloadQueue\(\[\{ id: fid, quoteId, name: fileName \}\], 'single', singleButton\)/);
+assert.match(SCRIPT, /updateDownloadProgress\(done \+ failed, total, file\.name, progress\.percent, progress\.receivedBytes, progress\.totalBytes\)/);
 
 // 进度 DOM 使用分层节点，长文件名只能在文件名行省略，不得污染计数、百分比和按钮。
 const progressFunctionStart = SCRIPT.indexOf('    function formatDownloadBytes');
@@ -185,6 +193,46 @@ handleClick(button, {
   ]);
   console.log('direct quote-id fallback: PASS');
 }).then(async () => {
+  // 单文件和批量下载必须实际执行同一个 runner：单文件是长度为 1 的队列。
+  const queueStart = SCRIPT.indexOf('    async function runDownloadQueue');
+  const queueEnd = SCRIPT.indexOf('    async function batchDownloadSelected', queueStart);
+  assert(queueStart >= 0 && queueEnd > queueStart, 'unified download queue not found');
+  const queueProgress = [];
+  const queueDownloads = [];
+  const queueContext = {
+    AbortController,
+    DOMException,
+    console,
+    appState: { downloadAbortController: null, downloadMode: 'idle', downloadPaused: false },
+    normalizeDownloadId: value => value === null || value === undefined ? null : String(value),
+    dlQuoteId: file => file.quoteId || null,
+    showToast() {},
+    logMsg() {},
+    setDownloadButtonsState() {},
+    updateDownloadProgress(...args) { queueProgress.push(args); },
+    async getDownloadUrl(quoteId) { return quoteId === 'q-fail' ? null : 'https://cdn.example/' + quoteId; },
+    async downloadFile(url, name, signal, onProgress) {
+      queueDownloads.push([url, name, signal.aborted]);
+      onProgress({ percent: 64, receivedBytes: 64 * 1024 * 1024, totalBytes: 100 * 1024 * 1024 });
+    },
+    async sleep() {},
+    document: { getElementById() { return { innerText: '' }; } },
+    setTimeout() { return 1; }
+  };
+  vm.runInNewContext(SCRIPT.slice(queueStart, queueEnd) + '\nglobalThis.__runDownloadQueue = runDownloadQueue;', queueContext);
+  await queueContext.__runDownloadQueue([{ quoteId: 'q-single', name: 'single.pptx' }], 'single');
+  assert(queueProgress.some(item => item[0] === 0 && item[1] === 1));
+  assert(queueProgress.some(item => item[0] === 1 && item[1] === 1 && item[2] === 'single.pptx' && item[3] === 100));
+  await queueContext.__runDownloadQueue([
+    { quoteId: 'q-ok', name: 'ok.pptx' },
+    { quoteId: 'q-fail', name: 'fail.pptx' }
+  ], 'batch');
+  assert(queueProgress.some(item => item[0] === 1 && item[1] === 2));
+  assert(queueProgress.some(item => item[0] === 2 && item[1] === 2));
+  assert.equal(queueDownloads.length, 2);
+  assert.equal(queueContext.appState.downloadAbortController, null);
+  assert.equal(queueContext.appState.downloadMode, 'idle');
+  console.log('unified single/batch queue: PASS');
 
 // 直接执行 userscript 中的 downloadFile：验证参考脚本的流式读取、Blob、a.click
 // 和 Promise resolve/reject，而不是只检查字符串是否存在。
