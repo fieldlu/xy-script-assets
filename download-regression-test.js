@@ -20,6 +20,33 @@ assert.match(SCRIPT, /已接收/);
 assert.match(SCRIPT, /await downloadFile\(url, file\.name, signal/);
 assert.match(SCRIPT, /done\+\+;/);
 assert.match(SCRIPT, /failed\+\+;/);
+assert.match(SCRIPT, /class=\"xy-dl-progress-card\"/);
+assert.match(SCRIPT, /id=\"xy-dl-progress-file\"/);
+assert.match(SCRIPT, /id=\"xy-dl-progress-detail\"/);
+assert.match(SCRIPT, /text-overflow: ellipsis/);
+assert.doesNotMatch(SCRIPT, /id=\"xy-dl-progress-text\"/);
+
+// 进度 DOM 使用分层节点，长文件名只能在文件名行省略，不得污染计数、百分比和按钮。
+const progressFunctionStart = SCRIPT.indexOf('    function formatDownloadBytes');
+const progressFunctionEnd = SCRIPT.indexOf('    function setDownloadButtonsState', progressFunctionStart);
+assert(progressFunctionStart >= 0 && progressFunctionEnd > progressFunctionStart, 'progress functions not found');
+const progressElements = new Map(['xy-dl-progress-wrap', 'xy-dl-progress-bar', 'xy-dl-progress-state', 'xy-dl-progress-count', 'xy-dl-progress-percent', 'xy-dl-progress-file', 'xy-dl-progress-detail'].map(id => [id, { style: {}, textContent: '', title: '' }]));
+const progressContext = {
+  document: { getElementById(id) { return progressElements.get(id) || null; } },
+  Number, Math, String
+};
+vm.runInNewContext(SCRIPT.slice(progressFunctionStart, progressFunctionEnd) + '\nglobalThis.__updateDownloadProgress = updateDownloadProgress;', progressContext);
+progressContext.__updateDownloadProgress(0, 2, '机械制造基础-1上课用 - 修改 20260301版本.pptx', 64, 64 * 1024 * 1024, 100 * 1024 * 1024);
+assert.equal(progressElements.get('xy-dl-progress-state').textContent, '下载中');
+assert.equal(progressElements.get('xy-dl-progress-count').textContent, '0/2');
+assert.equal(progressElements.get('xy-dl-progress-percent').textContent, '文件 64%');
+assert.equal(progressElements.get('xy-dl-progress-bar').style.width, '64%');
+assert.equal(progressElements.get('xy-dl-progress-detail').textContent, '已接收 64.0 MB / 100.0 MB');
+progressContext.__updateDownloadProgress(1, 2);
+assert.equal(progressElements.get('xy-dl-progress-state').textContent, '准备下一项');
+assert.equal(progressElements.get('xy-dl-progress-percent').textContent, '批量 50%');
+assert.equal(progressElements.get('xy-dl-progress-file').style.display, 'none');
+console.log('compact progress layout: PASS');
 
 function normalizeDownloadId(value) {
   if (value === null || value === undefined) return null;
