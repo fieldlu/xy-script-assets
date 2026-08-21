@@ -21,19 +21,23 @@ const courseStatusEnd = SCRIPT.indexOf('    async function xyCourseDashboardMapL
 assert(courseStatusStart >= 0 && courseStatusEnd > courseStatusStart, 'course status function not found');
 assert.doesNotMatch(SCRIPT.slice(courseStatusStart, courseStatusEnd), /已清空/);
 
-// 课程总览应先展示有可做待办的课程；同组内优先临近截止时间，其他课程保持接口原顺序。
+// 课程总览应依次展示可做待办、无可做但有已截止任务、其余课程；每组内先按截止时间、再按任务数排序。
 const courseSortStart = SCRIPT.indexOf('    function xyCourseDashboardSortCourses');
 const courseSortEnd = SCRIPT.indexOf('    function xyCourseDashboardCourseStatus', courseSortStart);
 assert(courseSortStart >= 0 && courseSortEnd > courseSortStart, 'course dashboard sorter not found');
 const courseSortContext = { Number };
 vm.runInNewContext(SCRIPT.slice(courseSortStart, courseSortEnd) + '\nglobalThis.__sortCourses = xyCourseDashboardSortCourses;', courseSortContext);
 const sortedCourses = courseSortContext.__sortCourses([
-  { course: { courseId: 'completed', pendingCount: 0 }, sourceIndex: 0 },
-  { course: { courseId: 'later', pendingCount: 3, nearestDeadline: 2_000 }, sourceIndex: 1 },
-  { course: { courseId: 'soon', pendingCount: 1, nearestDeadline: 1_000 }, sourceIndex: 2 },
-  { course: { courseId: 'empty', pendingCount: 0 }, sourceIndex: 3 }
+  { course: { courseId: 'completed', pendingCount: 0, expiredCount: 0, portrait: { taskCount: 12 } }, sourceIndex: 0 },
+  { course: { courseId: 'actionable-many', pendingCount: 3, expiredCount: 0, nearestDeadline: 2_000, portrait: { taskCount: 15 } }, sourceIndex: 1 },
+  { course: { courseId: 'actionable-soon', pendingCount: 1, expiredCount: 0, nearestDeadline: 1_000, portrait: { taskCount: 1 } }, sourceIndex: 2 },
+  { course: { courseId: 'expired-light', pendingCount: 0, expiredCount: 1, nearestExpiredDeadline: 3_000, portrait: { taskCount: 2 } }, sourceIndex: 3 },
+  { course: { courseId: 'expired-heavy', pendingCount: 0, expiredCount: 2, nearestExpiredDeadline: 4_000, portrait: { taskCount: 9 } }, sourceIndex: 4 },
+  { course: { courseId: 'no-task-heavy', pendingCount: 0, expiredCount: 0, portrait: { taskCount: 20 } }, sourceIndex: 5 }
 ]);
-assert.deepEqual(Array.from(sortedCourses, ({ course }) => course.courseId), ['soon', 'later', 'completed', 'empty']);
+assert.deepEqual(Array.from(sortedCourses, ({ course }) => course.courseId), [
+  'actionable-soon', 'actionable-many', 'expired-light', 'expired-heavy', 'no-task-heavy', 'completed'
+]);
 assert.match(SCRIPT, /button\.onclick = event =>/);
 assert.match(SCRIPT, /handleSingleDownloadClick\(event, button\)/);
 assert.match(SCRIPT, /dlCollectResources\(data\.data\)|dlCollectResources\(resources\)/);

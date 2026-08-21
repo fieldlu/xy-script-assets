@@ -1143,6 +1143,7 @@
                 pendingCount: null,
                 expiredCount: null,
                 nearestDeadline: null,
+                nearestExpiredDeadline: null,
                 portrait: null,
                 portraitState: 'loading',
                 portraitError: ''
@@ -1157,10 +1158,13 @@
         data.forEach(task => {
             const courseId = courseGroupKey(task?.group_id);
             if (!courseId) return;
-            const current = grouped.get(courseId) || { actionableCount: 0, expiredCount: 0, nearestDeadline: null };
+            const current = grouped.get(courseId) || { actionableCount: 0, expiredCount: 0, nearestDeadline: null, nearestExpiredDeadline: null };
             const deadline = Date.parse(task?.end_time || '');
             if (Number.isFinite(deadline) && deadline <= now) {
                 current.expiredCount++;
+                if (!current.nearestExpiredDeadline || deadline < current.nearestExpiredDeadline) {
+                    current.nearestExpiredDeadline = deadline;
+                }
             } else {
                 current.actionableCount++;
                 if (Number.isFinite(deadline) && (!current.nearestDeadline || deadline < current.nearestDeadline)) {
@@ -1192,18 +1196,30 @@
     }
 
     function xyCourseDashboardSortCourses(items) {
-        const getPriority = course => course?.pendingCount > 0 ? 0 : (course?.pendingCount === null || course?.pendingCount === undefined ? 1 : 2);
+        const getPriority = course => {
+            if (course?.pendingCount > 0) return 0;
+            if (course?.pendingCount === 0 && course?.expiredCount > 0) return 1;
+            if (course?.pendingCount === 0) return 2;
+            return 3;
+        };
+        const getTaskCount = course => {
+            const taskCount = Number(course?.portrait?.taskCount);
+            return Number.isFinite(taskCount) ? Math.max(0, taskCount) : 0;
+        };
+        const getDeadline = course => {
+            const deadline = course?.pendingCount > 0 ? course.nearestDeadline : course?.nearestExpiredDeadline;
+            return Number.isFinite(deadline) ? deadline : Number.POSITIVE_INFINITY;
+        };
         return [...items].sort((left, right) => {
             const priorityDelta = getPriority(left.course) - getPriority(right.course);
             if (priorityDelta) return priorityDelta;
             const leftIndex = Number.isFinite(left.sourceIndex) ? left.sourceIndex : 0;
             const rightIndex = Number.isFinite(right.sourceIndex) ? right.sourceIndex : 0;
-            if (getPriority(left.course) !== 0) return leftIndex - rightIndex;
-            const leftDeadline = Number.isFinite(left.course.nearestDeadline) ? left.course.nearestDeadline : Number.POSITIVE_INFINITY;
-            const rightDeadline = Number.isFinite(right.course.nearestDeadline) ? right.course.nearestDeadline : Number.POSITIVE_INFINITY;
+            const leftDeadline = getDeadline(left.course);
+            const rightDeadline = getDeadline(right.course);
             if (leftDeadline !== rightDeadline) return leftDeadline - rightDeadline;
-            const pendingDelta = right.course.pendingCount - left.course.pendingCount;
-            return pendingDelta || leftIndex - rightIndex;
+            const taskCountDelta = getTaskCount(right.course) - getTaskCount(left.course);
+            return taskCountDelta || leftIndex - rightIndex;
         });
     }
 
@@ -1296,6 +1312,7 @@
                 course.pendingCount = pendingAvailable ? (pending?.actionableCount || 0) : null;
                 course.expiredCount = pendingAvailable ? (pending?.expiredCount || 0) : null;
                 course.nearestDeadline = pending?.nearestDeadline || null;
+                course.nearestExpiredDeadline = pending?.nearestExpiredDeadline || null;
             });
 
             if (!xyCourseDashboardIsCurrent(requestSeq)) return null;
@@ -4390,8 +4407,8 @@
             "",
             "⏰ === v3.7.1 更新 ===",
             "📌 进行中课程优先展示有可做待办的课程",
-            "🗓️ 同为有待办的课程，按最近截止时间从早到晚排序",
-            "📚 无可做待办的课程保持原有顺序并排在后面",
+            "⚠️ 无可做待办但有已截止任务的课程，排在普通无待办课程之前",
+            "🗓️ 每个分组内按截止时间从早到晚，任务数多的课程作为次级排序",
             "",
             "🔥 === v3.6.3 更新 ===",
             "↻ 新增脚本更新模块：面板头部一键「检查更新」",
