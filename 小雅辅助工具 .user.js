@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.0
+// @version      3.7.1
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -1191,6 +1191,22 @@
         };
     }
 
+    function xyCourseDashboardSortCourses(items) {
+        const getPriority = course => course?.pendingCount > 0 ? 0 : (course?.pendingCount === null || course?.pendingCount === undefined ? 1 : 2);
+        return [...items].sort((left, right) => {
+            const priorityDelta = getPriority(left.course) - getPriority(right.course);
+            if (priorityDelta) return priorityDelta;
+            const leftIndex = Number.isFinite(left.sourceIndex) ? left.sourceIndex : 0;
+            const rightIndex = Number.isFinite(right.sourceIndex) ? right.sourceIndex : 0;
+            if (getPriority(left.course) !== 0) return leftIndex - rightIndex;
+            const leftDeadline = Number.isFinite(left.course.nearestDeadline) ? left.course.nearestDeadline : Number.POSITIVE_INFINITY;
+            const rightDeadline = Number.isFinite(right.course.nearestDeadline) ? right.course.nearestDeadline : Number.POSITIVE_INFINITY;
+            if (leftDeadline !== rightDeadline) return leftDeadline - rightDeadline;
+            const pendingDelta = right.course.pendingCount - left.course.pendingCount;
+            return pendingDelta || leftIndex - rightIndex;
+        });
+    }
+
     function xyCourseDashboardCourseStatus(course, breakdown) {
         if (course.pendingCount === null) return { key: 'unknown', label: '可做任务未知' };
         if (course.pendingCount > 0) return { key: 'pending', label: `${course.pendingCount} 项可做` };
@@ -1380,22 +1396,15 @@
 
     function xyCourseDashboardVisibleCourses() {
         const query = xyCourseDashboardState.query.trim().toLocaleLowerCase('zh-CN');
-        return xyCourseDashboardState.courses
+        const visibleCourses = xyCourseDashboardState.courses
             .map((course, sourceIndex) => ({ course, sourceIndex }))
             .filter(({ course }) => {
                 if (query && !course.courseName.toLocaleLowerCase('zh-CN').includes(query)) return false;
                 if (xyCourseDashboardState.filter === 'pending') return course.pendingCount > 0;
                 if (xyCourseDashboardState.filter === 'no-pending') return course.pendingCount === 0;
                 return true;
-            })
-            .sort((left, right) => {
-                const pendingDelta = (right.course.pendingCount ?? -1) - (left.course.pendingCount ?? -1);
-                if (pendingDelta) return pendingDelta;
-                const leftDeadline = left.course.nearestDeadline || Number.POSITIVE_INFINITY;
-                const rightDeadline = right.course.nearestDeadline || Number.POSITIVE_INFINITY;
-                if (leftDeadline !== rightDeadline) return leftDeadline - rightDeadline;
-                return left.course.courseName.localeCompare(right.course.courseName, 'zh-CN');
             });
+        return xyCourseDashboardSortCourses(visibleCourses);
     }
 
     function xyCourseDashboardRenderSummary() {
@@ -4371,20 +4380,18 @@
     
     
     const EMBEDDED_NOTICE = {
-        "title": "📊 v3.7.0 脚本更新 · 进行中课程学习总览",
-        "version": "3.7.0",
+        "title": "⏰ v3.7.1 脚本更新 · 待办课程智能排序",
+        "version": "3.7.1",
         "updatedAt": "2026-08-21",
         "items": [
             "🔮 更新链接：https://gitee.com/fieldlu/xy-script-assets",
             "🔒 隐私声明：本脚本不收集任何个人信息，数据仅存本地浏览器",
             "⚠️ 免责声明：本脚本按 GPL-3.0 协议开源，使用者自负风险",
             "",
-            "📊 === v3.7.0 更新 ===",
-            "📚 课程首页新增进行中课程总览：待办、完成率与累计学习时长一眼可见",
-            "📝 新增学情抽屉：展示学习时长、任务完成度及可跳转的作业成绩列表",
-            "⏰ 待办按截止时间区分当前可做与已截止；0/0 任务显示暂无任务，不再误显示满进度",
-            "🔎 支持课程搜索、待办筛选、进入课程与学情跳转",
-            "🔄 脚本检查更新与 Tampermonkey 自动更新统一改为 Gitee 发布源",
+            "⏰ === v3.7.1 更新 ===",
+            "📌 进行中课程优先展示有可做待办的课程",
+            "🗓️ 同为有待办的课程，按最近截止时间从早到晚排序",
+            "📚 无可做待办的课程保持原有顺序并排在后面",
             "",
             "🔥 === v3.6.3 更新 ===",
             "↻ 新增脚本更新模块：面板头部一键「检查更新」",

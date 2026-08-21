@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const SCRIPT = fs.readFileSync(path.join(__dirname, '小雅辅助工具 .user.js'), 'utf8');
-assert.match(SCRIPT, /@version\s+3\.7\.0/);
+assert.match(SCRIPT, /@version\s+3\.7\.1/);
 assert.match(SCRIPT, /@updateURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
 assert.match(SCRIPT, /@downloadURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
 assert.match(SCRIPT, /function xyCourseDashboardCourseStatus/);
@@ -20,6 +20,20 @@ const courseStatusStart = SCRIPT.indexOf('    function xyCourseDashboardCourseSt
 const courseStatusEnd = SCRIPT.indexOf('    async function xyCourseDashboardMapLimit', courseStatusStart);
 assert(courseStatusStart >= 0 && courseStatusEnd > courseStatusStart, 'course status function not found');
 assert.doesNotMatch(SCRIPT.slice(courseStatusStart, courseStatusEnd), /已清空/);
+
+// 课程总览应先展示有可做待办的课程；同组内优先临近截止时间，其他课程保持接口原顺序。
+const courseSortStart = SCRIPT.indexOf('    function xyCourseDashboardSortCourses');
+const courseSortEnd = SCRIPT.indexOf('    function xyCourseDashboardCourseStatus', courseSortStart);
+assert(courseSortStart >= 0 && courseSortEnd > courseSortStart, 'course dashboard sorter not found');
+const courseSortContext = { Number };
+vm.runInNewContext(SCRIPT.slice(courseSortStart, courseSortEnd) + '\nglobalThis.__sortCourses = xyCourseDashboardSortCourses;', courseSortContext);
+const sortedCourses = courseSortContext.__sortCourses([
+  { course: { courseId: 'completed', pendingCount: 0 }, sourceIndex: 0 },
+  { course: { courseId: 'later', pendingCount: 3, nearestDeadline: 2_000 }, sourceIndex: 1 },
+  { course: { courseId: 'soon', pendingCount: 1, nearestDeadline: 1_000 }, sourceIndex: 2 },
+  { course: { courseId: 'empty', pendingCount: 0 }, sourceIndex: 3 }
+]);
+assert.deepEqual(Array.from(sortedCourses, ({ course }) => course.courseId), ['soon', 'later', 'completed', 'empty']);
 assert.match(SCRIPT, /button\.onclick = event =>/);
 assert.match(SCRIPT, /handleSingleDownloadClick\(event, button\)/);
 assert.match(SCRIPT, /dlCollectResources\(data\.data\)|dlCollectResources\(resources\)/);
