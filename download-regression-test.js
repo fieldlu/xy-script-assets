@@ -9,6 +9,30 @@ const SCRIPT = fs.readFileSync(path.join(__dirname, '小雅辅助工具 .user.js
 assert.match(SCRIPT, /@version\s+3\.7\.1/);
 assert.match(SCRIPT, /@updateURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
 assert.match(SCRIPT, /@downloadURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
+
+// course_paper 页面可能把记录放在任务流程数组的后续项，或直接随题目数据返回。
+const recordExtractorStart = SCRIPT.indexOf('    function hwExtractRecordId');
+const recordExtractorEnd = SCRIPT.indexOf('    async function hwGetRecordId', recordExtractorStart);
+assert(recordExtractorStart >= 0 && recordExtractorEnd > recordExtractorStart, 'record-id extractor not found');
+const recordContext = { String, Array };
+vm.runInNewContext(SCRIPT.slice(recordExtractorStart, recordExtractorEnd) + '\nglobalThis.__extractRecordId = hwExtractRecordId;', recordContext);
+assert.equal(recordContext.__extractRecordId({
+  task_flow_record: [{ state: 1 }, { answer_record_id: 'record-from-later-item' }]
+}), 'record-from-later-item');
+assert.equal(recordContext.__extractRecordId({ answer_record: { id: 'record-from-paper' } }), 'record-from-paper');
+console.log('course paper record-id regression: PASS');
+
+// 只有所有答案保存成功才允许刷新，避免部分失败时丢失错误提示。
+const saveRefreshStart = SCRIPT.indexOf('    function hwShouldReloadAfterSave');
+const saveRefreshEnd = SCRIPT.indexOf('    async function hwSaveAnswers', saveRefreshStart);
+assert(saveRefreshStart >= 0 && saveRefreshEnd > saveRefreshStart, 'save refresh helpers not found');
+const saveRefreshContext = { Number };
+vm.runInNewContext(SCRIPT.slice(saveRefreshStart, saveRefreshEnd) + '\nglobalThis.__shouldReloadAfterSave = hwShouldReloadAfterSave;', saveRefreshContext);
+assert.equal(saveRefreshContext.__shouldReloadAfterSave(9, 0, 0), true);
+assert.equal(saveRefreshContext.__shouldReloadAfterSave(8, 1, 0), false);
+assert.equal(saveRefreshContext.__shouldReloadAfterSave(8, 0, 1), false);
+console.log('homework save refresh regression: PASS');
+
 assert.match(SCRIPT, /function xyCourseDashboardCourseStatus/);
 assert.match(SCRIPT, /function xyOverviewTaskStatus/);
 assert.match(SCRIPT, /\/api\/jx-stat\/ads\/user\/student\?group_id=/);
