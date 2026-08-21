@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.1
+// @version      3.7.2
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -787,16 +787,20 @@
         return /\/mycourse\/\d+(?:\/resource(?:\/\d+)?)?\/?$/.test(window.location.pathname);
     }
 
+    function isCourseOverviewPage() {
+        return !!getCourseGroupId() && !isCourseDirPage();
+    }
+
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     function getCookie(keyword = 'prd-access-token') { for (const cookie of document.cookie.split('; ')) { const [name, value] = cookie.split('='); if (name.includes(keyword)) return value; } return null; }
     async function getAuthToken() { const token = getCookie(); if (token) return token; throw new Error('未找到Token'); }
 
     const xyOverviewState = {
-        isOpen: false,
         courseId: '',
         requestSeq: 0,
         userId: '',
         currentData: null,
+        taskDetailsExpanded: null,
         cache: new Map(),
         cacheTtl: 60 * 1000
     };
@@ -886,10 +890,68 @@
                 totalScore: Math.max(0, xyOverviewNumber(task.total_score)),
                 myScore: task.my_score === null || task.my_score === undefined ? null : xyOverviewNumber(task.my_score),
                 answerTime: task.answer_time || '',
+                endTime: task.end_time || '',
                 parentId: task.parent_id === null || task.parent_id === undefined ? '' : String(task.parent_id),
                 nodeId: task.node_id === null || task.node_id === undefined ? '' : String(task.node_id),
                 status
             };
+        });
+    }
+
+    function xyOverviewNormalizePendingTasks(data, courseId, now = Date.now()) {
+        const normalizedCourseId = String(courseId ?? '').trim();
+        if (!normalizedCourseId || !Array.isArray(data)) return [];
+        return data.filter(task => String(task?.group_id ?? '').trim() === normalizedCourseId).map(task => {
+            const endTime = task?.end_time || '';
+            const deadline = Date.parse(endTime);
+            return {
+                title: String(task?.title || task?.name || '未命名任务'),
+                totalScore: 0,
+                myScore: null,
+                answerTime: '',
+                endTime,
+                parentId: task?.parent_id === null || task?.parent_id === undefined ? '' : String(task.parent_id),
+                nodeId: task?.node_id === null || task?.node_id === undefined ? '' : String(task.node_id),
+                status: Number.isFinite(deadline) && deadline <= now
+                    ? { key: 'expired', label: '已截止' }
+                    : { key: 'actionable', label: '待完成' }
+            };
+        });
+    }
+
+    function xyOverviewMergeTasks(pendingTasks, surveyTasks) {
+        const tasksByKey = new Map();
+        const taskKey = (task, index) => String(task?.nodeId || '').trim() || `title:${task?.title || ''}:${index}`;
+        (Array.isArray(pendingTasks) ? pendingTasks : []).forEach((task, index) => {
+            tasksByKey.set(taskKey(task, index), task);
+        });
+        (Array.isArray(surveyTasks) ? surveyTasks : []).forEach((task, index) => {
+            const key = taskKey(task, index);
+            if (!tasksByKey.has(key)) tasksByKey.set(key, task);
+        });
+        return Array.from(tasksByKey.values());
+    }
+
+    function xyOverviewTaskBreakdown(tasks) {
+        return (Array.isArray(tasks) ? tasks : []).reduce((result, task) => {
+            const key = task?.status?.key;
+            if (key === 'actionable' || key === 'unsubmitted') result.actionable++;
+            else if (key === 'expired') result.expired++;
+            else if (key === 'pending') result.pending++;
+            else if (key === 'graded') result.graded++;
+            return result;
+        }, { actionable: 0, pending: 0, graded: 0, expired: 0 });
+    }
+
+    function xyOverviewTaskDetailsOpen(expanded, breakdown) {
+        return typeof expanded === 'boolean' ? expanded : !!breakdown?.actionable;
+    }
+
+    function xyOverviewDeadlineText(value) {
+        const deadline = Date.parse(value || '');
+        if (!Number.isFinite(deadline)) return '';
+        return new Date(deadline).toLocaleString('zh-CN', {
+            month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
         });
     }
 
@@ -926,9 +988,25 @@
             </div>`;
     }
 
+    function xyOverviewUnresolvedTaskNotice(finishedCount, taskCount, pendingTasksError = '') {
+        if (pendingTasksError) {
+            return {
+                title: '待办接口加载失败',
+                meta: `成员画像为 ${xyOverviewNumber(finishedCount)} / ${xyOverviewNumber(taskCount)}；未能读取待办接口（${pendingTasksError}），暂时无法定位对应任务。`
+            };
+        }
+        const difference = Math.max(0, xyOverviewNumber(taskCount) - xyOverviewNumber(finishedCount));
+        return {
+            title: `平台统计相差 ${difference} 项`,
+            meta: `成员画像为 ${xyOverviewNumber(finishedCount)} / ${xyOverviewNumber(taskCount)}，但待办接口未返回对应任务；请以“作业任务”页的状态为准。`
+        };
+    }
+
     function xyOverviewRender(data) {
         const content = document.getElementById('xy-overview-content');
         if (!content || !data) return;
+        const currentTaskDetails = content.querySelector('.xy-overview-task-details');
+        if (currentTaskDetails) xyOverviewState.taskDetailsExpanded = currentTaskDetails.open;
 
         const title = document.getElementById('xy-overview-title');
         const updated = document.getElementById('xy-overview-updated');
@@ -950,18 +1028,59 @@
             const completionMeta = portrait.taskCount > 0
                 ? `${Math.round(portrait.rate)}% · 按时 ${portrait.onTimeCount} · 补交 ${portrait.lateSubmitCount}`
                 : '当前课程暂无可统计任务';
+            const completionRate = portrait.taskCount > 0 ? `${Math.round(portrait.rate)}%` : '—';
             summaryHtml = `
                 <div class="xy-overview-grid">
                     <div class="xy-overview-panel xy-overview-metric">
-                        <div class="xy-overview-label">学习时长</div>
-                        <div class="xy-overview-value">${escapeHtml(durationValue)}</div>
-                        <div class="xy-overview-meta">学习 ${portrait.days} 天 · 日均 ${escapeHtml(xyOverviewFormatMinutes(portrait.average))}</div>
+                        <div class="xy-overview-metric-title"><span>◷ 学习时长</span></div>
+                        <div class="xy-overview-value xy-overview-study-value">${escapeHtml(durationValue)}</div>
+                        <div class="xy-overview-metric-caption"><span>学习 ${portrait.days} 天</span><span>日均 ${escapeHtml(xyOverviewFormatMinutes(portrait.average))}</span></div>
                     </div>
                     <div class="xy-overview-panel xy-overview-metric">
-                        <div class="xy-overview-label">任务完成度</div>
-                        <div class="xy-overview-value">${escapeHtml(completionValue)}</div>
+                        <div class="xy-overview-metric-title"><span>✓ 任务进度</span><span class="xy-overview-metric-rate">${escapeHtml(completionRate)}</span></div>
+                        <div class="xy-overview-value"><span>${escapeHtml(completionValue.split(' / ')[0])}</span>${portrait.taskCount > 0 ? `<span class="xy-overview-value-suffix"> / ${portrait.taskCount}</span>` : ''}</div>
                         ${completionProgress}
-                        <div class="xy-overview-meta">${escapeHtml(completionMeta)}</div>
+                        <div class="xy-overview-metric-caption">${portrait.taskCount > 0 ? `<span>按时 ${portrait.onTimeCount}</span><span>补交 ${portrait.lateSubmitCount}</span>` : `<span>${escapeHtml(completionMeta)}</span>`}</div>
+                    </div>
+                </div>`;
+        }
+
+        let focusHtml = '';
+        const taskBreakdown = data.tasks.error ? null : xyOverviewTaskBreakdown(data.tasks.data);
+        const taskDetailsOpen = taskBreakdown
+            ? xyOverviewTaskDetailsOpen(xyOverviewState.taskDetailsExpanded, taskBreakdown)
+            : false;
+        if (taskBreakdown) {
+            const nextTask = data.tasks.data.find(task => task.status.key === 'actionable' || task.status.key === 'unsubmitted');
+            const portrait = data.portrait?.data;
+            const unresolvedCount = portrait
+                ? Math.max(0, portrait.taskCount - portrait.finishedCount - taskBreakdown.actionable - taskBreakdown.expired)
+                : 0;
+            const unresolvedTaskNotice = portrait && unresolvedCount > 0
+                ? xyOverviewUnresolvedTaskNotice(portrait.finishedCount, portrait.taskCount, data.tasks.pendingError)
+                : null;
+            const focusTitle = nextTask
+                ? `优先处理：${nextTask.title}`
+                : unresolvedTaskNotice
+                    ? unresolvedTaskNotice.title
+                    : taskBreakdown.pending > 0
+                        ? `有 ${taskBreakdown.pending} 项作业等待批阅`
+                    : taskBreakdown.expired > 0
+                        ? `${taskBreakdown.expired} 项作业已截止`
+                        : data.tasks.data.length ? '本课程作业已全部处理' : '当前暂无作业待处理';
+            const deadlineText = nextTask ? xyOverviewDeadlineText(nextTask.endTime) : '';
+            const focusMeta = nextTask
+                ? `${deadlineText ? `截止：${deadlineText}` : '暂无截止时间'} · 点击下方明细可进入任务`
+                : unresolvedTaskNotice
+                    ? unresolvedTaskNotice.meta
+                    : `待提交 ${taskBreakdown.actionable} · 待批阅 ${taskBreakdown.pending} · 已截止 ${taskBreakdown.expired}`;
+            focusHtml = `
+                <div class="xy-overview-panel xy-overview-focus">
+                    <div class="xy-overview-focus-icon" aria-hidden="true">${nextTask ? '🎯' : taskBreakdown.pending ? '🕒' : '✓'}</div>
+                    <div class="xy-overview-focus-content">
+                        <div class="xy-overview-panel-title">今日学习提示</div>
+                        <div class="xy-overview-focus-title">${escapeHtml(focusTitle)}</div>
+                        <div class="xy-overview-meta">${escapeHtml(focusMeta)}</div>
                     </div>
                 </div>`;
         }
@@ -976,10 +1095,15 @@
                     <div class="xy-overview-empty">当前课程暂无作业或测练</div>
                 </div>`;
         } else {
-            const rows = data.tasks.data.map((task, taskIndex) => {
+            const statusPriority = { actionable: 0, unsubmitted: 0, pending: 1, graded: 2, expired: 3 };
+            const rows = data.tasks.data.map((task, taskIndex) => ({ task, taskIndex })).sort((left, right) => {
+                return (statusPriority[left.task.status.key] ?? 4) - (statusPriority[right.task.status.key] ?? 4);
+            }).map(({ task, taskIndex }) => {
                 const scoreText = task.status.key === 'graded'
                     ? `${task.myScore ?? 0} / ${task.totalScore}`
-                    : `— / ${task.totalScore}`;
+                    : task.totalScore > 0
+                        ? `— / ${task.totalScore}`
+                        : task.endTime ? `截止 ${xyOverviewDeadlineText(task.endTime) || '待定'}` : '课程任务';
                 const canOpen = !!task.parentId && !!task.nodeId;
                 return `
                     <button type="button" class="xy-overview-task${canOpen ? '' : ' is-disabled'}"
@@ -992,21 +1116,22 @@
                     </button>`;
             }).join('');
             tasksHtml = `
-                <div class="xy-overview-panel xy-overview-task-panel">
-                    <div class="xy-overview-panel-title">
-                        <span>作业分数</span>
-                        <span class="xy-overview-count">${data.tasks.data.length} 项</span>
-                    </div>
+                <details class="xy-overview-panel xy-overview-task-panel xy-overview-task-details" ${taskDetailsOpen ? 'open' : ''}>
+                    <summary class="xy-overview-panel-title">
+                        <span>任务与作业明细</span>
+                        <span class="xy-overview-count">${data.tasks.data.length} 项 · 待完成 ${taskBreakdown?.actionable || 0}</span>
+                    </summary>
                     <div id="xy-overview-task-list" class="xy-overview-task-list">${rows}</div>
-                </div>`;
+                </details>`;
         }
 
-        content.innerHTML = `${summaryHtml}${tasksHtml}`;
+        content.innerHTML = `${summaryHtml}${focusHtml}${tasksHtml}`;
     }
 
     async function xyOverviewLoad(courseId, force = false) {
         const normalizedCourseId = courseGroupKey(courseId);
         if (!normalizedCourseId) return;
+        if (xyOverviewState.courseId !== normalizedCourseId) xyOverviewState.taskDetailsExpanded = null;
 
         const cached = xyOverviewState.cache.get(normalizedCourseId);
         if (!force && cached && Date.now() - cached.loadedAt < xyOverviewState.cacheTtl) {
@@ -1026,19 +1151,28 @@
         const tasksPromise = xyOverviewFetchJson(
             `/api/jx-stat/group/task/survey/student?group_id=${encodeURIComponent(normalizedCourseId)}`
         );
+        const pendingTasksPromise = xyOverviewFetchJson('/api/jx-stat/group/task/un_finish');
         const courseNamePromise = getCourseNameFromAPI(normalizedCourseId);
-        const [portraitResult, tasksResult, courseNameResult] = await Promise.allSettled([
+        const [portraitResult, tasksResult, pendingTasksResult, courseNameResult] = await Promise.allSettled([
             portraitPromise,
             tasksPromise,
+            pendingTasksPromise,
             courseNamePromise
         ]);
 
         const routeCourseId = courseGroupKey(getCourseGroupId());
-        const isCourseHomeTarget = isActiveCourseHomePage()
-            && xyOverviewState.isOpen
+        const isActiveOverview = appState.activeZone === 'overview'
             && xyOverviewState.courseId === normalizedCourseId;
-        if (requestSeq !== xyOverviewState.requestSeq || (routeCourseId ? routeCourseId !== normalizedCourseId : !isCourseHomeTarget)) return;
+        if (requestSeq !== xyOverviewState.requestSeq || !isActiveOverview || (routeCourseId && routeCourseId !== normalizedCourseId)) return;
 
+        const surveyTasks = tasksResult.status === 'fulfilled' ? xyOverviewNormalizeTasks(tasksResult.value) : [];
+        const pendingTasks = pendingTasksResult.status === 'fulfilled'
+            ? xyOverviewNormalizePendingTasks(pendingTasksResult.value, normalizedCourseId)
+            : [];
+        const pendingTasksError = pendingTasksResult.status === 'rejected'
+            ? xyOverviewErrorMessage(pendingTasksResult.reason)
+            : '';
+        const taskDataAvailable = tasksResult.status === 'fulfilled' || pendingTasksResult.status === 'fulfilled';
         const result = {
             courseId: normalizedCourseId,
             courseName: courseNameResult.status === 'fulfilled' ? (courseNameResult.value || '') : '',
@@ -1046,9 +1180,9 @@
             portrait: portraitResult.status === 'fulfilled'
                 ? { data: xyOverviewNormalizePortrait(portraitResult.value), error: '' }
                 : { data: null, error: xyOverviewErrorMessage(portraitResult.reason) },
-            tasks: tasksResult.status === 'fulfilled'
-                ? { data: xyOverviewNormalizeTasks(tasksResult.value), error: '' }
-                : { data: [], error: xyOverviewErrorMessage(tasksResult.reason) }
+            tasks: taskDataAvailable
+                ? { data: xyOverviewMergeTasks(pendingTasks, surveyTasks), error: '', pendingError: pendingTasksError }
+                : { data: [], error: xyOverviewErrorMessage(tasksResult.reason), pendingError: pendingTasksError }
         };
         xyOverviewState.cache.set(normalizedCourseId, result);
         xyOverviewState.currentData = result;
@@ -1063,22 +1197,8 @@
         }
         const body = document.getElementById('xy-main-body');
         if (body?.style.display === 'none') document.getElementById('xy-minimize')?.click();
-        const drawer = document.getElementById('xy-overview-drawer');
-        if (!drawer) return;
-        xyOverviewState.isOpen = true;
-        drawer.style.display = 'flex';
-        drawer.setAttribute('aria-hidden', 'false');
+        switchToZone('overview');
         void xyOverviewLoad(normalizedCourseId, false);
-    }
-
-    function xyOverviewClose() {
-        xyOverviewState.isOpen = false;
-        xyOverviewState.requestSeq++;
-        const drawer = document.getElementById('xy-overview-drawer');
-        if (drawer) {
-            drawer.style.display = 'none';
-            drawer.setAttribute('aria-hidden', 'true');
-        }
     }
 
     function xyOverviewRefresh() {
@@ -1104,26 +1224,20 @@
         if (openButton) openButton.style.display = courseId ? 'inline-flex' : 'none';
 
         if (!courseId) {
-            if (!isCourseHome) {
-                if (xyOverviewState.isOpen) xyOverviewClose();
+            if (!isCourseHome || appState.activeZone !== 'overview') {
                 xyOverviewState.courseId = '';
-            } else if (xyOverviewState.isOpen && xyOverviewState.currentData?.courseId === xyOverviewState.courseId) {
-                xyOverviewRender(xyOverviewState.currentData);
             }
             return;
         }
-        if (!xyOverviewState.isOpen) return;
-
-        const drawer = document.getElementById('xy-overview-drawer');
-        if (drawer) {
-            drawer.style.display = 'flex';
-            drawer.setAttribute('aria-hidden', 'false');
-        }
+        if (appState.activeZone !== 'overview') return;
         if (xyOverviewState.courseId !== courseId) {
             void xyOverviewLoad(courseId, false);
-        } else if (xyOverviewState.currentData) {
-            xyOverviewRender(xyOverviewState.currentData);
         }
+    }
+
+    function xyCourseDashboardResourceUrl(courseId) {
+        if (!courseId) return '';
+        return `/app/jx-web/mycourse/${encodeURIComponent(courseId)}/resource`;
     }
 
     function xyCourseDashboardNormalizeCourses(data) {
@@ -1144,6 +1258,11 @@
                 expiredCount: null,
                 nearestDeadline: null,
                 nearestExpiredDeadline: null,
+                pendingTasks: [],
+                taskDetailsExpanded: false,
+                taskDetailsState: 'idle',
+                taskDetails: null,
+                taskDetailsError: '',
                 portrait: null,
                 portraitState: 'loading',
                 portraitError: ''
@@ -1152,14 +1271,44 @@
         }, []);
     }
 
+    function xyCourseDashboardResolveTaskParentId(resources, nodeId) {
+        const normalizedNodeId = normalizeDownloadId(nodeId);
+        if (!normalizedNodeId) return '';
+        const resource = dlCollectResources(resources).find(item => {
+            const resourceNodeId = normalizeDownloadId(item?.node_id)
+                ?? normalizeDownloadId(item?.nodeId)
+                ?? normalizeDownloadId(dlResourceId(item));
+            return resourceNodeId === normalizedNodeId;
+        });
+        if (!resource) return '';
+        const parentId = normalizeDownloadId(resource.parent_id) ?? normalizeDownloadId(resource.parentId);
+        if (parentId && parentId !== '1') return parentId;
+        const pathParts = String(resource.path || '').split('/').map(part => part.trim()).filter(Boolean);
+        if (pathParts.length >= 2) return pathParts[pathParts.length - 2];
+        return normalizedNodeId;
+    }
+
     function xyCourseDashboardGroupPending(data, now = Date.now()) {
         const grouped = new Map();
         if (!Array.isArray(data)) return grouped;
         data.forEach(task => {
             const courseId = courseGroupKey(task?.group_id);
             if (!courseId) return;
-            const current = grouped.get(courseId) || { actionableCount: 0, expiredCount: 0, nearestDeadline: null, nearestExpiredDeadline: null };
-            const deadline = Date.parse(task?.end_time || '');
+            const current = grouped.get(courseId) || {
+                actionableCount: 0,
+                expiredCount: 0,
+                nearestDeadline: null,
+                nearestExpiredDeadline: null,
+                tasks: []
+            };
+            const pendingTask = {
+                title: String(task?.title || task?.name || '未命名任务'),
+                endTime: task?.end_time || '',
+                parentId: task?.parent_id === null || task?.parent_id === undefined ? '' : String(task.parent_id),
+                nodeId: task?.node_id === null || task?.node_id === undefined ? '' : String(task.node_id)
+            };
+            const deadline = Date.parse(pendingTask.endTime);
+            current.tasks.push(pendingTask);
             if (Number.isFinite(deadline) && deadline <= now) {
                 current.expiredCount++;
                 if (!current.nearestExpiredDeadline || deadline < current.nearestExpiredDeadline) {
@@ -1174,6 +1323,35 @@
             grouped.set(courseId, current);
         });
         return grouped;
+    }
+
+    function xyCourseDashboardBuildTaskDetails(portrait, pendingTasks, surveyTasks, now = Date.now()) {
+        const taskCount = Math.max(0, xyOverviewNumber(portrait?.taskCount));
+        const completedCount = Math.min(taskCount, Math.max(0, xyOverviewNumber(portrait?.finishedCount)));
+        const seenTaskKeys = new Set();
+        const uniqueTasks = tasks => (Array.isArray(tasks) ? tasks : []).filter(task => {
+            const key = String(task?.nodeId || task?.node_id || '').trim();
+            if (!key) return true;
+            if (seenTaskKeys.has(key)) return false;
+            seenTaskKeys.add(key);
+            return true;
+        });
+        const completed = uniqueTasks(surveyTasks).filter(task => !['actionable', 'expired', 'unsubmitted'].includes(task?.status?.key));
+        const completedKeys = new Set(completed.map(task => String(task?.nodeId || task?.node_id || '').trim()).filter(Boolean));
+        seenTaskKeys.clear();
+        const pending = uniqueTasks(pendingTasks).filter(task => !completedKeys.has(String(task?.nodeId || task?.node_id || '').trim()));
+        const actionable = pending.filter(task => {
+            const deadline = Date.parse(task?.endTime || task?.end_time || '');
+            return !Number.isFinite(deadline) || deadline > now;
+        });
+        const expired = pending.filter(task => !actionable.includes(task));
+        return {
+            completed,
+            completedCount,
+            actionable,
+            expired,
+            uncertainCount: Math.max(0, taskCount - completedCount - actionable.length - expired.length)
+        };
     }
 
     function xyCourseDashboardTaskBreakdown(course) {
@@ -1262,7 +1440,12 @@
     function xyCourseDashboardApplyCache(cached) {
         xyCourseDashboardState.courses = cached.courses.map(course => ({
             ...course,
-            portrait: course.portrait ? { ...course.portrait } : null
+            portrait: course.portrait ? { ...course.portrait } : null,
+            pendingTasks: Array.isArray(course.pendingTasks) ? course.pendingTasks.map(task => ({ ...task })) : [],
+            taskDetailsExpanded: false,
+            taskDetailsState: 'idle',
+            taskDetails: null,
+            taskDetailsError: ''
         }));
         xyCourseDashboardState.loadedCount = xyCourseDashboardState.courses.length;
         xyCourseDashboardState.pendingAvailable = cached.pendingAvailable;
@@ -1313,6 +1496,7 @@
                 course.expiredCount = pendingAvailable ? (pending?.expiredCount || 0) : null;
                 course.nearestDeadline = pending?.nearestDeadline || null;
                 course.nearestExpiredDeadline = pending?.nearestExpiredDeadline || null;
+                course.pendingTasks = pendingAvailable ? (pending?.tasks || []).map(task => ({ ...task })) : [];
             });
 
             if (!xyCourseDashboardIsCurrent(requestSeq)) return null;
@@ -1387,6 +1571,57 @@
         void xyCourseDashboardLoad(true);
     }
 
+    async function xyCourseDashboardLoadTaskDetails(course, force = false) {
+        if (!course?.courseId || (!force && (course.taskDetailsState === 'loaded' || course.taskDetailsState === 'loading'))) return;
+        course.taskDetailsState = 'loading';
+        course.taskDetailsError = '';
+        xyCourseDashboardRender();
+        try {
+            const data = await xyOverviewFetchJson(
+                `/api/jx-stat/group/task/survey/student?group_id=${encodeURIComponent(course.courseId)}`
+            );
+            course.taskDetails = xyCourseDashboardBuildTaskDetails(
+                course.portrait,
+                course.pendingTasks,
+                xyOverviewNormalizeTasks(data)
+            );
+            course.taskDetailsState = 'loaded';
+        } catch (error) {
+            course.taskDetails = null;
+            course.taskDetailsError = xyOverviewErrorMessage(error);
+            course.taskDetailsState = 'error';
+        }
+        xyCourseDashboardRender();
+    }
+
+    async function xyCourseDashboardOpenTask(course, task) {
+        const nodeId = normalizeDownloadId(task?.nodeId);
+        if (!course?.courseId || !nodeId) {
+            showToast('该任务缺少跳转信息', 'warning');
+            return;
+        }
+        let parentId = normalizeDownloadId(task.parentId);
+        if (!parentId) {
+            const resources = await loadCourseResources(course.courseId);
+            parentId = xyCourseDashboardResolveTaskParentId(resources, nodeId);
+        }
+        if (!parentId) {
+            showToast('未能在课程资源中定位该任务', 'warning');
+            return;
+        }
+        xyOverviewOpenTask(course.courseId, parentId, nodeId);
+    }
+
+    function xyCourseDashboardToggleTaskDetails(course) {
+        if (!course) return;
+        course.taskDetailsExpanded = !course.taskDetailsExpanded;
+        if (course.taskDetailsExpanded && course.taskDetailsState !== 'loaded') {
+            void xyCourseDashboardLoadTaskDetails(course);
+            return;
+        }
+        xyCourseDashboardRender();
+    }
+
     function xyCourseDashboardDeactivate() {
         if (!xyCourseDashboardState.routeActive && !xyCourseDashboardState.isLoading) return;
         xyCourseDashboardState.routeActive = false;
@@ -1409,6 +1644,68 @@
             && date.getDate() === now.getDate();
         const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
         return isToday ? `今天 ${time}` : `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
+    }
+
+    function xyCourseDashboardRenderTaskDetailRow(task, type, taskIndex) {
+        const canOpen = !!task?.nodeId;
+        const isCompleted = type === 'completed';
+        const score = task?.status?.key === 'graded'
+            ? `${task.myScore ?? 0} / ${task.totalScore ?? 0}`
+            : (isCompleted ? (task?.status?.label || '已完成') : `截止：${xyCourseDashboardFormatDeadline(Date.parse(task?.endTime || '')) || '待确认'}`);
+        const statusLabel = isCompleted ? (task?.status?.label || '已完成') : (type === 'expired' ? '已截止' : '未完成');
+        return `
+            <button type="button" class="xy-course-dashboard-task is-${type}${canOpen ? '' : ' is-static'}"
+                data-course-task-type="${type}" data-course-task-index="${taskIndex}" ${canOpen ? '' : 'disabled'}>
+                <span class="xy-course-dashboard-task-title">${escapeHtml(task?.title || '未命名任务')}</span>
+                <span class="xy-course-dashboard-task-meta">${escapeHtml(score)}</span>
+                <span class="xy-course-dashboard-task-status">${escapeHtml(statusLabel)}</span>
+            </button>`;
+    }
+
+    function xyCourseDashboardRenderTaskDetails(course, sourceIndex, breakdown) {
+        if (!breakdown) return '';
+        const expanded = course.taskDetailsExpanded === true;
+        const summary = breakdown.actionableCount === null
+            ? `已完成 ${breakdown.finishedCount} / ${breakdown.taskCount} · 待办状态暂不可用`
+            : `已完成 ${breakdown.finishedCount} / ${breakdown.taskCount} · 未完成 ${breakdown.actionableCount} · 已截止 ${breakdown.expiredCount}`;
+        let body = '';
+        if (expanded && course.taskDetailsState === 'loading') {
+            body = '<div class="xy-course-dashboard-details-state"><span class="xy-overview-spinner" aria-hidden="true"></span>正在读取任务明细...</div>';
+        } else if (expanded && course.taskDetailsState === 'error') {
+            body = `<div class="xy-course-dashboard-details-state is-error"><span>任务明细读取失败：${escapeHtml(course.taskDetailsError || '请稍后重试')}</span><button class="xy-mini-btn" type="button" data-course-action="retry-details">重试</button></div>`;
+        } else if (expanded && course.taskDetails) {
+            const details = course.taskDetails;
+            const renderGroup = (type, label, count, tasks, extra = '') => {
+                if (!count) return '';
+                const rows = tasks.map((task, index) => xyCourseDashboardRenderTaskDetailRow(task, type, index)).join('');
+                return `
+                    <details class="xy-course-dashboard-task-group is-${type}" open>
+                        <summary><span>${label}</span><em>${count} 项</em></summary>
+                        <div class="xy-course-dashboard-task-list">${rows || '<div class="xy-course-dashboard-task-note">暂无可命名任务</div>'}${extra}</div>
+                    </details>`;
+            };
+            const unnamedCompleted = Math.max(0, details.completedCount - details.completed.length);
+            const completedExtra = unnamedCompleted
+                ? `<div class="xy-course-dashboard-task-note">另有 ${unnamedCompleted} 项已完成任务未返回名称或跳转信息。</div>`
+                : '';
+            const uncertainExtra = details.uncertainCount
+                ? '<div class="xy-course-dashboard-task-note">平台统计包含这些任务，但两个任务接口都未返回名称或跳转信息。</div>'
+                : '';
+            body = `<div class="xy-course-dashboard-task-groups">
+                ${renderGroup('completed', '已完成', details.completedCount, details.completed, completedExtra)}
+                ${renderGroup('actionable', '未完成', details.actionable.length, details.actionable)}
+                ${renderGroup('expired', '已截止', details.expired.length, details.expired)}
+                ${renderGroup('uncertain', '状态待确认', details.uncertainCount, [], uncertainExtra)}
+            </div>`;
+        }
+        return `
+            <div class="xy-course-dashboard-details-wrap">
+                <button class="xy-course-dashboard-details-toggle" type="button" data-course-action="details"
+                    aria-expanded="${course.taskDetailsExpanded ? 'true' : 'false'}" aria-controls="xy-course-dashboard-details-${sourceIndex}">
+                    <span>任务明细</span><span>${escapeHtml(summary)}</span>
+                </button>
+                ${expanded ? `<div id="xy-course-dashboard-details-${sourceIndex}" class="xy-course-dashboard-details">${body}</div>` : ''}
+            </div>`;
     }
 
     function xyCourseDashboardVisibleCourses() {
@@ -1532,7 +1829,7 @@
                 const duration = course.portrait.duration > 0 ? xyOverviewFormatMinutes(course.portrait.duration) : '暂无时长';
                 const breakdownText = breakdown.actionableCount === null
                     ? `已完成 ${breakdown.finishedCount} / ${breakdown.taskCount} · 可做与截止暂不可用`
-                    : `已完成 ${breakdown.finishedCount} · 可做 ${breakdown.actionableCount} · 已截止 ${breakdown.expiredCount}`;
+                    : `已完成 ${breakdown.finishedCount} / ${breakdown.taskCount} · 未完成 ${breakdown.actionableCount} · 已截止 ${breakdown.expiredCount}`;
                 const progressHtml = breakdown.taskCount > 0
                     ? `<div class="xy-course-dashboard-progress" role="progressbar" aria-label="课程任务完成度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(breakdown.rate)}">
                            <span style="width:${breakdown.rate}%"></span>
@@ -1555,6 +1852,7 @@
                         ${portraitHtml}
                         ${deadline ? `<div class="xy-course-dashboard-deadline">最近待办截止：${escapeHtml(deadline)}</div>` : ''}
                     </div>
+                    ${xyCourseDashboardRenderTaskDetails(course, sourceIndex, breakdown)}
                     <div class="xy-course-dashboard-actions">
                         <button class="xy-mini-btn" type="button" data-course-action="enter">进入课程</button>
                         <button class="xy-mini-btn" type="button" data-course-action="overview">学情</button>
@@ -1779,6 +2077,8 @@
     
     
     function switchToZone(newZone) {
+        const mainBody = document.getElementById('xy-main-body');
+        if (mainBody) mainBody.style.overflowY = newZone === 'overview' ? 'hidden' : 'auto';
         if (appState.activeZone === newZone) {
             if (newZone === 'courses') {
                 const viewCourses = document.getElementById('xy-view-courses');
@@ -1787,6 +2087,11 @@
                 if (segZone) segZone.textContent = '📚 课程总览';
                 const courseList = document.getElementById('xy-course-dashboard-list');
                 if (courseList && !courseList.childElementCount) xyCourseDashboardRender();
+            } else if (newZone === 'overview') {
+                const viewOverview = document.getElementById('xy-view-overview');
+                if (viewOverview) viewOverview.style.display = 'flex';
+                const segZone = document.getElementById('xy-seg-zone');
+                if (segZone) segZone.textContent = '📊 学情概览';
             }
             return;
         }
@@ -1798,7 +2103,7 @@
         }
         
         
-        if (newZone === 'standby' || newZone === 'courses' || newZone === 'disc') {
+        if (newZone === 'courses' || newZone === 'disc' || newZone === 'overview') {
             clearDynamicRefresh();
             lastRefreshStrategy = 'none';
         }
@@ -1809,24 +2114,24 @@
             superConsole.style.display = 'flex';
         }
         
-        const viewC = document.getElementById('xy-view-course'), viewD = document.getElementById('xy-view-disc'), viewS = document.getElementById('xy-view-standby'), viewCourses = document.getElementById('xy-view-courses'), viewDL = document.getElementById('xy-view-download'), viewHW = document.getElementById('xy-view-hw'), viewDIR = document.getElementById('xy-view-dir'), segZone = document.getElementById('xy-seg-zone');
-        if (viewC && viewD && viewS && viewCourses && viewDL && segZone) {
+        const viewC = document.getElementById('xy-view-course'), viewD = document.getElementById('xy-view-disc'), viewCourses = document.getElementById('xy-view-courses'), viewOverview = document.getElementById('xy-view-overview'), viewDL = document.getElementById('xy-view-download'), viewHW = document.getElementById('xy-view-hw'), viewDIR = document.getElementById('xy-view-dir'), segZone = document.getElementById('xy-seg-zone');
+        if (viewC && viewD && viewCourses && viewOverview && viewDL && segZone) {
             viewC.style.display = newZone === 'course' ? 'block' : 'none';
             viewD.style.display = newZone === 'disc' ? 'block' : 'none';
-            viewS.style.display = newZone === 'standby' ? 'flex' : 'none';
             viewCourses.style.display = newZone === 'courses' ? 'flex' : 'none';
+            viewOverview.style.display = newZone === 'overview' ? 'flex' : 'none';
             viewDL.style.display = newZone === 'download' ? 'block' : 'none';
             if (viewHW) viewHW.style.display = newZone === 'hw' ? 'block' : 'none';
             if (viewDIR) viewDIR.style.display = newZone === 'dir' ? 'block' : 'none';
 
-            const zoneLabel = newZone === 'course' ? '📚 刷课区' : newZone === 'courses' ? '📚 课程总览' : newZone === 'disc' ? '💭 讨论区' : newZone === 'download' ? '📥 下载区' : newZone === 'hw' ? '📝 作业区' : newZone === 'dir' ? '📂 课程目录' : '🏝️ 待命区';
+            const zoneLabel = newZone === 'course' ? '📚 刷课区' : newZone === 'courses' ? '📚 课程总览' : newZone === 'overview' ? '📊 学情概览' : newZone === 'disc' ? '💭 讨论区' : newZone === 'download' ? '📥 下载区' : newZone === 'hw' ? '📝 作业区' : '📂 课程目录';
             segZone.innerHTML = zoneLabel;
             segZone.classList.add('active');
         }
 
         if (oldZone !== 'uninitialized') {
-            const zoneName = newZone === 'course' ? '视频/文档自动引擎' : newZone === 'courses' ? '进行中课程总览' : newZone === 'disc' ? '互动点赞引擎' : newZone === 'download' ? '课件下载区' : newZone === 'hw' ? '作业答题台' : newZone === 'dir' ? '课程目录区' : '系统隔离待命区';
-            logMsg(`📍 底层指令：已切换至【${zoneName}】`, newZone === 'standby' ? 'warning' : 'success', false);
+            const zoneName = newZone === 'course' ? '视频/文档自动引擎' : newZone === 'courses' ? '进行中课程总览' : newZone === 'overview' ? '课程学习数据概览' : newZone === 'disc' ? '互动点赞引擎' : newZone === 'download' ? '课件下载区' : newZone === 'hw' ? '作业答题台' : '课程目录区';
+            logMsg(`📍 底层指令：已切换至【${zoneName}】`, 'success', false);
         }
 
         if (newZone === 'course') {
@@ -1885,7 +2190,8 @@
                 appState.downloadSortMap = {};
                 appState.downloadDirTree = null;
                 renderDownloadList();
-                switchToZone('standby');
+                switchToZone('courses');
+                void xyCourseDashboardLoad(false);
                 return;
             }
             if (appState.downloadCourseGroupKey !== currentGroupKey) {
@@ -1901,16 +2207,24 @@
         const scanNodeKey = courseGroupKey(nodeId);
         const isSameScanContext = () => isCurrentCourseGroup(scanGroupKey)
             && courseGroupKey(getNodeId() || getResourceNodeId() || getPaperId()) === scanNodeKey;
-        if (!groupId || !nodeId) {
-            if (isActiveCourseHomePage()) {
-                switchToZone('courses');
-                void xyCourseDashboardLoad(false);
-            } else if (isCourseDirPage()) {
+        if (!groupId) {
+            switchToZone('courses');
+            void xyCourseDashboardLoad(false);
+            return;
+        }
+        if (!nodeId) {
+            if (isCourseDirPage()) {
                 if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', false);
                 switchToZone('dir');
                 setTimeout(loadCourseDirectory, 200);
+            } else if (isActiveCourseHomePage()) {
+                switchToZone('courses');
+                void xyCourseDashboardLoad(false);
+            } else if (isCourseOverviewPage()) {
+                xyOverviewOpen(groupId);
             } else {
-                switchToZone('standby');
+                switchToZone('courses');
+                void xyCourseDashboardLoad(false);
             }
             return;
         }
@@ -1976,7 +2290,12 @@
             setTimeout(loadCourseDirectory, 200);
             return;
         }
-        switchToZone('standby');
+        if (isCourseOverviewPage()) {
+            xyOverviewOpen(groupId);
+            return;
+        }
+        switchToZone('courses');
+        void xyCourseDashboardLoad(false);
     }
 
     function courseGroupKey(value) {
@@ -6915,6 +7234,7 @@
                 #xy-super-console ::-webkit-scrollbar-track { background: transparent; }
                 #xy-super-console ::-webkit-scrollbar-thumb { background: rgba(71,85,105,0.4); border-radius: 10px; }
                 #xy-super-console ::-webkit-scrollbar-thumb:hover { background: rgba(71,85,105,0.7); }
+                #xy-main-body { min-height:0; }
                 #xy-main-body > * { flex-shrink: 0 !important; }
                 .xy-panel { background: var(--xy-surface2); border: 1px solid var(--xy-border); border-radius: 12px; padding: 16px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); flex-shrink: 0; }
                 .xy-dl-progress-card { min-width: 0; overflow: hidden; padding: 10px 11px; border: 1px solid var(--xy-border); border-radius: 10px; background: linear-gradient(135deg, rgba(52,211,153,0.08), rgba(99,102,241,0.07)); }
@@ -6963,25 +7283,39 @@
                 .xy-badge-warning { background: rgba(251,191,36,0.12); color: #fcd34d; border: 1px solid rgba(251,191,36,0.2); }
                 #xy-super-console .xy-overview-icon { display:none; align-items:center; justify-content:center; cursor:pointer; padding:4px 6px; border:0; border-radius:6px; background:transparent; color:var(--xy-text-muted); font:inherit; font-size:14px; line-height:1; transition:all 0.2s; }
                 #xy-super-console .xy-overview-icon:hover { background:rgba(71,85,105,0.28); color:var(--xy-text); }
-                #xy-super-console .xy-overview-drawer { display:none; position:absolute; inset:0; z-index:30; flex-direction:column; min-height:0; overflow:hidden; color:var(--xy-text); background:var(--xy-surface); border-radius:inherit; backdrop-filter:blur(24px) saturate(1.2); -webkit-backdrop-filter:blur(24px) saturate(1.2); }
-                #xy-super-console .xy-overview-head { display:flex; align-items:center; gap:6px; padding:13px 14px; border-bottom:1px solid var(--xy-border); background:var(--xy-surface2); flex-shrink:0; }
+                #xy-super-console .xy-overview-view { flex:1 1 auto !important; min-height:0; overflow:hidden; border:1px solid var(--xy-border); border-radius:12px; color:var(--xy-text); background:var(--xy-surface); }
+                #xy-super-console .xy-overview-head { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--xy-border); background:linear-gradient(135deg, color-mix(in srgb, var(--xy-accent) 9%, var(--xy-surface2)), var(--xy-surface2)); flex-shrink:0; }
                 #xy-super-console .xy-overview-heading { flex:1; min-width:0; }
                 #xy-super-console .xy-overview-heading strong { display:block; overflow:hidden; color:var(--xy-text); font-size:13px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
                 #xy-super-console .xy-overview-updated { display:block; margin-top:2px; color:var(--xy-text-muted); font-size:9.5px; }
-                #xy-super-console .xy-overview-content { min-height:0; padding:10px 12px 14px; overflow-y:auto; }
-                #xy-super-console .xy-overview-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
-                #xy-super-console .xy-overview-panel { min-width:0; margin-bottom:10px; padding:12px; overflow:hidden; border:1px solid var(--xy-border); border-radius:11px; background:var(--xy-surface2); }
+                #xy-super-console .xy-overview-content { flex:1 1 auto; min-height:0; padding:10px; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; background:color-mix(in srgb, var(--xy-surface2) 46%, transparent); }
+                #xy-super-console .xy-overview-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+                #xy-super-console .xy-overview-panel { min-width:0; margin-bottom:8px; padding:10px; overflow:hidden; border:1px solid var(--xy-border); border-radius:10px; background:var(--xy-surface2); box-shadow:0 1px 2px rgba(15,23,42,0.08); }
                 #xy-super-console .xy-overview-grid .xy-overview-panel { margin-bottom:0; }
-                #xy-super-console .xy-overview-label { margin-bottom:5px; color:var(--xy-text2); font-size:10px; font-weight:700; letter-spacing:0.4px; }
-                #xy-super-console .xy-overview-value { color:var(--xy-text); font-size:17px; font-weight:700; line-height:1.25; text-wrap:pretty; }
+                #xy-super-console .xy-overview-metric-title { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-bottom:7px; color:var(--xy-text2); font-size:10px; font-weight:750; letter-spacing:0.25px; }
+                #xy-super-console .xy-overview-metric-rate { flex-shrink:0; padding:2px 5px; border-radius:999px; color:var(--xy-success); background:color-mix(in srgb, var(--xy-success) 12%, transparent); font-size:9px; font-variant-numeric:tabular-nums; letter-spacing:0; }
+                #xy-super-console .xy-overview-value { display:flex; align-items:baseline; min-height:25px; color:var(--xy-text); font-size:19px; font-weight:780; font-variant-numeric:tabular-nums; line-height:1.2; letter-spacing:-0.25px; }
+                #xy-super-console .xy-overview-study-value { font-size:16px; font-weight:720; letter-spacing:0; }
+                #xy-super-console .xy-overview-value-suffix { color:var(--xy-text-muted); font-size:11px; font-weight:650; letter-spacing:0; }
+                #xy-super-console .xy-overview-metric-caption { display:flex; flex-wrap:wrap; gap:3px 7px; margin-top:7px; color:var(--xy-text-muted); font-size:9px; line-height:1.4; }
+                #xy-super-console .xy-overview-metric-caption span + span::before { margin-right:7px; color:var(--xy-border); content:'·'; }
                 #xy-super-console .xy-overview-meta { margin-top:6px; color:var(--xy-text-muted); font-size:9.5px; line-height:1.45; }
                 #xy-super-console .xy-overview-progress { width:100%; height:6px; margin-top:8px; overflow:hidden; border-radius:999px; background:rgba(148,163,184,0.22); }
                 #xy-super-console .xy-overview-progress-fill { height:100%; border-radius:inherit; background:var(--xy-success); transition:width 0.25s ease; }
                 #xy-super-console .xy-overview-panel-title { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; color:var(--xy-text2); font-size:11px; font-weight:700; }
                 #xy-super-console .xy-overview-count { color:var(--xy-text-muted); font-size:9.5px; font-weight:600; }
+                #xy-super-console .xy-overview-focus { display:flex; align-items:flex-start; gap:9px; border-color:color-mix(in srgb, var(--xy-accent) 30%, var(--xy-border)); background:linear-gradient(135deg, color-mix(in srgb, var(--xy-accent) 13%, var(--xy-surface2)), var(--xy-surface2)); }
+                #xy-super-console .xy-overview-focus-icon { display:grid; flex:0 0 28px; width:28px; height:28px; place-items:center; border-radius:9px; background:color-mix(in srgb, var(--xy-accent) 18%, transparent); font-size:14px; }
+                #xy-super-console .xy-overview-focus-content { min-width:0; flex:1; }
+                #xy-super-console .xy-overview-focus .xy-overview-panel-title { margin-bottom:3px; }
+                #xy-super-console .xy-overview-focus-title { overflow:hidden; color:var(--xy-text); font-size:11.5px; font-weight:750; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
                 #xy-super-console .xy-overview-task-panel { padding:0; }
                 #xy-super-console .xy-overview-task-panel > .xy-overview-panel-title { margin:0; padding:11px 12px 9px; border-bottom:1px solid var(--xy-border); }
-                #xy-super-console .xy-overview-task-list { max-height:340px; overflow-y:auto; }
+                #xy-super-console .xy-overview-task-details > summary { cursor:pointer; list-style:none; }
+                #xy-super-console .xy-overview-task-details > summary::-webkit-details-marker { display:none; }
+                #xy-super-console .xy-overview-task-details > summary::after { content:'⌄'; margin-left:4px; color:var(--xy-text-muted); font-size:13px; transition:transform 0.16s ease; }
+                #xy-super-console .xy-overview-task-details[open] > summary::after { transform:rotate(180deg); }
+                #xy-super-console .xy-overview-task-list { max-height:none; overflow-y:visible; }
                 #xy-super-console .xy-overview-task { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:10px 12px; border:0; border-bottom:1px solid var(--xy-border); border-radius:0; background:transparent; color:var(--xy-text); cursor:pointer; text-align:left; }
                 #xy-super-console .xy-overview-task:last-child { border-bottom:0; }
                 #xy-super-console .xy-overview-task:hover { background:color-mix(in srgb, var(--xy-accent) 8%, transparent); }
@@ -7040,6 +7374,38 @@
                 #xy-super-console .xy-course-dashboard-deadline { margin-top:5px; color:var(--xy-warning); font-size:9.5px; }
                 #xy-super-console .xy-course-dashboard-actions { display:flex; justify-content:flex-end; gap:6px; margin-top:8px; }
                 #xy-super-console .xy-course-dashboard-actions .xy-mini-btn { min-height:27px; padding:4px 9px; font-size:9.5px; }
+                #xy-super-console .xy-course-dashboard-details-wrap { margin-top:9px; border-top:1px solid var(--xy-border); padding-top:8px; }
+                #xy-super-console .xy-course-dashboard-details-toggle { display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px; padding:0; border:0; background:transparent; color:var(--xy-text2); cursor:pointer; font:inherit; font-size:9.5px; text-align:left; }
+                #xy-super-console .xy-course-dashboard-details-toggle > span:first-child { color:var(--xy-accent); font-weight:750; }
+                #xy-super-console .xy-course-dashboard-details-toggle > span:last-child { overflow:hidden; color:var(--xy-text-muted); text-align:right; text-overflow:ellipsis; white-space:nowrap; }
+                #xy-super-console .xy-course-dashboard-details-toggle::after { content:'⌄'; flex-shrink:0; color:var(--xy-text-muted); font-size:12px; transition:transform 0.16s ease; }
+                #xy-super-console .xy-course-dashboard-details-toggle[aria-expanded="true"]::after { transform:rotate(180deg); }
+                #xy-super-console .xy-course-dashboard-details { margin-top:8px; }
+                #xy-super-console .xy-course-dashboard-details-state { display:flex; min-height:42px; align-items:center; justify-content:center; gap:7px; border:1px dashed var(--xy-border); border-radius:8px; color:var(--xy-text-muted); font-size:9.5px; }
+                #xy-super-console .xy-course-dashboard-details-state .xy-overview-spinner { width:12px; height:12px; }
+                #xy-super-console .xy-course-dashboard-details-state.is-error { flex-direction:column; padding:8px; color:var(--xy-danger); }
+                #xy-super-console .xy-course-dashboard-details-state .xy-mini-btn { min-height:24px; padding:3px 8px; font-size:9px; }
+                #xy-super-console .xy-course-dashboard-task-groups { display:flex; flex-direction:column; gap:6px; }
+                #xy-super-console .xy-course-dashboard-task-group { --xy-task-accent:var(--xy-text-muted); overflow:hidden; border:1px solid color-mix(in srgb, var(--xy-task-accent) 25%, var(--xy-border)); border-radius:8px; background:color-mix(in srgb, var(--xy-task-accent) 5%, var(--xy-surface2)); }
+                #xy-super-console .xy-course-dashboard-task-group.is-completed { --xy-task-accent:var(--xy-success); }
+                #xy-super-console .xy-course-dashboard-task-group.is-actionable { --xy-task-accent:var(--xy-warning); }
+                #xy-super-console .xy-course-dashboard-task-group.is-expired { --xy-task-accent:var(--xy-danger); }
+                #xy-super-console .xy-course-dashboard-task-group.is-uncertain { --xy-task-accent:#8b7aa8; }
+                #xy-super-console .xy-course-dashboard-task-group summary { display:flex; align-items:center; justify-content:space-between; padding:6px 8px; color:var(--xy-task-accent); cursor:pointer; font-size:9.5px; font-weight:750; list-style:none; }
+                #xy-super-console .xy-course-dashboard-task-group summary::-webkit-details-marker { display:none; }
+                #xy-super-console .xy-course-dashboard-task-group summary::after { content:'⌃'; margin-left:5px; font-size:10px; }
+                #xy-super-console .xy-course-dashboard-task-group:not([open]) summary::after { content:'⌄'; }
+                #xy-super-console .xy-course-dashboard-task-group summary em { margin-left:auto; color:var(--xy-text-muted); font-size:9px; font-style:normal; font-weight:600; }
+                #xy-super-console .xy-course-dashboard-task-list { display:flex; max-height:156px; flex-direction:column; overflow-y:auto; border-top:1px solid color-mix(in srgb, var(--xy-task-accent) 18%, var(--xy-border)); background:var(--xy-surface); }
+                #xy-super-console .xy-course-dashboard-task { display:grid; grid-template-columns:minmax(0, 1fr) auto auto; align-items:center; gap:6px; width:100%; padding:7px 8px; border:0; border-bottom:1px solid var(--xy-border); background:transparent; color:var(--xy-text); cursor:pointer; font:inherit; font-size:9.5px; text-align:left; }
+                #xy-super-console .xy-course-dashboard-task:last-of-type { border-bottom:0; }
+                #xy-super-console .xy-course-dashboard-task:hover:not(:disabled) { background:color-mix(in srgb, var(--xy-accent) 8%, transparent); }
+                #xy-super-console .xy-course-dashboard-task:focus-visible { position:relative; z-index:1; outline:2px solid color-mix(in srgb, var(--xy-accent) 70%, transparent); outline-offset:-2px; }
+                #xy-super-console .xy-course-dashboard-task.is-static { cursor:default; opacity:0.82; }
+                #xy-super-console .xy-course-dashboard-task-title { overflow:hidden; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+                #xy-super-console .xy-course-dashboard-task-meta { color:var(--xy-text-muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+                #xy-super-console .xy-course-dashboard-task-status { color:var(--xy-task-accent, var(--xy-text-muted)); font-weight:700; white-space:nowrap; }
+                #xy-super-console .xy-course-dashboard-task-note { padding:7px 8px; color:var(--xy-text-muted); font-size:9px; line-height:1.55; }
                 #xy-super-console .xy-course-dashboard-state { display:flex; min-height:150px; padding:22px 16px; align-items:center; justify-content:center; flex-direction:column; gap:9px; color:var(--xy-text-muted); font-size:10.5px; line-height:1.6; text-align:center; }
                 #xy-super-console .xy-course-dashboard-state strong { color:var(--xy-text2); font-size:11.5px; }
                 #xy-super-console .xy-course-dashboard-state.is-error span { color:var(--xy-danger); }
@@ -7104,15 +7470,15 @@
                     <div id="xy-course-dashboard-list" class="xy-course-dashboard-list"></div>
                 </div>
 
-                <div id="xy-view-standby" style="display:none; flex-direction:column; align-items:center; justify-content:center; padding: 32px 16px; text-align:center; flex-shrink: 0;">
-                    <div style="font-size: 40px; margin-bottom: 12px; opacity: 0.6;">🌙</div>
-                    <div style="font-size: 14px; font-weight: 600; color: ${T('#94a3b8','#64748b')}; margin-bottom: 8px;">系统休眠中</div>
-                    <div style="font-size: 12px; color: ${T('#64748b','#475569')}; line-height: 1.7; margin-bottom: 24px;">当前位于不可自动化的区域<br>进入<span style="color:${T('#34d399','#059669')};">视频/文档/讨论区</span>自动激活引擎</div>
-                    <div style="display:flex; gap:10px; width:85%; margin: 0 auto;">
-                        <button class="xy-action-btn" id="xy-btn-radarplay-standby" style="background:${T('rgba(16,185,129,0.15)','#ecfdf5')}; border-color:${T('rgba(16,185,129,0.3)','#a7f3d0')}; color:${T('#34d399','#059669')}; flex:1; padding: 12px; font-size: 13px; font-weight:700;">一键连播</button>
-                        <button class="xy-action-btn" id="xy-btn-dashboard-standby" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')}; flex:1; padding: 12px; font-size: 13px;">全局雷达</button>
-                        <button class="xy-action-btn" id="xy-btn-schedule-standby" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')}; border-color:${T('rgba(251,191,36,0.25)','#fde68a')}; color:${T('#fcd34d','#92400e')}; flex:1; padding: 12px; font-size: 13px;">计划调度</button>
+                <div id="xy-view-overview" class="xy-overview-view" style="display:none; flex-direction:column;">
+                    <div class="xy-overview-head">
+                        <div class="xy-overview-heading">
+                            <strong id="xy-overview-title">课程学习数据概览</strong>
+                            <span id="xy-overview-updated" class="xy-overview-updated">等待加载</span>
+                        </div>
+                        <button id="xy-overview-refresh" class="xy-mini-btn" type="button" style="padding:5px 8px; font-size:10px;">刷新</button>
                     </div>
+                    <div id="xy-overview-content" class="xy-overview-content"></div>
                 </div>
 
                 <div id="xy-view-dir" style="display:none; flex-shrink: 0;">
@@ -7391,17 +7757,6 @@
 
             </div>
 
-            <div id="xy-overview-drawer" class="xy-overview-drawer" aria-hidden="true">
-                <div class="xy-overview-head">
-                    <div class="xy-overview-heading">
-                        <strong id="xy-overview-title">课程学习数据概览</strong>
-                        <span id="xy-overview-updated" class="xy-overview-updated">等待加载</span>
-                    </div>
-                    <button id="xy-overview-refresh" class="xy-mini-btn" type="button" style="padding:5px 8px; font-size:10px;">刷新</button>
-                    <button id="xy-overview-close" class="xy-mini-btn" type="button" style="padding:5px 8px; font-size:10px;">关闭</button>
-                </div>
-                <div id="xy-overview-content" class="xy-overview-content"></div>
-            </div>
         `;
         document.body.appendChild(wrapper);
 
@@ -7431,8 +7786,6 @@
 
         const overviewOpenBtn = document.getElementById('xy-overview-open');
         if (overviewOpenBtn) overviewOpenBtn.onclick = (e) => { e.stopPropagation(); xyOverviewOpen(); };
-        const overviewCloseBtn = document.getElementById('xy-overview-close');
-        if (overviewCloseBtn) overviewCloseBtn.onclick = () => xyOverviewClose();
         const overviewRefreshBtn = document.getElementById('xy-overview-refresh');
         if (overviewRefreshBtn) overviewRefreshBtn.onclick = () => xyOverviewRefresh();
         const overviewContent = document.getElementById('xy-overview-content');
@@ -7445,11 +7798,9 @@
                 const task = Number.isInteger(taskIndex) ? currentData?.tasks?.data?.[taskIndex] : null;
                 const courseId = currentData?.courseId;
                 const routeCourseId = courseGroupKey(getCourseGroupId());
-                const validCourseHomeTarget = isActiveCourseHomePage()
-                    && xyOverviewState.isOpen
+                const isActiveOverview = appState.activeZone === 'overview'
                     && xyOverviewState.courseId === courseId;
-                if (!task || (routeCourseId ? courseId !== routeCourseId : !validCourseHomeTarget)) return;
-                xyOverviewClose();
+                if (!task || !isActiveOverview || (routeCourseId && courseId !== routeCourseId)) return;
                 xyOverviewOpenTask(courseId, task.parentId, task.nodeId);
             });
         }
@@ -7481,27 +7832,52 @@
                 return Number.isInteger(courseIndex) ? xyCourseDashboardState.courses[courseIndex] : null;
             };
             courseDashboardList.addEventListener('click', event => {
+                const taskButton = event.target.closest('[data-course-task-type]');
+                if (taskButton) {
+                    const course = getCourseFromTarget(event.target);
+                    const taskType = taskButton.getAttribute('data-course-task-type');
+                    const taskIndex = Number(taskButton.getAttribute('data-course-task-index'));
+                    const task = Number.isInteger(taskIndex) ? course?.taskDetails?.[taskType]?.[taskIndex] : null;
+                    if (course && task) void xyCourseDashboardOpenTask(course, task);
+                    return;
+                }
                 const actionButton = event.target.closest('[data-course-action]');
                 const action = actionButton?.getAttribute('data-course-action') || 'enter';
                 if (action === 'retry') {
                     xyCourseDashboardRefresh();
                     return;
                 }
+                if (action === 'details' || action === 'retry-details') {
+                    const course = getCourseFromTarget(event.target);
+                    if (!course) return;
+                    event.preventDefault();
+                    if (action === 'details') {
+                        xyCourseDashboardToggleTaskDetails(course);
+                    } else {
+                        course.taskDetailsExpanded = true;
+                        void xyCourseDashboardLoadTaskDetails(course, true);
+                    }
+                    return;
+                }
                 if (!actionButton && !event.target.closest('.xy-course-dashboard-course-main')) return;
                 const course = getCourseFromTarget(event.target);
                 if (!course) return;
+                if (!actionButton) {
+                    xyCourseDashboardToggleTaskDetails(course);
+                    return;
+                }
                 if (action === 'overview') {
                     xyOverviewOpen(course.courseId);
                     return;
                 }
-                window.location.href = `/app/jx-web/mycourse/${encodeURIComponent(course.courseId)}`;
+                window.location.href = xyCourseDashboardResourceUrl(course.courseId);
             });
             courseDashboardList.addEventListener('keydown', event => {
                 if (!event.target.matches('.xy-course-dashboard-course-main') || (event.key !== 'Enter' && event.key !== ' ')) return;
                 const course = getCourseFromTarget(event.target);
                 if (!course) return;
                 event.preventDefault();
-                window.location.href = `/app/jx-web/mycourse/${encodeURIComponent(course.courseId)}`;
+                xyCourseDashboardToggleTaskDetails(course);
             });
         }
 
@@ -7607,8 +7983,6 @@
         
         if (appState.mouseSimActive) { scheduleMouseSim(); }
         document.getElementById('xy-btn-dashboard').onclick = openGlobalTaskDashboard;
-        document.getElementById('xy-btn-dashboard-standby').onclick = openGlobalTaskDashboard;
-        document.getElementById('xy-btn-radarplay-standby').onclick = oneClickRadarPlay;
         document.getElementById('xy-btn-schedule').onclick = openScheduleDashboard;
         document.getElementById('xy-btn-download-zone').onclick = () => enterDownloadZone();
         document.getElementById('xy-btn-quick-kill').onclick = () => {
@@ -7670,9 +8044,6 @@
             hwSaveBtn.disabled = false; hwSaveBtn.textContent = '🚀 提交并保存';
         };
 
-
-        const scheduleStandbyBtn = document.getElementById('xy-btn-schedule-standby');
-        if (scheduleStandbyBtn) scheduleStandbyBtn.onclick = openScheduleDashboard;
 
         const toggleDomScan = document.getElementById('xy-toggle-dom-scan');
         if(toggleDomScan) { toggleDomScan.onchange = (e) => { appState.enableDomScan = e.target.checked; logMsg(e.target.checked ? '✅ 智能DOM提取已开启' : '⏸️ 智能DOM提取已暂停', 'info', true); }; }

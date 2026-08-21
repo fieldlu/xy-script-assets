@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const SCRIPT = fs.readFileSync(path.join(__dirname, '小雅辅助工具 .user.js'), 'utf8');
-assert.match(SCRIPT, /@version\s+3\.7\.1/);
+assert.match(SCRIPT, /@version\s+3\.7\.2/);
 assert.match(SCRIPT, /@updateURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
 assert.match(SCRIPT, /@downloadURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
 
@@ -33,6 +33,263 @@ assert.equal(saveRefreshContext.__shouldReloadAfterSave(8, 1, 0), false);
 assert.equal(saveRefreshContext.__shouldReloadAfterSave(8, 0, 1), false);
 console.log('homework save refresh regression: PASS');
 
+// 总览卡片进入课程应落到资源目录；任务明细应携带父节点和任务节点直达原任务。
+const courseResourceUrlStart = SCRIPT.indexOf('    function xyCourseDashboardResourceUrl');
+assert(courseResourceUrlStart >= 0, 'course resource URL helper not found');
+const courseResourceUrlEnd = SCRIPT.indexOf('    function xyCourseDashboardNormalizeCourses', courseResourceUrlStart);
+assert(courseResourceUrlEnd > courseResourceUrlStart, 'course resource URL helper boundary not found');
+const courseResourceUrlContext = { encodeURIComponent };
+vm.runInNewContext(
+  SCRIPT.slice(courseResourceUrlStart, courseResourceUrlEnd) + '\nglobalThis.__courseResourceUrl = xyCourseDashboardResourceUrl;',
+  courseResourceUrlContext
+);
+assert.equal(
+  courseResourceUrlContext.__courseResourceUrl('6909361981107512502'),
+  '/app/jx-web/mycourse/6909361981107512502/resource'
+);
+const taskOpenStart = SCRIPT.indexOf('    function xyOverviewOpenTask');
+const taskOpenEnd = SCRIPT.indexOf('    function xyOverviewSyncRoute', taskOpenStart);
+assert(taskOpenStart >= 0 && taskOpenEnd > taskOpenStart, 'task jump helper not found');
+const taskOpenContext = {
+  window: { location: { pathname: '/app/jx-web/mycourse', href: '' } },
+  encodeURIComponent,
+  showToast() {}
+};
+vm.runInNewContext(
+  SCRIPT.slice(taskOpenStart, taskOpenEnd) + '\nglobalThis.__openTask = xyOverviewOpenTask;',
+  taskOpenContext
+);
+taskOpenContext.__openTask('6909361981107512502', 'parent-node', 'task-node');
+assert.equal(
+  taskOpenContext.window.location.href,
+  '/app/jx-web/mycourse/6909361981107512502/resource/parent-node/task-node'
+);
+console.log('course navigation regression: PASS');
+
+// 任何非专用课程页均显示本课学情；无课程上下文则显示课程总览，不能再退回待命区。
+const courseOverviewRouteStart = SCRIPT.indexOf('    function isCourseOverviewPage');
+const courseOverviewRouteEnd = SCRIPT.indexOf('    const sleep', courseOverviewRouteStart);
+assert(courseOverviewRouteStart >= 0 && courseOverviewRouteEnd > courseOverviewRouteStart, 'course overview route helper not found');
+const courseOverviewRouteContext = {
+  window: { location: { href: 'https://whut.ai-augmented.com/app/jx-web/mycourse/123/courseTools', pathname: '/app/jx-web/mycourse/123/courseTools' } },
+  getCourseGroupId() { return '123'; },
+  isCourseDirPage() { return false; }
+};
+vm.runInNewContext(
+  SCRIPT.slice(courseOverviewRouteStart, courseOverviewRouteEnd) + '\nglobalThis.__isCourseOverviewPage = isCourseOverviewPage;',
+  courseOverviewRouteContext
+);
+assert.equal(courseOverviewRouteContext.__isCourseOverviewPage(), true);
+courseOverviewRouteContext.isCourseDirPage = () => true;
+assert.equal(courseOverviewRouteContext.__isCourseOverviewPage(), false);
+assert.match(SCRIPT, /if \(isCourseOverviewPage\(\)\) \{[\s\S]*?xyOverviewOpen\(groupId\);/);
+assert.doesNotMatch(
+  SCRIPT,
+  /if \(isCourseOverviewPage\(\)\) \{\s*switchToZone\('courses'\);\s*xyOverviewOpen\(groupId\);/
+);
+assert.match(SCRIPT, /if \(!groupId\) \{[\s\S]*?switchToZone\('courses'\);[\s\S]*?xyCourseDashboardLoad\(false\)/);
+assert.doesNotMatch(SCRIPT, /switchToZone\('standby'\)/);
+assert.doesNotMatch(SCRIPT, /xy-view-standby/);
+console.log('route-aware overview regression: PASS');
+
+// 路由轮询进入课程概览时只能选择一次区域，不能先经过课程总览而重复打印“底层指令”。
+const overviewZoneTransitions = SCRIPT.match(/if \(isCourseOverviewPage\(\)\) \{[\s\S]{0,120}?xyOverviewOpen\(groupId\);/g) || [];
+assert.equal(overviewZoneTransitions.length, 2, 'course overview route branches not found');
+overviewZoneTransitions.forEach(transition => assert.doesNotMatch(transition, /switchToZone\('courses'\)/));
+console.log('course overview single-zone transition regression: PASS');
+
+// 课程工作台首屏优先提示可做任务，完整成绩与状态明细保持可展开。
+const overviewBreakdownStart = SCRIPT.indexOf('    function xyOverviewTaskBreakdown');
+const overviewBreakdownEnd = SCRIPT.indexOf('    function xyOverviewRenderLoading', overviewBreakdownStart);
+assert(overviewBreakdownStart >= 0 && overviewBreakdownEnd > overviewBreakdownStart, 'overview task breakdown helper not found');
+const overviewBreakdownContext = { Array };
+vm.runInNewContext(
+  SCRIPT.slice(overviewBreakdownStart, overviewBreakdownEnd) + '\nglobalThis.__overviewTaskBreakdown = xyOverviewTaskBreakdown;',
+  overviewBreakdownContext
+);
+const overviewBreakdown = overviewBreakdownContext.__overviewTaskBreakdown([
+  { status: { key: 'actionable' } },
+  { status: { key: 'graded' } },
+  { status: { key: 'expired' } },
+  { status: { key: 'pending' } }
+]);
+assert.deepEqual(JSON.parse(JSON.stringify(overviewBreakdown)), { actionable: 1, pending: 1, graded: 1, expired: 1 });
+assert.match(SCRIPT, /xy-overview-focus/);
+assert.match(SCRIPT, /xy-overview-task-details/);
+assert.match(SCRIPT, /xy-overview-metric-title/);
+assert.match(SCRIPT, /xy-overview-metric-rate/);
+assert.match(SCRIPT, /xy-overview-value-suffix/);
+assert.match(SCRIPT, /xy-overview-study-value/);
+assert.match(SCRIPT, /\.xy-overview-study-value \{ font-size:16px;/);
+console.log('course workbench summary regression: PASS');
+
+// 路由同步会重绘工作台；用户手动展开或收起任务明细后，状态不能被默认值覆盖。
+const overviewDetailsStateStart = SCRIPT.indexOf('    function xyOverviewTaskDetailsOpen');
+const overviewDetailsStateEnd = SCRIPT.indexOf('    function xyOverviewRenderLoading', overviewDetailsStateStart);
+assert(overviewDetailsStateStart >= 0 && overviewDetailsStateEnd > overviewDetailsStateStart, 'overview detail state helper not found');
+const overviewDetailsStateContext = {};
+vm.runInNewContext(
+  SCRIPT.slice(overviewDetailsStateStart, overviewDetailsStateEnd) + '\nglobalThis.__overviewTaskDetailsOpen = xyOverviewTaskDetailsOpen;',
+  overviewDetailsStateContext
+);
+assert.equal(overviewDetailsStateContext.__overviewTaskDetailsOpen(null, { actionable: 1 }), true);
+assert.equal(overviewDetailsStateContext.__overviewTaskDetailsOpen(true, { actionable: 1 }), true);
+assert.equal(overviewDetailsStateContext.__overviewTaskDetailsOpen(false, { actionable: 1 }), false);
+console.log('course workbench detail state regression: PASS');
+
+// 轮询只同步路由，不得重建已显示的概览 DOM，否则任务滚动条会回到顶部。
+const overviewSyncStart = SCRIPT.indexOf('    function xyOverviewSyncRoute');
+const overviewSyncEnd = SCRIPT.indexOf('    function xyCourseDashboardResourceUrl', overviewSyncStart);
+assert(overviewSyncStart >= 0 && overviewSyncEnd > overviewSyncStart, 'overview route sync helper not found');
+assert.doesNotMatch(SCRIPT.slice(overviewSyncStart, overviewSyncEnd), /xyOverviewRender\(xyOverviewState\.currentData\)/);
+console.log('course workbench scroll preservation regression: PASS');
+
+// 学情概览是主控台的正式区域，而非遮挡内容的抽屉；整个概览正文作为唯一可拖动的竖向滚动区。
+assert.doesNotMatch(SCRIPT, /xy-overview-drawer/);
+assert.doesNotMatch(SCRIPT, /xy-overview-close/);
+assert.match(SCRIPT, /id="xy-view-overview"/);
+assert.match(SCRIPT, /switchToZone\('overview'\)/);
+assert.match(SCRIPT, /newZone === 'overview'/);
+const overviewContentCss = SCRIPT.match(/#xy-super-console \.xy-overview-content \{[^}]+\}/)?.[0] || '';
+assert.match(overviewContentCss, /\bflex:1 1 auto;/);
+assert.match(overviewContentCss, /\boverflow-y:auto;/);
+assert.match(overviewContentCss, /\boverscroll-behavior:contain;/);
+assert.match(overviewContentCss, /\bscrollbar-gutter:stable;/);
+assert.match(SCRIPT, /#xy-super-console \.xy-overview-task-list \{ max-height:none; overflow-y:visible; \}/);
+assert.match(SCRIPT, /if \(overviewRefreshBtn\) overviewRefreshBtn\.onclick = \(\) => xyOverviewRefresh\(\);/);
+const overviewViewCss = SCRIPT.match(/#xy-super-console \.xy-overview-view \{[^}]+\}/)?.[0] || '';
+assert.match(overviewViewCss, /\bborder:1px solid var\(--xy-border\);/);
+assert.match(overviewViewCss, /\bborder-radius:12px;/);
+assert.match(overviewViewCss, /\bbackground:var\(--xy-surface\);/);
+assert.match(SCRIPT, /#xy-main-body \{ min-height:0; \}/);
+assert.match(SCRIPT, /mainBody\.style\.overflowY = newZone === 'overview' \? 'hidden' : 'auto';/);
+console.log('course workbench integrated overview regression: PASS');
+
+// 成员画像与待办接口不一致时，必须明确标注统计差异，不能虚构一个不可定位的待办任务。
+const unresolvedTaskNoticeStart = SCRIPT.indexOf('    function xyOverviewUnresolvedTaskNotice');
+assert(unresolvedTaskNoticeStart >= 0, 'unresolved task notice helper not found');
+const unresolvedTaskNoticeEnd = SCRIPT.indexOf('    function xyOverviewRender(data)', unresolvedTaskNoticeStart);
+assert(unresolvedTaskNoticeEnd > unresolvedTaskNoticeStart, 'unresolved task notice helper boundary not found');
+const unresolvedTaskNoticeContext = {
+  xyOverviewNumber(value, fallback = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  },
+  Math,
+  Number
+};
+vm.runInNewContext(
+  SCRIPT.slice(unresolvedTaskNoticeStart, unresolvedTaskNoticeEnd) + '\nglobalThis.__unresolvedTaskNotice = xyOverviewUnresolvedTaskNotice;',
+  unresolvedTaskNoticeContext
+);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(unresolvedTaskNoticeContext.__unresolvedTaskNotice(162, 163))),
+  {
+    title: '平台统计相差 1 项',
+    meta: '成员画像为 162 / 163，但待办接口未返回对应任务；请以“作业任务”页的状态为准。'
+  }
+);
+assert.deepEqual(
+  JSON.parse(JSON.stringify(unresolvedTaskNoticeContext.__unresolvedTaskNotice(162, 163, '网络请求失败'))),
+  {
+    title: '待办接口加载失败',
+    meta: '成员画像为 162 / 163；未能读取待办接口（网络请求失败），暂时无法定位对应任务。'
+  }
+);
+console.log('course workbench task statistic discrepancy regression: PASS');
+
+// 成员画像统计所有课程任务；非作业待办也应合入明细，并在已批阅项目之前出现。
+const pendingTaskStart = SCRIPT.indexOf('    function xyOverviewNormalizePendingTasks');
+const pendingTaskEnd = SCRIPT.indexOf('    function xyOverviewTaskBreakdown', pendingTaskStart);
+assert(pendingTaskStart >= 0 && pendingTaskEnd > pendingTaskStart, 'overview pending task helper not found');
+const pendingTaskContext = { Array, Date, Math, Number, String };
+vm.runInNewContext(
+  SCRIPT.slice(pendingTaskStart, pendingTaskEnd) + '\nglobalThis.__normalizePending = xyOverviewNormalizePendingTasks;\nglobalThis.__mergeTasks = xyOverviewMergeTasks;',
+  pendingTaskContext
+);
+const pendingTasks = pendingTaskContext.__normalizePending([
+  { group_id: 'course-a', title: '自主观看', node_id: 'video-1', parent_id: 'unit-1', end_time: '2099-01-01 00:00:00' },
+  { group_id: 'course-a', title: '过期课件', node_id: 'file-1', end_time: '2020-01-01 00:00:00' },
+  { group_id: 'course-b', title: '其他课程任务', node_id: 'other-1' }
+], 'course-a', Date.parse('2026-08-21T00:00:00Z'));
+assert.deepEqual(JSON.parse(JSON.stringify(pendingTasks.map(task => [task.title, task.status.key]))), [
+  ['自主观看', 'actionable'], ['过期课件', 'expired']
+]);
+const mergedTasks = pendingTaskContext.__mergeTasks(pendingTasks, [
+  { title: '已批阅测验', nodeId: 'paper-1', status: { key: 'graded' } },
+  { title: '自主观看（作业接口副本）', nodeId: 'video-1', status: { key: 'graded' } }
+]);
+assert.equal(mergedTasks[0].status.key, 'actionable');
+assert.equal(mergedTasks[0].title, '自主观看');
+assert.equal(mergedTasks.at(-1).title, '已批阅测验');
+console.log('course workbench pending task regression: PASS');
+
+// 待办接口可能省略父节点；应由课程资源树按任务节点补齐，且能回退到路径中的父节点。
+const pendingParentResolverStart = SCRIPT.indexOf('    function xyCourseDashboardResolveTaskParentId');
+assert(pendingParentResolverStart >= 0, 'pending task parent resolver not found');
+const pendingParentResolverEnd = SCRIPT.indexOf('    function xyCourseDashboardGroupPending', pendingParentResolverStart);
+assert(pendingParentResolverEnd > pendingParentResolverStart, 'pending task parent resolver boundary not found');
+const pendingParentResolverContext = {
+  normalizeDownloadId(value) {
+    if (value === null || value === undefined) return null;
+    const id = String(value).trim();
+    return id || null;
+  },
+  dlResourceId(resource) {
+    return resource?.id ?? resource?.resource_id ?? resource?.node_id ?? resource?.nodeId ?? null;
+  },
+  dlCollectResources(resources) {
+    const result = [];
+    const visit = value => {
+      if (Array.isArray(value)) return value.forEach(visit);
+      if (!value || typeof value !== 'object') return;
+      result.push(value);
+      visit(value.children);
+      visit(value.child_nodes);
+      visit(value.items);
+    };
+    visit(resources);
+    return result;
+  },
+  String
+};
+vm.runInNewContext(
+  SCRIPT.slice(pendingParentResolverStart, pendingParentResolverEnd) + '\nglobalThis.__resolveTaskParentId = xyCourseDashboardResolveTaskParentId;',
+  pendingParentResolverContext
+);
+assert.equal(pendingParentResolverContext.__resolveTaskParentId([{ id: 'task-1', parent_id: 'unit-1' }], 'task-1'), 'unit-1');
+assert.equal(pendingParentResolverContext.__resolveTaskParentId([{ id: 'task-2', path: 'course/unit-2/task-2' }], 'task-2'), 'unit-2');
+assert.equal(pendingParentResolverContext.__resolveTaskParentId([], 'task-3'), '');
+console.log('pending task parent resolution regression: PASS');
+
+// 点击课程卡片主体只展开/收起任务明细，不复用“进入课程”的资源目录跳转。
+const detailToggleStart = SCRIPT.indexOf('    function xyCourseDashboardToggleTaskDetails');
+assert(detailToggleStart >= 0, 'course task detail toggle not found');
+const detailToggleEnd = SCRIPT.indexOf('    function xyCourseDashboardDeactivate', detailToggleStart);
+assert(detailToggleEnd > detailToggleStart, 'course task detail toggle boundary not found');
+const detailToggleCalls = { loads: 0, renders: 0 };
+const detailToggleContext = {
+  xyCourseDashboardLoadTaskDetails() { detailToggleCalls.loads++; },
+  xyCourseDashboardRender() { detailToggleCalls.renders++; }
+};
+vm.runInNewContext(
+  SCRIPT.slice(detailToggleStart, detailToggleEnd) + '\nglobalThis.__toggleTaskDetails = xyCourseDashboardToggleTaskDetails;',
+  detailToggleContext
+);
+const toggleCourse = { taskDetailsExpanded: false };
+detailToggleContext.__toggleTaskDetails(toggleCourse);
+assert.equal(toggleCourse.taskDetailsExpanded, true);
+assert.equal(detailToggleCalls.loads, 1);
+detailToggleContext.__toggleTaskDetails(toggleCourse);
+assert.equal(toggleCourse.taskDetailsExpanded, false);
+assert.equal(detailToggleCalls.renders, 1);
+toggleCourse.taskDetailsState = 'loaded';
+detailToggleContext.__toggleTaskDetails(toggleCourse);
+assert.equal(toggleCourse.taskDetailsExpanded, true);
+assert.equal(detailToggleCalls.loads, 1);
+assert.equal(detailToggleCalls.renders, 2);
+console.log('course card detail toggle regression: PASS');
+
 assert.match(SCRIPT, /function xyCourseDashboardCourseStatus/);
 assert.match(SCRIPT, /function xyOverviewTaskStatus/);
 assert.match(SCRIPT, /\/api\/jx-stat\/ads\/user\/student\?group_id=/);
@@ -44,6 +301,53 @@ const courseStatusStart = SCRIPT.indexOf('    function xyCourseDashboardCourseSt
 const courseStatusEnd = SCRIPT.indexOf('    async function xyCourseDashboardMapLimit', courseStatusStart);
 assert(courseStatusStart >= 0 && courseStatusEnd > courseStatusStart, 'course status function not found');
 assert.doesNotMatch(SCRIPT.slice(courseStatusStart, courseStatusEnd), /已清空/);
+
+// 课程任务明细以成员画像为计数口径：全局待办只提供可命名的未完成任务，剩余差额必须明确标为待确认。
+const taskDetailsStart = SCRIPT.indexOf('    function xyCourseDashboardBuildTaskDetails');
+assert(taskDetailsStart >= 0, 'course task detail builder not found');
+const taskDetailsEnd = SCRIPT.indexOf('    function xyCourseDashboardTaskBreakdown', taskDetailsStart);
+assert(taskDetailsEnd > taskDetailsStart, 'course task detail builder boundary not found');
+const taskDetailContext = { Number, Math, Date, Array };
+vm.runInNewContext(
+  SCRIPT.slice(SCRIPT.indexOf('    function xyOverviewNumber'), taskDetailsEnd)
+    + '\nglobalThis.__buildTaskDetails = xyCourseDashboardBuildTaskDetails;',
+  taskDetailContext
+);
+const taskDetails = taskDetailContext.__buildTaskDetails(
+  { taskCount: 14, finishedCount: 13 },
+  [
+    { title: '可做练习', nodeId: 'open-1', endTime: '2099-01-01 00:00:00' },
+    { title: '过期练习', nodeId: 'expired-1', endTime: '2020-01-01 00:00:00' }
+  ],
+  [{ title: '已完成测验', nodeId: 'done-1', status: { key: 'graded', label: '已批阅' } }],
+  Date.parse('2026-08-21T00:00:00Z')
+);
+assert.equal(taskDetails.completedCount, 13);
+assert.equal(taskDetails.actionable.length, 1);
+assert.equal(taskDetails.expired.length, 1);
+assert.equal(taskDetails.uncertainCount, 0);
+const unmatchedTaskDetails = taskDetailContext.__buildTaskDetails(
+  { taskCount: 14, finishedCount: 13 }, [], [], Date.parse('2026-08-21T00:00:00Z')
+);
+assert.equal(unmatchedTaskDetails.uncertainCount, 1);
+console.log('course task detail regression: PASS');
+
+// 任务明细在首次展开时单独加载，加载状态仅影响当前课程卡片。
+const taskDetailLoaderStart = SCRIPT.indexOf('    async function xyCourseDashboardLoadTaskDetails');
+const taskDetailLoaderEnd = SCRIPT.indexOf('    function xyCourseDashboardDeactivate', taskDetailLoaderStart);
+assert(taskDetailLoaderStart >= 0 && taskDetailLoaderEnd > taskDetailLoaderStart, 'course task detail loader not found');
+const taskDetailLoaderSource = SCRIPT.slice(taskDetailLoaderStart, taskDetailLoaderEnd);
+assert.match(taskDetailLoaderSource, /course\.taskDetailsState = 'loading'/);
+assert.match(taskDetailLoaderSource, /course\.taskDetailsState = 'loaded'/);
+assert.match(taskDetailLoaderSource, /course\.taskDetailsState = 'error'/);
+assert.match(taskDetailLoaderSource, /course\.taskDetailsState === 'loading'/);
+
+// 卡片摘要默认收起，展开后提供状态分组、重试和作业原页跳转。
+assert.match(SCRIPT, /data-course-action="details"/);
+assert.match(SCRIPT, /data-course-action="retry-details"/);
+assert.match(SCRIPT, /aria-expanded="\$\{course\.taskDetailsExpanded \? 'true' : 'false'\}"/);
+assert.match(SCRIPT, /状态待确认/);
+assert.match(SCRIPT, /data-course-task-type=/);
 
 // 课程总览应依次展示可做待办、无可做但有已截止任务、其余课程；每组内先按截止时间、再按任务数排序。
 const courseSortStart = SCRIPT.indexOf('    function xyCourseDashboardSortCourses');
