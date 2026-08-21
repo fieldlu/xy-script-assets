@@ -1,14 +1,14 @@
 {
-  "version": "3.6.4",
+  "version": "3.7.0",
   "notes": [
-    "📈 批量下载按文件流逐块显示进度，修复下载过程中长期停留在 0/1 (0%)",
-    "📄 单个下载按钮复用同一进度卡片，显示 0/1、文件百分比、已接收大小和完成状态",
-    "📦 文件服务器缺少 Content-Length 时显示已接收字节数，并支持从 Content-Range 推断总大小",
-    "🎨 下载进度改为紧凑卡片布局，长文件名自动省略，进度信息分层显示",
-    "🖱️ 修复下载按钮事件委托与资源 ID 映射，点击后正确进入下载流程",
-    "🧩 兼容数组/对象两种课程资源返回结构，补齐 quote_id 与嵌套资源识别",
-    "🔁 按参考脚本恢复下载链路：携带站点 Authorization 并采用流式读取"
+    "📚 新增进行中课程总览：当前待办、任务完成率和累计学习时长一眼可见",
+    "📊 新增课程学情抽屉：学习时长、完成度、作业成绩与详情跳转集中展示",
+    "⏰ 待办按截止时间区分可做与已截止，避免把已截止任务计为当前待办",
+    "📝 作业状态清晰区分待提交、已截止、待批阅、已批阅",
+    "🧭 支持课程搜索、待办筛选、进入课程和学情跳转",
+    "✨ 0/0 任务显示暂无任务，不再误显示满进度条",
+    "🔄 脚本检查更新与自动更新统一切换至 Gitee 发布源"
   ],
-  "downloadURL": "https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
-  "changelogURL": "https://scriptcat.org/zh-CN/script-show-page/5881"
+  "downloadURL": "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js",
+  "changelogURL": "https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
 }
