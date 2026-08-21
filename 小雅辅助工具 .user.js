@@ -4762,7 +4762,7 @@
         let match;
         while ((match = urlRe.exec(text)) !== null) {
             parts.push(escapeHtml(text.slice(lastIdx, match.index)));
-            parts.push(`<a href="${match[0]}" target="_blank" rel="noopener" style="color:${T('#818cf8','#4f46e5')}; text-decoration:underline;" onclick="event.stopPropagation()">${escapeHtml(match[0])}</a>`);
+            parts.push(`<a href="${match[0]}" target="_blank" rel="noopener" style="color:${T('#818cf8','#4f46e5')}; text-decoration:underline; overflow-wrap:anywhere; word-break:break-word;" onclick="event.stopPropagation()">${escapeHtml(match[0])}</a>`);
             lastIdx = urlRe.lastIndex;
         }
         parts.push(escapeHtml(text.slice(lastIdx)));
@@ -4772,11 +4772,13 @@
     function renderNotice(data) {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
+        contentBox.style.overflowX = 'hidden';
+        contentBox.style.minWidth = '0';
         contentBox.innerHTML =
-            `<div style="padding:16px 20px;">
-                <div style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:12px; font-size:14px;">${autoLink(data.title || '系统公告')}</div>
-                <ul style="margin:0; padding-left:18px; color:${T('#cbd5e1','#475569')}; line-height:1.6;">
-                    ${(data.items || []).map(item => `<li style="margin-bottom:8px;">${autoLink(item)}</li>`).join('')}
+            `<div style="min-width:0; max-width:100%; box-sizing:border-box; padding:16px 20px; overflow-wrap:anywhere; word-break:break-word;">
+                <div style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:12px; font-size:14px; overflow-wrap:anywhere; word-break:break-word;">${autoLink(data.title || '系统公告')}</div>
+                <ul style="min-width:0; margin:0; padding-left:18px; color:${T('#cbd5e1','#475569')}; line-height:1.6; overflow-wrap:anywhere; word-break:break-word;">
+                    ${(data.items || []).map(item => `<li style="min-width:0; margin-bottom:8px; overflow-wrap:anywhere; word-break:break-word;">${autoLink(item)}</li>`).join('')}
                 </ul>
             </div>`;
         contentBox.style.display = 'block';
@@ -7432,7 +7434,7 @@
                 </div>
             </div>
 
-            <div id="xy-main-body" style="padding: 10px 12px; overflow-y: auto; display: flex; flex-direction: column; flex: 1; gap: 6px;">
+            <div id="xy-main-body" style="padding: 10px 12px; min-width:0; overflow-x:hidden; overflow-y: auto; display: flex; flex-direction: column; flex: 1; gap: 6px;">
 
                 <div class="xy-panel" style="padding: 0; overflow: hidden; border-color: ${T('rgba(129,140,248,0.15)','#c7d2fe')};">
                     <div id="xy-bc-toggle" style="background: ${T('rgba(99,102,241,0.06)','#eef2ff')}; padding: 10px 16px; font-size: 12px; font-weight: 600; color: ${T('#a5b4fc','#3730a3')}; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">

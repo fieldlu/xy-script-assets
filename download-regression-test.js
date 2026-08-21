@@ -10,6 +10,30 @@ assert.match(SCRIPT, /@version\s+3\.7\.2/);
 assert.match(SCRIPT, /@updateURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
 assert.match(SCRIPT, /@downloadURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
 
+// 情报站中的超长安装链接必须自动断行，不能把控制台横向撑宽。
+const autoLinkStart = SCRIPT.indexOf('    function autoLink');
+const autoLinkEnd = SCRIPT.indexOf('    function renderNotice', autoLinkStart);
+assert(autoLinkStart >= 0 && autoLinkEnd > autoLinkStart, 'notice auto-link helper not found');
+const autoLinkContext = {
+  T(dark, light) { return light; },
+  escapeHtml(value) { return String(value); }
+};
+vm.runInNewContext(
+  SCRIPT.slice(autoLinkStart, autoLinkEnd) + '\nglobalThis.__autoLink = autoLink;',
+  autoLinkContext
+);
+const longNoticeLink = autoLinkContext.__autoLink('更新链接：https://gitee.com/fieldlu/xy-script-assets/raw/main/very-long-userscript-installation-address.user.js');
+assert.match(longNoticeLink, /overflow-wrap:anywhere/);
+assert.match(longNoticeLink, /word-break:break-word/);
+const renderNoticeStart = SCRIPT.indexOf('    function renderNotice');
+const renderNoticeEnd = SCRIPT.indexOf('    function fetchCloudIntelligence', renderNoticeStart);
+assert(renderNoticeStart >= 0 && renderNoticeEnd > renderNoticeStart, 'notice renderer not found');
+const renderNoticeSource = SCRIPT.slice(renderNoticeStart, renderNoticeEnd);
+assert.match(renderNoticeSource, /contentBox\.style\.overflowX = 'hidden'/);
+assert.match(renderNoticeSource, /overflow-wrap:anywhere/);
+assert.match(SCRIPT, /id="xy-main-body" style="padding: 10px 12px; min-width:0; overflow-x:hidden; overflow-y: auto;/);
+console.log('intelligence station overflow regression: PASS');
+
 // course_paper 页面可能把记录放在任务流程数组的后续项，或直接随题目数据返回。
 const recordExtractorStart = SCRIPT.indexOf('    function hwExtractRecordId');
 const recordExtractorEnd = SCRIPT.indexOf('    async function hwGetRecordId', recordExtractorStart);

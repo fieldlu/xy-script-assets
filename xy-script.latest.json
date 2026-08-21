@@ -4,7 +4,8 @@
     "📊 课程学习数据概览改为主控台正式区域，不再遮挡原页面",
     "🧾 任务与作业明细支持展开查看，并可直达对应任务",
     "🧭 修复概览路由重复切换与日志刷屏，统一为单一纵向滚动",
-    "✨ 优化学习时长与任务完成度的视觉层级和阅读体验"
+    "✨ 优化学习时长与任务完成度的视觉层级和阅读体验",
+    "🛠️ 修复情报站超长链接撑宽控制台的问题，链接现在自动换行"
   ],
   "downloadURL": "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js",
   "changelogURL": "https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
