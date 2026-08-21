@@ -6301,6 +6301,7 @@
         hwPaperId=hwPaperId||json.data.paper_id||json.data.paperId||json.data.id||'';
         if(!hwGroupId)hwGroupId=json.data.group_id;
         if(!hwNodeId)hwNodeId=getNodeId()||'';
+        hwRecordId=hwRecordId||hwExtractRecordId(json.data);
         const qs=json.data.questions;
         hwQuestionsData=[];hwImageAssets=[];hwPdfQuestions=[];
         let tpl='📌 答题任务单\n按下列题目作答，只输出答案本身，不要附带解析或任何说明文字。\n【答案格式】\n单选/判断 → 题号 => 大写字母（如 1 => A）\n多选 → 题号 => 字母，逗号分隔（如 2 => A,C）\n填空 → 题号 => 各空用竖线分隔（如 3 => const | let）\n简答 → 题号 => 完整文字\n匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）\n附件题无需作答。\n\n════════════════════\n以下为题目内容：\n════════════════════\n';
@@ -6523,18 +6524,30 @@
         else { logMsg('复制失败，请手动复制','error'); showToast('复制失败，请手动复制', 'error'); }
     }
 
+    function hwExtractRecordId(payload) {
+        const direct=payload?.answer_record?.id||payload?.answer_record_id||payload?.record_id;
+        if(direct)return String(direct);
+        for(const list of [payload?.task_flow_record,payload?.task_flow_template]){
+            if(!Array.isArray(list))continue;
+            for(const item of list){
+                const recordId=item?.answer_record_id||item?.answer_record?.id||item?.record_id;
+                if(recordId)return String(recordId);
+            }
+        }
+        return '';
+    }
+
     async function hwGetRecordId() {
         if (!hwGroupId || !hwNodeId) throw new Error('未获取到课程或节点参数');
+        if (hwRecordId) return hwRecordId;
         const token = getCookie();
         if (!token) throw new Error('未获取到登录 Token');
         const url = `${window.location.origin}/api/jx-iresource/survey/course/task/flow/v2?node_id=${encodeURIComponent(hwNodeId)}&group_id=${encodeURIComponent(hwGroupId)}`;
         const res = await _hw_nativeFetch(url, { headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' }, credentials: 'include' });
         if (!res.ok) throw new Error(`Record ID 请求失败：${res.status}`);
         const data = await res.json();
-        if (data && data.success && data.data) {
-            if (data.data.task_flow_record && data.data.task_flow_record[0] && data.data.task_flow_record[0].answer_record_id) return data.data.task_flow_record[0].answer_record_id;
-            if (data.data.task_flow_template && data.data.task_flow_template[0] && data.data.task_flow_template[0].answer_record_id) return data.data.task_flow_template[0].answer_record_id;
-        }
+        const recordId=data?.success&&data.data?hwExtractRecordId(data.data):'';
+        if(recordId)return recordId;
         throw new Error('无法获取 Record ID');
     }
 
@@ -6636,6 +6649,14 @@
         return hwSubmissionResult.state === 'submitted';
     }
 
+    function hwShouldReloadAfterSave(ok, fail, skip) {
+        return ok > 0 && fail === 0 && skip === 0;
+    }
+
+    function hwSchedulePageReload() {
+        setTimeout(() => window.location.reload(), 1000);
+    }
+
     async function hwSaveAnswers(aiText) {
         if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存作答','error'); return; }
         if (!String(aiText || '').trim()) { logMsg('请先粘贴 AI 返回的答案','error'); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
@@ -6671,7 +6692,12 @@
             const refreshed = await hwRefreshPaperData();
             hwUpdateUI();
             logMsg(`✅ 保存作答完成：成功 ${ok} 题，失败 ${fail} 题，跳过 ${skip} 题`,'success');
-            showToast(`✅ 已保存 ${ok} 道题作答` + (refreshed ? '，结果已刷新' : ''), 'success');
+            const shouldReload=hwShouldReloadAfterSave(ok,fail,skip);
+            showToast(shouldReload ? `✅ 已保存 ${ok} 道题作答，正在刷新页面…` : `✅ 已保存 ${ok} 道题作答` + (refreshed ? '，结果已刷新' : ''), 'success');
+            if(shouldReload){
+                logMsg('全部答案已保存，1 秒后刷新页面同步状态','success');
+                hwSchedulePageReload();
+            }
         } else {
             showToast(`未保存任何答案（成功 ${ok} / 失败 ${fail} / 跳过 ${skip}）`, fail ? 'error' : 'warning');
             logMsg(`未保存任何答案：成功 ${ok}，失败 ${fail}，跳过 ${skip}`, fail ? 'error' : 'warning');
