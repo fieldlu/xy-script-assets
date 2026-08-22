@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.2.1
+// @version      3.7.2.2
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -2390,6 +2390,7 @@
     
     
     function switchToZone(newZone) {
+        if (newZone !== 'overview' && xyShouldKeepDashboardOverview(getCourseGroupId())) return;
         if (newZone !== 'overview') {
             xyOverviewState.pinnedCourseId = '';
             xyOverviewState.dashboardCourseId = '';

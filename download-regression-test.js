@@ -6,10 +6,10 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const SCRIPT = fs.readFileSync(path.join(__dirname, '小雅辅助工具 .user.js'), 'utf8');
-const LOCAL_SCRIPT_VERSION = '3.7.2.1';
-const PUBLISHED_MANIFEST_VERSION = '3.7.2.1';
+const LOCAL_SCRIPT_VERSION = '3.7.2.2';
+const PUBLISHED_MANIFEST_VERSION = '3.7.2.2';
 const LATEST_MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'xy-script.latest.json'), 'utf8'));
-assert.match(SCRIPT, /@version\s+3\.7\.2\.1/);
+assert.match(SCRIPT, new RegExp(`@version\\s+${LOCAL_SCRIPT_VERSION.replaceAll('.', '\\.')}`));
 assert.equal(LATEST_MANIFEST.version, PUBLISHED_MANIFEST_VERSION, 'cloud manifest must remain on the published version before release');
 assert.match(SCRIPT, /@updateURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
 assert.match(SCRIPT, /@downloadURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
@@ -223,6 +223,39 @@ assert.match(
   /const routeCourseId = getCourseGroupId\(\);[\s\S]{0,180}?if \(xyShouldKeepDashboardOverview\(routeCourseId\)\) return;[\s\S]{0,180}?if \(appState\.activeZone === 'download'\)/
 );
 console.log('course overview persistence regression: PASS');
+
+// 正在查看被固定的学情概览时，任何旧扫描都不得回切课程总览并清除概览锁。
+const switchToZoneStart = SCRIPT.indexOf('    function switchToZone');
+const switchToZoneEnd = SCRIPT.indexOf('    async function fetchRadarCached', switchToZoneStart);
+assert(switchToZoneStart >= 0 && switchToZoneEnd > switchToZoneStart, 'zone switcher boundary not found');
+const lockedOverviewSwitchContext = {
+  appState: { activeZone: 'overview' },
+  xyOverviewState: { courseId: 'course-a', dashboardCourseId: 'course-a', pinnedCourseId: 'course-a' },
+  getCourseGroupId() { return ''; },
+  isActiveCourseHomePage() { return true; },
+  document: { getElementById() { return null; } },
+  clearDynamicRefresh() {},
+  xyCourseDashboardRender() {},
+  toggleRecord() {},
+  ensureAutoRecord() {},
+  globalTaskStatusChecker() {},
+  getNodeId() { return ''; },
+  logMsg() {}
+};
+vm.runInNewContext(
+  SCRIPT.slice(overviewKeepStart, overviewKeepEnd)
+    + SCRIPT.slice(switchToZoneStart, switchToZoneEnd)
+    + '\nglobalThis.__switchToZone = switchToZone;',
+  lockedOverviewSwitchContext
+);
+lockedOverviewSwitchContext.__switchToZone('courses');
+assert.equal(lockedOverviewSwitchContext.appState.activeZone, 'overview');
+assert.equal(lockedOverviewSwitchContext.xyOverviewState.pinnedCourseId, 'course-a');
+lockedOverviewSwitchContext.xyOverviewState.pinnedCourseId = '';
+lockedOverviewSwitchContext.xyOverviewState.dashboardCourseId = '';
+lockedOverviewSwitchContext.__switchToZone('courses');
+assert.equal(lockedOverviewSwitchContext.appState.activeZone, 'courses', 'explicit overview return must still be able to restore the original zone');
+console.log('locked overview zone arbitration regression: PASS');
 
 // 右上角概览按钮必须在“原分区 ↔ 学情概览”之间双向切换；异步扫描返回后也不得覆盖用户选择。
 const overviewToggleStart = SCRIPT.indexOf('    function xyOverviewReturnZone');
