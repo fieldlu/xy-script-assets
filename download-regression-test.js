@@ -6,8 +6,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const SCRIPT = fs.readFileSync(path.join(__dirname, '小雅辅助工具 .user.js'), 'utf8');
-const LOCAL_SCRIPT_VERSION = '3.7.2.2';
-const PUBLISHED_MANIFEST_VERSION = '3.7.2.2';
+const LOCAL_SCRIPT_VERSION = '3.7.2.3';
+const PUBLISHED_MANIFEST_VERSION = '3.7.2.3';
 const LATEST_MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'xy-script.latest.json'), 'utf8'));
 assert.match(SCRIPT, new RegExp(`@version\\s+${LOCAL_SCRIPT_VERSION.replaceAll('.', '\\.')}`));
 assert.equal(LATEST_MANIFEST.version, PUBLISHED_MANIFEST_VERSION, 'cloud manifest must remain on the published version before release');
@@ -153,7 +153,7 @@ const courseResourceUrlStart = SCRIPT.indexOf('    function xyCourseDashboardRes
 assert(courseResourceUrlStart >= 0, 'course resource URL helper not found');
 const courseResourceUrlEnd = SCRIPT.indexOf('    function xyCourseDashboardNormalizeCourses', courseResourceUrlStart);
 assert(courseResourceUrlEnd > courseResourceUrlStart, 'course resource URL helper boundary not found');
-const courseResourceUrlContext = { encodeURIComponent };
+const courseResourceUrlContext = { encodeURIComponent, xyCourseRoutePrefix() { return 'mycourse'; } };
 vm.runInNewContext(
   SCRIPT.slice(courseResourceUrlStart, courseResourceUrlEnd) + '\nglobalThis.__courseResourceUrl = xyCourseDashboardResourceUrl;',
   courseResourceUrlContext
@@ -178,6 +178,7 @@ assert(taskOpenStart >= 0 && taskOpenEnd > taskOpenStart, 'task jump helper not 
 const taskOpenContext = {
   window: { location: { pathname: '/app/jx-web/mycourse', href: '' } },
   encodeURIComponent,
+  xyCourseRoutePrefix() { return 'mycourse'; },
   showToast() {}
 };
 vm.runInNewContext(
@@ -215,9 +216,28 @@ assert.equal(overviewKeepContext.__keepOverview('course-b'), false);
 overviewKeepContext.xyOverviewState.pinnedCourseId = '';
 assert.equal(overviewKeepContext.__keepOverview(''), false);
 assert.match(SCRIPT, /if \(xyShouldKeepDashboardOverview\(groupId\)\) return;\s*switchToZone\('courses'\);/);
+assert.doesNotMatch(SCRIPT, /routeDismissedUrl/, 'dismissed-route guard was removed in 3.7.2.3');
 const scannerStart = SCRIPT.indexOf('    async function runLowLevelScanner');
 const scannerEnd = SCRIPT.indexOf('    function courseGroupKey', scannerStart);
 assert(scannerStart >= 0 && scannerEnd > scannerStart, 'low-level scanner boundary not found');
+const noNodeCourseRouteStart = SCRIPT.indexOf('        if (!nodeId) {', scannerStart);
+const noNodeCourseRouteEnd = SCRIPT.indexOf('        let taskType = -1;', noNodeCourseRouteStart);
+assert(noNodeCourseRouteStart >= scannerStart && noNodeCourseRouteEnd > noNodeCourseRouteStart, 'course route without a resource node branch not found');
+// task/home/courseTools 已取消独立任务区：无节点分支必须直接打开学习数据概览。
+assert.match(
+  SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd),
+  /routeKind === 'overview'[\s\S]{0,220}?xyOverviewLoad\(groupId, false\)/,
+  'task/home/courseTools routes must open the learning data overview directly'
+);
+// 有资源节点的课程内容页不得被扫描器自动切到概览。
+const scannerDeepBranchStart = SCRIPT.indexOf('        let taskType = -1;', scannerStart);
+const scannerDeepBranchEnd = SCRIPT.indexOf('    function courseGroupKey', scannerStart);
+assert(scannerDeepBranchStart >= scannerStart && scannerDeepBranchEnd > scannerDeepBranchStart, 'scanner deep branch boundary not found');
+assert.doesNotMatch(
+  SCRIPT.slice(scannerDeepBranchStart, scannerDeepBranchEnd),
+  /xyOverviewOpen\(groupId\)/,
+  'resource-node pages must never auto-open the overview'
+);
 assert.match(
   SCRIPT.slice(scannerStart, scannerEnd),
   /const routeCourseId = getCourseGroupId\(\);[\s\S]{0,180}?if \(xyShouldKeepDashboardOverview\(routeCourseId\)\) return;[\s\S]{0,180}?if \(appState\.activeZone === 'download'\)/
@@ -385,37 +405,89 @@ assert.match(createUiSource, /document\.addEventListener\('mousemove',[\s\S]{0,1
 assert.match(createUiSource, /document\.addEventListener\('mouseup',[\s\S]{0,800}?uiDocumentListenerOptions\);/, 'mouseup listener is not lifecycle-bound');
 console.log('UI listener lifecycle regression: PASS');
 
-// 任何非专用课程页均显示本课学情；无课程上下文则显示课程总览，不能再退回待命区。
-const courseOverviewRouteStart = SCRIPT.indexOf('    function isCourseOverviewPage');
-const courseOverviewRouteEnd = SCRIPT.indexOf('    const sleep', courseOverviewRouteStart);
-assert(courseOverviewRouteStart >= 0 && courseOverviewRouteEnd > courseOverviewRouteStart, 'course overview route helper not found');
-const courseOverviewRouteContext = {
-  window: { location: { href: 'https://whut.ai-augmented.com/app/jx-web/mycourse/123/courseTools', pathname: '/app/jx-web/mycourse/123/courseTools' } },
-  getCourseGroupId() { return '123'; },
-  isCourseDirPage() { return false; }
-};
-vm.runInNewContext(
-  SCRIPT.slice(courseOverviewRouteStart, courseOverviewRouteEnd) + '\nglobalThis.__isCourseOverviewPage = isCourseOverviewPage;',
-  courseOverviewRouteContext
-);
-assert.equal(courseOverviewRouteContext.__isCourseOverviewPage(), true);
-courseOverviewRouteContext.isCourseDirPage = () => true;
-assert.equal(courseOverviewRouteContext.__isCourseOverviewPage(), false);
-assert.match(SCRIPT, /if \(isCourseOverviewPage\(\)\) \{[\s\S]*?xyOverviewOpen\(groupId\);/);
-assert.doesNotMatch(
-  SCRIPT,
-  /if \(isCourseOverviewPage\(\)\) \{\s*switchToZone\('courses'\);\s*xyOverviewOpen\(groupId\);/
-);
+// 路由选择必须仅由 xyRouteKind 驱动，不能保留宽泛的“课程首页”判定。
+assert.doesNotMatch(SCRIPT, /function isCourseOverviewPage\(/);
+assert.match(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /routeKind === 'overview'[\s\S]*?xyOverviewLoad\(groupId, false\)/);
+assert.doesNotMatch(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /courseHome|xyCourseHome/);
+assert.doesNotMatch(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /switchToZone\('course'\)/);
 assert.match(SCRIPT, /if \(!groupId\) \{[\s\S]*?switchToZone\('courses'\);[\s\S]*?xyCourseDashboardLoad\(false\)/);
 assert.doesNotMatch(SCRIPT, /switchToZone\('standby'\)/);
 assert.doesNotMatch(SCRIPT, /xy-view-standby/);
 console.log('route-aware overview regression: PASS');
 
-// 路由轮询进入课程概览时只能选择一次区域，不能先经过课程总览而重复打印“底层指令”。
-const overviewZoneTransitions = SCRIPT.match(/if \(isCourseOverviewPage\(\)\) \{[\s\S]{0,120}?xyOverviewOpen\(groupId\);/g) || [];
-assert.equal(overviewZoneTransitions.length, 2, 'course overview route branches not found');
-overviewZoneTransitions.forEach(transition => assert.doesNotMatch(transition, /switchToZone\('courses'\)/));
-console.log('course overview single-zone transition regression: PASS');
+// 切换学情概览后返回时，单课程页面必须保留自己的原分区。
+assert.match(SCRIPT, /\['course', 'disc', 'hw', 'dir', 'download', 'courses'\]/);
+assert.doesNotMatch(SCRIPT, /xy-view-course-home|xyCourseHome|courseHome/);
+assert.doesNotMatch(SCRIPT, /viewTask\.style\.display = newZone === 'task' \? 'flex' : 'none';/);
+console.log('course route zone transition regression: PASS');
+
+// 路由必须按页面语义分区：全局课程页才是总览，单课程任务页不能被映射到刷课区或全局总览。
+const routeKindStart = SCRIPT.indexOf('    function getCourseGroupId');
+const routeKindEnd = SCRIPT.indexOf('    const sleep', routeKindStart);
+assert(routeKindStart >= 0 && routeKindEnd > routeKindStart, 'route helper boundary not found');
+const routeKindContext = {
+  window: { location: { href: 'https://whut.ai-augmented.com/app/jx-web/mycourse/100/task', pathname: '/app/jx-web/mycourse/100/task' } }
+};
+vm.runInNewContext(
+  SCRIPT.slice(routeKindStart, routeKindEnd) + '\nglobalThis.__routeKind = xyRouteKind;',
+  routeKindContext
+);
+assert.equal(routeKindContext.__routeKind('/app/jx-web/mycourse'), 'courses');
+assert.equal(routeKindContext.__routeKind('/app/jx-web/mycourse/100/task'), 'overview');
+assert.equal(routeKindContext.__routeKind('/app/jx-web/mycourse/100/home'), 'overview');
+assert.equal(routeKindContext.__routeKind('/app/jx-web/mycourse/100/courseTools'), 'overview');
+assert.equal(routeKindContext.__routeKind('/app/jx-web/mycourse/100/resource/200/300'), 'course');
+assert.equal(routeKindContext.__routeKind('/app/jx-web/course/100/task'), 'overview');
+assert.equal(routeKindContext.__routeKind('/app/jx-web/course/100/resource/200/300'), 'course');
+assert.equal(routeKindContext.__routeKind('/app/jx-web/mycourse/100'), 'overview');
+assert.match(SCRIPT, /function xyCourseRoutePrefix\(\)/);
+assert.doesNotMatch(SCRIPT, /function xyCourseDashboardTaskUrl\(courseId\)/);
+assert.match(SCRIPT, /function xyCourseDashboardResourceUrl\(courseId\)/);
+console.log('route-native course zone classifier regression: PASS');
+
+// task/home/courseTools 上用户手动关闭学情后，扫描器不得再次自动打开，避免“返回后立刻跳回”。
+const routeReturnStart = SCRIPT.indexOf('    function xyOverviewReturnZone');
+const routeReturnEnd = SCRIPT.indexOf('    function xyOverviewRefresh', routeReturnStart);
+assert(routeReturnStart >= 0 && routeReturnEnd > routeReturnStart, 'overview return helper not found');
+const routeReturnContext = {
+  appState: { activeZone: 'overview' },
+  xyOverviewState: { courseId: 'course-a', dashboardCourseId: '', pinnedCourseId: 'course-a', returnZone: 'courses' },
+  getCourseGroupId() { return 'course-a'; },
+  courseGroupKey(value) { return String(value || ''); },
+  window: { location: { href: 'https://whut.ai-augmented.com/app/jx-web/mycourse/course-a/task' } },
+  xyRouteKind() { return 'overview'; },
+  switchToZone(zone) { routeReturnContext.appState.activeZone = zone; }
+};
+vm.runInNewContext(
+  SCRIPT.slice(routeReturnStart, routeReturnEnd) + '\nglobalThis.__returnOverview = xyOverviewReturn;',
+  routeReturnContext
+);
+routeReturnContext.__returnOverview();
+assert.equal(routeReturnContext.appState.activeZone, 'courses');
+assert.equal(routeReturnContext.xyOverviewState.returnZone, '');
+assert.equal(routeReturnContext.xyOverviewState.pinnedCourseId, '');
+console.log('overview return clears pinned state regression: PASS');
+
+// 讨论页可能没有资源节点，扫描器必须在无节点分支中优先保留讨论区。
+assert.match(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /if \(routeKind === 'disc'\) \{\s*switchToZone\('disc'\);\s*return;/);
+const discussionHelperStart = SCRIPT.indexOf('    function xyIsDiscussionPage');
+const discussionHelperEnd = SCRIPT.indexOf('    const sleep', discussionHelperStart);
+assert(discussionHelperStart >= 0 && discussionHelperEnd > discussionHelperStart, 'discussion helper boundary not found');
+assert.doesNotMatch(SCRIPT.slice(discussionHelperStart, discussionHelperEnd), /document\.body\.innerHTML/);
+console.log('no-node discussion route regression: PASS');
+
+// 单课程的 task/home/courseTools 不再有独立任务区：直接复用学习数据概览，且旧任务区痕迹必须清除。
+assert.doesNotMatch(SCRIPT, /id="xy-view-task"/);
+assert.doesNotMatch(SCRIPT, /xyCourseScopedState|xyCourseScopedLoad|xyCourseTaskRender|xy-course-task-content/);
+assert.doesNotMatch(SCRIPT, /returnZone === 'task' && courseId/);
+assert.match(SCRIPT, /async function xyOverviewFetchCourseData\(courseId, force = false\)/);
+assert.match(SCRIPT, /Date\.now\(\) - cached\.loadedAt < xyOverviewState\.cacheTtl/);
+assert.match(SCRIPT, /dataRequestSeq: new Map\(\)/);
+assert.match(SCRIPT, /xyOverviewState\.dataRequestSeq\.get\(normalizedCourseId\) === dataRequestSeq/);
+assert.match(SCRIPT, /dataVersion: dataRequestSeq/);
+assert.match(SCRIPT, /if \(xyOverviewState\.dataRequestSeq\.get\(normalizedCourseId\) === dataRequestSeq\) \{/);
+assert.match(SCRIPT, /cached\.dataVersion === xyOverviewState\.dataRequestSeq\.get\(normalizedCourseId\)/);
+console.log('single-course learning data overview regression: PASS');
 
 // 课程工作台首屏优先提示可做任务，完整成绩与状态明细保持可展开。
 const overviewBreakdownStart = SCRIPT.indexOf('    function xyOverviewTaskBreakdown');
