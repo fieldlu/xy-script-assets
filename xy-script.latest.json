@@ -1,10 +1,10 @@
 {
-  "version": "3.7.2.2",
+  "version": "3.7.2.3",
   "notes": [
-    "🛡️ 修复旧页面扫描与学情概览并发时反复切换课程总览/学情概览的问题",
-    "🔒 固定打开的课程学习数据概览现在由中央分区仲裁保护，不会被旧扫描覆盖",
-    "↩️ 右上角显式返回仍可正常回到打开概览前的原分区",
-    "🧪 新增固定概览仲裁回归，覆盖拦截自动回切与允许显式返回两条路径"
+    "🧭 课程内 /task、/home、/courseTools 一律进入学情概览，不再有独立任务页/工作台",
+    "⚡ 进入学情概览时缓存即时渲染，不再白屏或闪回原区",
+    "🛰️ 面板「待命区」更名为「小雅引擎」，区域切换日志全部静默",
+    "🧹 移除整个任务页 zone 及配套加载/渲染/跳转代码，逻辑更简洁"
   ],
   "downloadURL": "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js",
   "changelogURL": "https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"

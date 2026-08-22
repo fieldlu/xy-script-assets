@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.2.2
+// @version      3.7.2.3
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -764,6 +764,7 @@
 
     function syncHardwareMute() { document.dispatchEvent(new CustomEvent('xy-volume-change', { detail: { mute: appState.hardwareMute } })); }
     function getCourseGroupId() { const match = window.location.href.match(/(?:mycourse|course)\/(\d+)/); return match ? match[1] : null; }
+    function xyCourseRoutePrefix() { return /\/course\/\d+(?:\/|$)/.test(window.location.pathname) ? 'course' : 'mycourse'; }
     function isActiveCourseHomePage() { return /^\/app\/jx-web\/mycourse\/?$/.test(window.location.pathname); }
     function xyShouldKeepDashboardOverview(courseId = '') {
         const dashboardCourseId = String(xyOverviewState.dashboardCourseId || '');
@@ -794,8 +795,19 @@
         return /\/mycourse\/\d+(?:\/resource(?:\/\d+)?)?\/?$/.test(window.location.pathname);
     }
 
-    function isCourseOverviewPage() {
-        return !!getCourseGroupId() && !isCourseDirPage();
+    function xyRouteKind(pathname = window.location.pathname) {
+        const path = String(pathname || '').replace(/\/+$/, '') || '/';
+        if (path === '/app/jx-web/mycourse') return 'courses';
+        if (/\/course_paper\//.test(path)) return 'hw';
+        if (/\/(?:discussion|discuss)(?:\/|$)/.test(path)) return 'disc';
+        if (/\/(?:mycourse|course)\/\d+\/(?:task|home|courseTools)$/.test(path)) return 'overview';
+        if (/\/(?:mycourse|course)\/\d+\/resource\/\d+\/\d+$/.test(path)) return 'course';
+        if (/\/(?:mycourse|course)\/\d+\/resource$/.test(path)) return 'dir';
+        return /\/(?:mycourse|course)\/\d+(?:\/|$)/.test(path) ? 'overview' : 'courses';
+    }
+
+    function xyIsDiscussionPage() {
+        return !!document.querySelector('.discussion-container, .jx-discussion, [class*="discuss"]');
     }
 
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -820,6 +832,7 @@
         currentData: null,
         taskDetailsExpanded: null,
         cache: new Map(),
+        dataRequestSeq: new Map(),
         cacheTtl: 60 * 1000
     };
 
@@ -1396,23 +1409,15 @@
         content.innerHTML = `${summaryHtml}${focusHtml}${tasksHtml}`;
     }
 
-    async function xyOverviewLoad(courseId, force = false) {
+    async function xyOverviewFetchCourseData(courseId, force = false) {
         const normalizedCourseId = courseGroupKey(courseId);
-        if (!normalizedCourseId) return;
-        if (xyOverviewState.courseId !== normalizedCourseId) xyOverviewState.taskDetailsExpanded = null;
-
+        if (!normalizedCourseId) return null;
         const cached = xyOverviewState.cache.get(normalizedCourseId);
-        if (!force && cached && Date.now() - cached.loadedAt < xyOverviewState.cacheTtl) {
-            xyOverviewState.courseId = normalizedCourseId;
-            xyOverviewState.currentData = cached;
-            xyOverviewRender(cached);
-            return;
-        }
-
-        const requestSeq = ++xyOverviewState.requestSeq;
-        xyOverviewState.courseId = normalizedCourseId;
-        xyOverviewRenderLoading();
-
+        const latestDataVersion = xyOverviewState.dataRequestSeq.get(normalizedCourseId) || 0;
+        if (!force && cached && cached.dataVersion === xyOverviewState.dataRequestSeq.get(normalizedCourseId)
+            && Date.now() - cached.loadedAt < xyOverviewState.cacheTtl) return cached;
+        const dataRequestSeq = latestDataVersion + 1;
+        xyOverviewState.dataRequestSeq.set(normalizedCourseId, dataRequestSeq);
         const portraitPromise = xyOverviewGetUserId().then(userId => xyOverviewFetchJson(
             `/api/jx-stat/ads/user/student?group_id=${encodeURIComponent(normalizedCourseId)}&user_id=${encodeURIComponent(userId)}`
         ));
@@ -1427,12 +1432,6 @@
             pendingTasksPromise,
             courseNamePromise
         ]);
-
-        const routeCourseId = courseGroupKey(getCourseGroupId());
-        const isActiveOverview = appState.activeZone === 'overview'
-            && xyOverviewState.courseId === normalizedCourseId;
-        if (requestSeq !== xyOverviewState.requestSeq || !isActiveOverview || (routeCourseId && routeCourseId !== normalizedCourseId)) return;
-
         const surveyTasks = tasksResult.status === 'fulfilled' ? xyOverviewNormalizeTasks(tasksResult.value) : [];
         const pendingTasks = pendingTasksResult.status === 'fulfilled'
             ? xyOverviewNormalizePendingTasks(pendingTasksResult.value, normalizedCourseId)
@@ -1443,6 +1442,7 @@
         const taskDataAvailable = tasksResult.status === 'fulfilled' || pendingTasksResult.status === 'fulfilled';
         const result = {
             courseId: normalizedCourseId,
+            dataVersion: dataRequestSeq,
             courseName: courseNameResult.status === 'fulfilled' ? (courseNameResult.value || '') : '',
             loadedAt: Date.now(),
             portrait: portraitResult.status === 'fulfilled'
@@ -1452,7 +1452,31 @@
                 ? { data: xyOverviewMergeTasks(pendingTasks, surveyTasks), error: '', pendingError: pendingTasksError }
                 : { data: [], error: xyOverviewErrorMessage(tasksResult.reason), pendingError: pendingTasksError }
         };
-        xyOverviewState.cache.set(normalizedCourseId, result);
+        if (xyOverviewState.dataRequestSeq.get(normalizedCourseId) === dataRequestSeq) {
+            xyOverviewState.cache.set(normalizedCourseId, result);
+        }
+        return result;
+    }
+
+    async function xyOverviewLoad(courseId, force = false) {
+        const normalizedCourseId = courseGroupKey(courseId);
+        if (!normalizedCourseId) return;
+        if (xyOverviewState.courseId !== normalizedCourseId) xyOverviewState.taskDetailsExpanded = null;
+        const requestSeq = ++xyOverviewState.requestSeq;
+        xyOverviewState.courseId = normalizedCourseId;
+        const cached = xyOverviewState.cache.get(normalizedCourseId);
+        if (!force && cached && cached.dataVersion === xyOverviewState.dataRequestSeq.get(normalizedCourseId)
+            && Date.now() - cached.loadedAt < xyOverviewState.cacheTtl) {
+            xyOverviewState.currentData = cached;
+            if (appState.activeZone === 'overview') xyOverviewRender(cached);
+            return;
+        }
+        xyOverviewRenderLoading();
+        const result = await xyOverviewFetchCourseData(normalizedCourseId, force);
+        const routeCourseId = courseGroupKey(getCourseGroupId());
+        const isActiveOverview = appState.activeZone === 'overview'
+            && xyOverviewState.courseId === normalizedCourseId;
+        if (!result || requestSeq !== xyOverviewState.requestSeq || !isActiveOverview || (routeCourseId && routeCourseId !== normalizedCourseId)) return;
         xyOverviewState.currentData = result;
         xyOverviewRender(result);
     }
@@ -1513,7 +1537,7 @@
             showToast('该任务缺少跳转信息', 'warning');
             return;
         }
-        const prefix = window.location.pathname.includes('/course/') ? 'course' : 'mycourse';
+        const prefix = xyCourseRoutePrefix();
         window.location.href = `/app/jx-web/${prefix}/${encodeURIComponent(courseId)}/resource/${encodeURIComponent(parentId)}/${encodeURIComponent(nodeId)}`;
     }
 
@@ -1544,7 +1568,7 @@
 
     function xyCourseDashboardResourceUrl(courseId) {
         if (!courseId) return '';
-        return `/app/jx-web/mycourse/${encodeURIComponent(courseId)}/resource`;
+        return `/app/jx-web/${xyCourseRoutePrefix()}/${encodeURIComponent(courseId)}/resource`;
     }
 
     function xyCourseDashboardNormalizeCourses(data) {
@@ -2389,6 +2413,16 @@
     
     
     
+    function xyOverviewRenderCachedNow() {
+        const expectedCourseId = getCourseGroupId() || xyOverviewState.pinnedCourseId || '';
+        const normalized = courseGroupKey(expectedCourseId);
+        const cached = normalized ? xyOverviewState.cache.get(normalized) : null;
+        if (!cached) return;
+        xyOverviewState.courseId = normalized;
+        xyOverviewState.currentData = cached;
+        xyOverviewRender(cached);
+    }
+
     function switchToZone(newZone) {
         if (newZone !== 'overview' && xyShouldKeepDashboardOverview(getCourseGroupId())) return;
         if (newZone !== 'overview') {
@@ -2410,6 +2444,7 @@
                 if (viewOverview) viewOverview.style.display = 'flex';
                 const segZone = document.getElementById('xy-seg-zone');
                 if (segZone) segZone.textContent = '📊 学情概览';
+                xyOverviewRenderCachedNow();
             }
             return;
         }
@@ -2445,11 +2480,12 @@
             const zoneLabel = newZone === 'course' ? '📚 刷课区' : newZone === 'courses' ? '📚 课程总览' : newZone === 'overview' ? '📊 学情概览' : newZone === 'disc' ? '💭 讨论区' : newZone === 'download' ? '📥 下载区' : newZone === 'hw' ? '📝 作业区' : '📂 课程目录';
             segZone.innerHTML = zoneLabel;
             segZone.classList.add('active');
+            if (newZone === 'overview') xyOverviewRenderCachedNow();
         }
 
         if (oldZone !== 'uninitialized') {
             const zoneName = newZone === 'course' ? '视频/文档自动引擎' : newZone === 'courses' ? '进行中课程总览' : newZone === 'overview' ? '课程学习数据概览' : newZone === 'disc' ? '互动点赞引擎' : newZone === 'download' ? '课件下载区' : newZone === 'hw' ? '作业答题台' : '课程目录区';
-            logMsg(`📍 底层指令：已切换至【${zoneName}】`, 'success', false);
+            logMsg(`📍 底层指令：已切换至【${zoneName}】`, 'success', true);
         }
 
         if (newZone === 'course') {
@@ -2523,6 +2559,7 @@
         }
         if (appState.discLockedUrl === window.location.href) { switchToZone('disc'); return; }
         const groupId = routeCourseId; const nodeId = getNodeId() || getResourceNodeId() || getPaperId();
+        const routeKind = xyRouteKind();
         const scanGroupKey = courseGroupKey(groupId);
         const scanNodeKey = courseGroupKey(nodeId);
         const isSameScanContext = () => isCurrentCourseGroup(scanGroupKey)
@@ -2534,15 +2571,16 @@
             return;
         }
         if (!nodeId) {
-            if (isCourseDirPage()) {
-                if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', false);
+            if (routeKind === 'disc') {
+                switchToZone('disc');
+                return;
+            } else if (routeKind === 'dir') {
+                if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', true);
                 switchToZone('dir');
                 setTimeout(loadCourseDirectory, 200);
-            } else if (isActiveCourseHomePage()) {
-                switchToZone('courses');
-                void xyCourseDashboardLoad(false);
-            } else if (isCourseOverviewPage()) {
-                xyOverviewOpen(groupId);
+            } else if (routeKind === 'overview') {
+                switchToZone('overview');
+                void xyOverviewLoad(groupId, false);
             } else {
                 switchToZone('courses');
                 void xyCourseDashboardLoad(false);
@@ -2582,16 +2620,14 @@
         if (taskType === 1) { switchToZone('course'); return; }
         else if (taskType === 6) { switchToZone('disc'); return; }
         else if (taskType > 1 && taskType <= 5) {
-            if (appState.activeZone !== 'hw') logMsg('📝 侦测到【测验/作业/问卷】→ 已切换作业区', 'success', false);
+            if (appState.activeZone !== 'hw') logMsg('📝 侦测到【测验/作业/问卷】→ 已切换作业区', 'success', true);
             switchToZone('hw');
             setTimeout(hwProactiveFetchData, 300);
             return;
         }
 
-        const htmlStr = document.body ? document.body.innerHTML : '';
-        
         if (window.location.href.includes('/course_paper/')) {
-            if (appState.activeZone !== 'hw') logMsg('📝 侦测到【作业/测验页面】→ 已切换作业区', 'success', false);
+            if (appState.activeZone !== 'hw') logMsg('📝 侦测到【作业/测验页面】→ 已切换作业区', 'success', true);
             switchToZone('hw');
             setTimeout(hwProactiveFetchData, 300);
             return;
@@ -2599,21 +2635,22 @@
         if (document.querySelector('video, iframe[src*="ow365"], iframe[src*="office"], .prism-player, .aliplayer, .xy_disk_preview, .pdf-viewer')) {
             switchToZone('course'); return;
         }
-        if (document.querySelector('.discussion-container, .jx-discussion, [class*="discuss"]') || htmlStr.includes('发表评论') || htmlStr.includes('全部评论')) {
+        if (xyIsDiscussionPage()) {
             switchToZone('disc'); return;
         }
         
         if (appState.activeZone === 'hw' && window.location.href.includes('/resource/') && getPaperId()) {
             return;
         }
-        if (isCourseDirPage()) {
-            if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', false);
+        if (routeKind === 'dir') {
+            if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', true);
             switchToZone('dir');
             setTimeout(loadCourseDirectory, 200);
             return;
         }
-        if (isCourseOverviewPage()) {
-            xyOverviewOpen(groupId);
+        if (routeKind === 'overview') {
+            switchToZone('overview');
+            void xyOverviewLoad(groupId, false);
             return;
         }
         switchToZone('courses');
@@ -7821,7 +7858,7 @@
                     </div>
                 </div>
                 <div id="xy-handle-row2" class="xy-seg">
-                    <div id="xy-seg-zone" class="xy-seg-item active" title="当前区域">🏝️ 待命区</div>
+                    <div id="xy-seg-zone" class="xy-seg-item active" title="当前区域">🛰️ 小雅引擎</div>
                     <div id="xy-seg-feedback" class="xy-seg-item" title="反馈问题或建议">💬 反馈</div>
                     <div id="xy-seg-qq" class="xy-seg-item" title="点击复制QQ群号">👥 QQ群</div>
                     <div id="xy-seg-update" class="xy-seg-item" title="检查脚本更新">↻ 检查更新<span class="xy-seg-dot"></span></div>
