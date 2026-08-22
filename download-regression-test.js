@@ -6,9 +6,100 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const SCRIPT = fs.readFileSync(path.join(__dirname, '小雅辅助工具 .user.js'), 'utf8');
-assert.match(SCRIPT, /@version\s+3\.7\.2/);
+const LOCAL_SCRIPT_VERSION = '3.7.2.1';
+const PUBLISHED_MANIFEST_VERSION = '3.7.2.1';
+const LATEST_MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'xy-script.latest.json'), 'utf8'));
+assert.match(SCRIPT, /@version\s+3\.7\.2\.1/);
+assert.equal(LATEST_MANIFEST.version, PUBLISHED_MANIFEST_VERSION, 'cloud manifest must remain on the published version before release');
 assert.match(SCRIPT, /@updateURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
 assert.match(SCRIPT, /@downloadURL\s+https:\/\/gitee\.com\/fieldlu\/xy-script-assets\/raw\/main/);
+
+// 3.7.2.1 今日学习提示规则：任务/课程排序必须可解释，并对不完整数据透明降级。
+const todayPromptStart = SCRIPT.indexOf('    function xyTodayPromptDeadlineBucket');
+assert(todayPromptStart >= 0 && SCRIPT.includes('    function xyTodayPromptBuildTaskSignal'), 'today prompt rule engine not found');
+const todayPromptEnd = SCRIPT.indexOf('    function xyOverviewTaskStatus', todayPromptStart);
+assert(todayPromptEnd > todayPromptStart, 'today prompt rule engine boundary not found');
+const todayPromptContext = {
+  Array, Date, Math, Number, String,
+  xyOverviewNumber(value, fallback = 0) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  }
+};
+vm.runInNewContext(
+  SCRIPT.slice(todayPromptStart, todayPromptEnd)
+    + '\nglobalThis.__todayPrompt = { task: xyTodayPromptBuildTaskSignal, rankTasks: xyTodayPromptRankTasks, course: xyTodayPromptBuildCourseSignal, rankCourses: xyTodayPromptRankCourses, global: xyTodayPromptBuildGlobalSummary, single: xyTodayPromptBuildCourseSummary };',
+  todayPromptContext
+);
+const today = Date.parse('2026-08-22T08:00:00Z');
+const todayTasks = [
+  { title: '未来任务', nodeId: 'future', status: { key: 'actionable' }, endTime: '2026-08-25T08:00:00Z' },
+  { title: '今日截止', nodeId: 'today', status: { key: 'actionable' }, endTime: '2026-08-22T20:00:00Z' },
+  { title: '待批阅', nodeId: 'pending', status: { key: 'pending' }, endTime: '2026-08-22T12:00:00Z' },
+  { title: '已截止', nodeId: 'expired', status: { key: 'expired' }, endTime: '2026-08-21T20:00:00Z' }
+];
+const taskSignals = todayTasks.map(task => todayPromptContext.__todayPrompt.task(task, today));
+assert.equal(taskSignals[1].deadlineBucket, 'today');
+assert.equal(taskSignals[3].deadlineBucket, 'overdue');
+assert.match(taskSignals[1].priorityReasons.join(' · '), /截止|可直接/);
+assert.equal(todayPromptContext.__todayPrompt.rankTasks(taskSignals)[0].title, '今日截止');
+assert.notEqual(todayPromptContext.__todayPrompt.rankTasks(taskSignals).at(-1).title, '今日截止');
+const actionableCourse = todayPromptContext.__todayPrompt.course(
+  { courseId: 'course-a', courseName: '课程 A', pendingCount: 2, expiredCount: 1, portrait: { taskCount: 10, finishedCount: 6 } },
+  taskSignals,
+  today
+);
+const quietCourse = todayPromptContext.__todayPrompt.course(
+  { courseId: 'course-b', courseName: '课程 B', pendingCount: 0, expiredCount: 0, portrait: { taskCount: 10, finishedCount: 10 } },
+  [],
+  today
+);
+assert.equal(actionableCourse.state, 'urgent');
+assert.equal(quietCourse.state, 'clear');
+assert.equal(todayPromptContext.__todayPrompt.rankCourses([quietCourse, actionableCourse])[0].courseId, 'course-a');
+const globalTodaySummary = todayPromptContext.__todayPrompt.global([quietCourse, actionableCourse], today);
+assert.match(globalTodaySummary.title, /先处理|暂无/);
+assert.equal(globalTodaySummary.counts.dueToday, 1, 'only reliably dated actionable tasks count as within 24 hours');
+const loadingTodaySummary = todayPromptContext.__todayPrompt.global([], today, '正在读取课程与任务状态');
+assert.equal(loadingTodaySummary.state, 'partial');
+assert.deepEqual(Array.from(loadingTodaySummary.priorityReasons), ['正在读取课程与任务状态']);
+assert.equal(todayPromptContext.__todayPrompt.single(quietCourse, today).state, 'clear');
+const partialCourse = todayPromptContext.__todayPrompt.course(
+  { courseId: 'course-c', courseName: '课程 C', pendingCount: 1, taskDetailsError: '任务接口失败' },
+  [],
+  today
+);
+assert.equal(todayPromptContext.__todayPrompt.single(partialCourse, today).state, 'unknown');
+const oldGradedTask = todayPromptContext.__todayPrompt.task({
+  title: '已批阅历史作业', status: { key: 'graded' }, endTime: '2020-01-01T00:00:00Z'
+}, today);
+assert.equal(oldGradedTask.isExpired, false, 'graded history must not become expired merely because its deadline passed');
+const completedCourse = todayPromptContext.__todayPrompt.course(
+  { courseId: 'course-d', courseName: '课程 D', pendingCount: 0, expiredCount: 0, portrait: { taskCount: 1, finishedCount: 1 } },
+  [oldGradedTask],
+  today
+);
+assert.equal(completedCourse.state, 'clear');
+console.log('today study prompt rule regression: PASS');
+
+// 两层今日提示必须作为正式内容区呈现，并保留真实任务跳转与单滚动约束。
+assert.match(SCRIPT, /id="xy-course-dashboard-today"/, 'global today prompt container not found');
+assert.match(SCRIPT, /function xyCourseDashboardRenderToday/, 'global today prompt renderer not found');
+assert.match(SCRIPT, /xyCourseDashboardRenderToday\(\);/, 'global today prompt is not refreshed with dashboard');
+assert.match(SCRIPT, /data-today-global-action="task"/, 'global prompt task action not found');
+assert.match(SCRIPT, /data-today-global-action="overview"/, 'global prompt overview action not found');
+assert.match(SCRIPT, /data-today-task-parent/, 'course prompt task parent id not found');
+assert.match(SCRIPT, /data-today-task-node/, 'course prompt task node id not found');
+assert.match(SCRIPT, /xy-today-prompt-step/, 'course prompt action step not found');
+assert.match(SCRIPT, /xy-today-prompt-reason/, 'today prompt reason tag not found');
+assert.match(SCRIPT, /overflow-wrap:anywhere/, 'today prompt long text wrapping not found');
+assert.doesNotMatch(SCRIPT, /xy-course-dashboard-today[^\n]*overflow-y\s*:\s*(auto|scroll)/, 'global prompt must not create an extra vertical scroll area');
+assert.match(SCRIPT, /taskGroupExpanded:\s*\{\}/, 'course task group state is not retained');
+assert.match(SCRIPT, /data-course-task-group-type="\$\{type\}"/, 'task group type marker not found');
+assert.match(SCRIPT, /course\.taskGroupExpanded\[groupType\]\s*=\s*group\.open/, 'task group collapse state is not persisted');
+assert.doesNotMatch(SCRIPT, /\.xy-course-dashboard-list\s*\{[^}]*overflow-y:auto/, 'course dashboard list must not create a second vertical scroll area');
+assert.doesNotMatch(SCRIPT, /\.xy-course-dashboard-task-list\s*\{[^}]*overflow-y:auto/, 'task group list must use the main vertical scroll area');
+console.log('today study prompt UI regression: PASS');
 
 // 情报站中的超长安装链接必须自动断行，不能把控制台横向撑宽。
 const autoLinkStart = SCRIPT.indexOf('    function autoLink');
@@ -71,6 +162,16 @@ assert.equal(
   courseResourceUrlContext.__courseResourceUrl('6909361981107512502'),
   '/app/jx-web/mycourse/6909361981107512502/resource'
 );
+
+// 鉴权 Cookie 的值可能含有“=”填充符，读取时不能被截断。
+const cookieStart = SCRIPT.indexOf('    function getCookie');
+const cookieEnd = SCRIPT.indexOf('    async function getAuthToken', cookieStart);
+assert(cookieStart >= 0 && cookieEnd > cookieStart, 'cookie helper not found');
+const cookieContext = { document: { cookie: 'theme=dark; prd-access-token=token-value==; other=1' } };
+vm.runInNewContext(SCRIPT.slice(cookieStart, cookieEnd) + '\nglobalThis.__getCookie = getCookie;', cookieContext);
+assert.equal(cookieContext.__getCookie(), 'token-value==');
+console.log('auth cookie parsing regression: PASS');
+
 const taskOpenStart = SCRIPT.indexOf('    function xyOverviewOpenTask');
 const taskOpenEnd = SCRIPT.indexOf('    function xyOverviewSyncRoute', taskOpenStart);
 assert(taskOpenStart >= 0 && taskOpenEnd > taskOpenStart, 'task jump helper not found');
@@ -89,6 +190,167 @@ assert.equal(
   '/app/jx-web/mycourse/6909361981107512502/resource/parent-node/task-node'
 );
 console.log('course navigation regression: PASS');
+
+// 主动打开当前课程学情后，课程总览、刷课和讨论路由扫描都不能覆盖该选择。
+const overviewKeepStart = SCRIPT.indexOf('    function xyShouldKeepDashboardOverview');
+const overviewKeepEnd = SCRIPT.indexOf('    function getNodeId', overviewKeepStart);
+assert(overviewKeepStart >= 0 && overviewKeepEnd > overviewKeepStart, 'dashboard overview route guard not found');
+const overviewKeepContext = {
+  appState: { activeZone: 'overview' },
+  xyOverviewState: { courseId: 'course-a', dashboardCourseId: 'course-a', pinnedCourseId: 'course-a' },
+  courseHome: true
+};
+overviewKeepContext.isActiveCourseHomePage = () => overviewKeepContext.courseHome;
+vm.runInNewContext(
+  SCRIPT.slice(overviewKeepStart, overviewKeepEnd) + '\nglobalThis.__keepOverview = xyShouldKeepDashboardOverview;',
+  overviewKeepContext
+);
+assert.equal(overviewKeepContext.__keepOverview(''), true);
+overviewKeepContext.appState.activeZone = 'courses';
+assert.equal(overviewKeepContext.__keepOverview(''), false);
+overviewKeepContext.appState.activeZone = 'overview';
+overviewKeepContext.courseHome = false;
+assert.equal(overviewKeepContext.__keepOverview('course-a'), true, 'same course must stay in overview outside the dashboard page');
+assert.equal(overviewKeepContext.__keepOverview('course-b'), false);
+overviewKeepContext.xyOverviewState.pinnedCourseId = '';
+assert.equal(overviewKeepContext.__keepOverview(''), false);
+assert.match(SCRIPT, /if \(xyShouldKeepDashboardOverview\(groupId\)\) return;\s*switchToZone\('courses'\);/);
+const scannerStart = SCRIPT.indexOf('    async function runLowLevelScanner');
+const scannerEnd = SCRIPT.indexOf('    function courseGroupKey', scannerStart);
+assert(scannerStart >= 0 && scannerEnd > scannerStart, 'low-level scanner boundary not found');
+assert.match(
+  SCRIPT.slice(scannerStart, scannerEnd),
+  /const routeCourseId = getCourseGroupId\(\);[\s\S]{0,180}?if \(xyShouldKeepDashboardOverview\(routeCourseId\)\) return;[\s\S]{0,180}?if \(appState\.activeZone === 'download'\)/
+);
+console.log('course overview persistence regression: PASS');
+
+// 右上角概览按钮必须在“原分区 ↔ 学情概览”之间双向切换；异步扫描返回后也不得覆盖用户选择。
+const overviewToggleStart = SCRIPT.indexOf('    function xyOverviewReturnZone');
+const overviewToggleEnd = SCRIPT.indexOf('    function xyOverviewRefresh', overviewToggleStart);
+assert(overviewToggleStart >= 0 && overviewToggleEnd > overviewToggleStart, 'overview toggle helpers not found');
+assert.match(SCRIPT, /returnZone:\s*''/, 'overview return zone state is not initialized');
+const overviewToggleContext = {
+  appState: { activeZone: 'course' },
+  xyOverviewState: { courseId: 'course-a', dashboardCourseId: '', pinnedCourseId: '', returnZone: '' },
+  getCourseGroupId() { return 'course-a'; },
+  courseGroupKey(value) { return String(value || ''); },
+  isActiveCourseHomePage() { return false; },
+  document: { getElementById() { return null; } },
+  showToast() {},
+  xyOverviewLoad() {},
+  switchToZone(zone) { overviewToggleContext.appState.activeZone = zone; }
+};
+vm.runInNewContext(
+  SCRIPT.slice(overviewToggleStart, overviewToggleEnd)
+    + '\nglobalThis.__toggleOverview = xyOverviewToggle;\nglobalThis.__returnOverview = xyOverviewReturn;',
+  overviewToggleContext
+);
+overviewToggleContext.__toggleOverview();
+assert.equal(overviewToggleContext.appState.activeZone, 'overview');
+assert.equal(overviewToggleContext.xyOverviewState.returnZone, 'course');
+overviewToggleContext.__toggleOverview();
+assert.equal(overviewToggleContext.appState.activeZone, 'course');
+assert.equal(overviewToggleContext.xyOverviewState.returnZone, '');
+overviewToggleContext.appState.activeZone = 'overview';
+overviewToggleContext.xyOverviewState.returnZone = 'disc';
+assert.equal(overviewToggleContext.__returnOverview(), 'disc');
+assert.equal(overviewToggleContext.appState.activeZone, 'disc');
+const asyncScannerBody = SCRIPT.slice(scannerStart, scannerEnd);
+assert.match(
+  asyncScannerBody,
+  /if \(!isSameScanContext\(\)\) return;\s*if \(xyShouldKeepDashboardOverview\(groupId\)\) return;\s*if \(taskType === 1\)/,
+  'scanner must re-check the overview lock after asynchronous work'
+);
+console.log('course overview toggle and async-race regression: PASS');
+
+// 任何异步捕获完成后的自动分区也必须尊重用户已打开的学情概览。
+const discussionCaptureStart = SCRIPT.indexOf("    window.addEventListener('xy-disc-captured'");
+const discussionCaptureEnd = SCRIPT.indexOf('    async function getTaskTypeAccurate', discussionCaptureStart);
+assert(discussionCaptureStart >= 0 && discussionCaptureEnd > discussionCaptureStart, 'discussion capture handler not found');
+assert.match(
+  SCRIPT.slice(discussionCaptureStart, discussionCaptureEnd),
+  /if \(xyShouldKeepDashboardOverview\(getCourseGroupId\(\)\)\) return;/,
+  'discussion capture must not replace an open overview'
+);
+const homeworkProcessStart = SCRIPT.indexOf('    function hwProcessPaperData');
+const homeworkProcessEnd = SCRIPT.indexOf('    let _hwProactiveFetching', homeworkProcessStart);
+assert(homeworkProcessStart >= 0 && homeworkProcessEnd > homeworkProcessStart, 'homework processor not found');
+assert.match(
+  SCRIPT.slice(homeworkProcessStart, homeworkProcessEnd),
+  /if\s*\(\s*hwQuestionsData\.length && !xyShouldKeepDashboardOverview\(hwGroupId \|\| getCourseGroupId\(\)\)\s*\)\s*switchToZone\('hw'\);/,
+  'homework processing must not replace an open overview'
+);
+const homeworkPayloadGuardStart = SCRIPT.indexOf('    function hwIsCurrentPaperPayload');
+const homeworkPayloadGuardEnd = SCRIPT.indexOf('    function hwProcessPaperData', homeworkPayloadGuardStart);
+assert(homeworkPayloadGuardStart >= 0 && homeworkPayloadGuardEnd > homeworkPayloadGuardStart, 'homework payload route guard not found');
+const homeworkPayloadGuardContext = {
+  hwPaperId: 'paper-current',
+  getCourseGroupId() { return 'course-current'; },
+  getPaperId() { return 'paper-current'; }
+};
+vm.runInNewContext(
+  SCRIPT.slice(homeworkPayloadGuardStart, homeworkPayloadGuardEnd) + '\nglobalThis.__isCurrentPaperPayload = hwIsCurrentPaperPayload;',
+  homeworkPayloadGuardContext
+);
+assert.equal(homeworkPayloadGuardContext.__isCurrentPaperPayload({ data: { group_id: 'course-current' } }), true);
+assert.equal(homeworkPayloadGuardContext.__isCurrentPaperPayload({ data: { group_id: 'course-stale' } }), false);
+assert.equal(homeworkPayloadGuardContext.__isCurrentPaperPayload({ data: { group_id: 'course-current', paper_id: 'paper-stale' } }), false);
+homeworkPayloadGuardContext.hwPaperId = 'paper-previous';
+homeworkPayloadGuardContext.getPaperId = () => 'paper-current';
+assert.equal(
+  homeworkPayloadGuardContext.__isCurrentPaperPayload({ data: { group_id: 'course-current', paper_id: 'paper-previous' } }),
+  false,
+  'the active route paper ID must take precedence over an older cached paper ID'
+);
+assert.match(
+  SCRIPT.slice(homeworkProcessStart, homeworkProcessEnd),
+  /if\s*\(!hwIsCurrentPaperPayload\(json\)\)\s*\{[\s\S]{0,160}?return;/,
+  'stale homework payload must be ignored before it mutates task state'
+);
+console.log('overview async-event protection regression: PASS');
+
+// 从无课程 ID 的总览页打开任意课程学情后，右上角仍须可见并可返回课程总览。
+const overviewOpenStart = SCRIPT.indexOf('    function xyOverviewReturnZone');
+const overviewOpenEnd = SCRIPT.indexOf('    function xyOverviewRefresh', overviewOpenStart);
+assert(overviewOpenStart >= 0 && overviewOpenEnd > overviewOpenStart, 'overview open helpers not found');
+const dashboardOverviewContext = {
+  appState: { activeZone: 'courses' },
+  xyOverviewState: { courseId: '', dashboardCourseId: '', pinnedCourseId: '', returnZone: '' },
+  getCourseGroupId() { return ''; },
+  courseGroupKey(value) { return String(value || ''); },
+  isActiveCourseHomePage() { return true; },
+  document: { getElementById() { return null; } },
+  showToast() {},
+  xyOverviewLoad() {},
+  switchToZone(zone) { dashboardOverviewContext.appState.activeZone = zone; }
+};
+vm.runInNewContext(
+  SCRIPT.slice(overviewOpenStart, overviewOpenEnd)
+    + '\nglobalThis.__openOverview = xyOverviewOpen;\nglobalThis.__toggleOverview = xyOverviewToggle;',
+  dashboardOverviewContext
+);
+dashboardOverviewContext.__openOverview('course-a');
+assert.equal(dashboardOverviewContext.appState.activeZone, 'overview');
+assert.equal(dashboardOverviewContext.xyOverviewState.returnZone, 'courses');
+dashboardOverviewContext.__toggleOverview();
+assert.equal(dashboardOverviewContext.appState.activeZone, 'courses');
+assert.match(
+  SCRIPT,
+  /openButton\.style\.display = \(courseId \|\| appState\.activeZone === 'overview'\) \? 'inline-flex' : 'none';/,
+  'overview toggle must remain available after opening a dashboard course'
+);
+console.log('dashboard overview return regression: PASS');
+
+// 面板因 SPA 重建时，旧的文档级拖拽监听必须撤销，避免重复移动与闭包泄漏。
+const createUiStart = SCRIPT.indexOf('    function createUI()');
+const createUiEnd = SCRIPT.indexOf('    let _uiCreating = false;', createUiStart);
+assert(createUiStart >= 0 && createUiEnd > createUiStart, 'UI creation boundary not found');
+const createUiSource = SCRIPT.slice(createUiStart, createUiEnd);
+assert.match(createUiSource, /xyUiListenerAbort\?\.abort\(\);/, 'previous UI listeners are not disposed');
+assert.match(createUiSource, /new AbortController\(\)/, 'UI listener lifecycle controller not created');
+assert.match(createUiSource, /document\.addEventListener\('mousemove',[\s\S]{0,1600}?uiDocumentListenerOptions\);/, 'mousemove listener is not lifecycle-bound');
+assert.match(createUiSource, /document\.addEventListener\('mouseup',[\s\S]{0,800}?uiDocumentListenerOptions\);/, 'mouseup listener is not lifecycle-bound');
+console.log('UI listener lifecycle regression: PASS');
 
 // 任何非专用课程页均显示本课学情；无课程上下文则显示课程总览，不能再退回待命区。
 const courseOverviewRouteStart = SCRIPT.indexOf('    function isCourseOverviewPage');
@@ -618,22 +880,35 @@ handleClick(button, {
 
 // 直接执行 userscript 中的 downloadFile：验证参考脚本的流式读取、Blob、a.click
 // 和 Promise resolve/reject，而不是只检查字符串是否存在。
+const downloadFilenameStart = SCRIPT.indexOf('    function xySanitizeDownloadFilename');
+const downloadFilenameEnd = SCRIPT.indexOf('    function downloadFile(', downloadFilenameStart);
+assert(downloadFilenameStart >= 0 && downloadFilenameEnd > downloadFilenameStart, 'download filename sanitizer not found');
+const downloadFilenameContext = {};
+vm.runInNewContext(
+  SCRIPT.slice(downloadFilenameStart, downloadFilenameEnd) + '\nglobalThis.__sanitizeDownloadFilename = xySanitizeDownloadFilename;',
+  downloadFilenameContext
+);
+assert.equal(downloadFilenameContext.__sanitizeDownloadFilename('..\\private\\report?.pdf'), 'report_.pdf');
+assert.equal(downloadFilenameContext.__sanitizeDownloadFilename('../../'), '下载文件');
+console.log('download filename sanitizer: PASS');
+
 const downloadFileStart = SCRIPT.indexOf('    function downloadFile(');
 const downloadFileEnd = SCRIPT.indexOf('    function formatDownloadBytes', downloadFileStart);
 assert(downloadFileStart >= 0 && downloadFileEnd > downloadFileStart, 'downloadFile function not found');
-const downloadFileSource = SCRIPT.slice(downloadFileStart, downloadFileEnd).trim();
+const downloadFileSource = SCRIPT.slice(downloadFilenameStart, downloadFileEnd).trim();
 let fetchImpl;
 const clicks = [];
 const appended = [];
 const revoked = [];
 const progressEvents = [];
 const fetchCalls = [];
+let downloadToken = 'test-token';
 const context = {
   Blob,
   DOMException,
   console,
   setTimeout() { return 1; },
-  getCookie() { return 'test-token'; },
+  getCookie() { return downloadToken; },
   URL: {
     createObjectURL() { return 'blob:test-download'; },
     revokeObjectURL(url) { revoked.push(url); }
@@ -653,7 +928,7 @@ const context = {
   },
   fetch(...args) { fetchCalls.push(args); return fetchImpl(...args); }
 };
-const downloadFile = vm.runInNewContext(`(${downloadFileSource})`, context);
+const downloadFile = vm.runInNewContext(`${downloadFileSource}\ndownloadFile;`, context);
 
 fetchImpl = async (url, options) => ({
   ok: true,
@@ -686,6 +961,17 @@ assert.equal(appended.length, 0);
 assert.equal(progressEvents.at(-1).percent, 100);
 assert.equal(progressEvents.at(-1).receivedBytes, 3);
 assert.deepEqual(revoked, [], 'object URL should not be revoked synchronously');
+
+// 登录凭证缺失时不应发出带 Bearer null 的下载请求。
+const fetchCountBeforeMissingToken = fetchCalls.length;
+downloadToken = '';
+await assert.rejects(
+  downloadFile('https://cdn.example/blocked.zip', 'blocked.zip', new AbortController().signal),
+  /登录凭证已失效/
+);
+assert.equal(fetchCalls.length, fetchCountBeforeMissingToken);
+downloadToken = 'test-token';
+console.log('download credential guard: PASS');
 
 // Content-Length 缺失时，Content-Range 仍应提供当前文件总大小，避免进度一直停在未知状态。
 const rangeProgress = [];
