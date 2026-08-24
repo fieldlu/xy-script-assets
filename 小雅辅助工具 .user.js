@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.2.3
+// @version      3.7.2.4
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -26,6 +26,51 @@
 (function () {
     'use strict';
 
+    /* ================================================================
+     * 小雅辅助工具 (Xiaoya Assistant) — 架构总览
+     * ================================================================
+     * 运行环境：Tampermonkey / 油猴，@run-at document-start，@noframes
+     * 目标平台：whut.ai-augmented.com（武汉理工「理工智课」教学平台）
+     *
+     * 整体结构（单 IIFE，内部按模块分区）：
+     *   §0  原生 API 快照      —— 劫持前保存 fetch/XHR 原始引用
+     *   §1  脚本更新模块       —— Gitee 版本清单比对与升级提示
+     *   §2  隐身引擎(主世界)   —— 页面可见性欺骗/音频静默/防后台节流
+     *   §3  配置常量区         —— 全部具名常量（Object.freeze 冻结）
+     *   §4  领域状态           —— 六大业务域状态对象
+     *        playState   播放挂机域（区域路由/引擎模式/跳转状态）
+     *        recState    学习记录域（计数器/会话时长）
+     *        guardState  防检测域（静音/伪装/看门狗）
+     *        discState   讨论区域（ID捕获/名单库/回复库）
+     *        dlState     下载域（文件列表/选择集/排序过滤）
+     *        settingsState 用户设置域（开关项/主题）
+     *   §5  学情概览模块(xyOverview 系 / xyCourseDashboard 系 / xyTodayPrompt 系)
+     *   §6  区域路由(switchToZone) 与页面扫描(runLowLevelScanner)
+     *   §7  课程目录与课件下载模块（dir 系 / dl 系 / download 系）
+     *   §8  刷课引擎(视频/文档挂机、自动提交、雷达跳转)
+     *   §9  防检测执行层(鼠标模拟/深度伪装/保活看门狗)
+     *   §10 讨论区模块(名单抓取/点赞/自动回复)
+     *   §11 作业答题模块(hw*：题目捕获/AI提示词/docx导出/答案回填)
+     *   §12 计划调度模块(调度队列 / optimizeScheduleOrder)
+     *   §13 UI 装配(createUI/ensureUI) 与反馈模块
+     *
+     * 关键设计决策：
+     *   - fetch/XHR 原型劫持用于被动截包（讨论区ID、作业题目），
+     *     所有劫持链最终 apply 回原生引用，保证平台功能不受影响。
+     *   - 主世界桥接：需要页面级 API（Aliplayer SDK）时通过
+     *     unsafeWindow 共享队列通信，规避 TM 沙箱隔离。
+     *   - VOD 视频（type=9 任务节点）的 quote_id 不是云盘资源 ID，
+     *     必须经 play_auth → Aliplayer 换流取公网 mp4 直链。
+     *   - 跨域媒体下载走 GM_xmlhttpRequest 特权通道绕过 CORS；
+     *
+     * 模块边界与构建（企业级工程化约定）：
+     *   - 源码按 [MODULE] 区块组织（见 temp/xiaoya-build/build.js 打包器），
+     *     支持 //!@depends 依赖声明、拓扑排序内联与 tree-shaking。
+     *   - 视图层组件化：xyBuildPanelTemplate（纯模板）/ createUI（编排器）/
+     *     xyBindPanelEvents（事件装配）三段式分离，各司一职。
+     *     同源云盘文件走原生 fetch 流式读取以支持进度与终止。
+     * ================================================================ */
+
     
     const _hw_nativeFetch = window.fetch;
     const _hw_nativeXhrOpen = XMLHttpRequest.prototype.open;
@@ -36,14 +81,35 @@
 
     const domain = window.location.hostname;
 
-    // ================= 脚本更新模块 =================
-    // 与 WHUT教务小助手一致：从 Gitee 版本清单 JSON 拉取最新版本号，比对后提示
+    /* ================================================================
+     * 脚本更新模块
+     * ----------------------------------------------------------------
+     * 更新源为 Gitee 仓库 xy-script-assets 中的版本清单 JSON
+     * （xy-script.latest.json），字段含 version / notes[] / changelogURL。
+     * 拉取流程：GM_xmlhttpRequest 绕过页面 CSP 直连 Gitee →
+     * compareVersion 与当前 SCRIPT_VERSION 逐段比对 →
+     * 有新版时面板按钮点亮并弹 toast，由用户确认后打开下载页。
+     * 清单 URL 携带时间戳查询参数规避 CDN/浏览器缓存，保证读到最新版。
+     * ================================================================ */
     const SCRIPT_UPDATE = {
         infoURL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/xy-script.latest.json',
         downloadURL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js',
         projectURL: 'https://gitee.com/fieldlu/xy-script-assets'
     };
-
+    /**
+     * 语义化版本号比较器，用于判断 Gitee 清单版本是否新于本地版本。
+     *
+     * 机制：
+     *   1. 将两个版本串按「连续数字段」切分为数值数组（'3.7.2.3' → [3,7,2,3]，
+     *      非数字字符一律视作分隔符，兼容 v 前缀、日期后缀等杂格式）；
+     *   2. 以较长的段数为准逐位比较，短的一方缺失位按 0 补齐（3.7 == 3.7.0）；
+     *   3. 首个不相等的位决定大小；全部相等返回 0。
+     *
+     * @param {string|number} a - 待比较版本号（null/undefined 按 '0' 处理）
+     * @param {string|number} b - 基准版本号
+     * @returns {number} a 较新返回 1；b 较新返回 -1；完全一致返回 0
+     * [DEEP-DOC]
+     */
     function compareVersion(a, b) {
         const pa = String(a || '0').split(/[^\d]+/).filter(Boolean).map(Number);
         const pb = String(b || '0').split(/[^\d]+/).filter(Boolean).map(Number);
@@ -60,7 +126,17 @@
         isLoaded: false, isChecking: false, info: null, error: '', hasNew: false
     };
     let xyUpdateModal = null;
-
+    /**
+     * 关闭脚本更新弹窗。
+     *
+     * 机制：先做双保险守卫——弹窗引用存在且仍挂在 document.body 上才继续；
+     * 然后将遮罩 opacity 渐隐为 0、内部卡片 scale(0.95) 缩小（CSS transition
+     * 负责 250ms 动画），300ms 后 remove() 移除节点，并清空模块级引用
+     * xyUpdateModal 以便下次 xyShowUpdateModal 能重新懒创建。
+     *
+     * 副作用：DOM 移除 #xy-update-box 的最外层遮罩；重置模块状态变量。
+     * [DEEP-DOC]
+     */
     function xyCloseUpdateModal() {
         const modal = xyUpdateModal;
         if (!modal || !document.body.contains(modal)) return;
@@ -70,7 +146,18 @@
         setTimeout(() => modal.remove(), 300);
         xyUpdateModal = null;
     }
-
+    /**
+     * 刷新面板头部「检查更新」按钮的三态外观。
+     *
+     * 三态状态机：
+     *   - xyUpdateState.isChecking → 加 is-checking 类，文案「⏳ 检查中」
+     *   - hasNew → 加 is-new 类，文案「🎉 有新版」
+     *   - 其余 → 无高亮，文案「↻ 检查更新」
+     *
+     * 容错：按钮不存在（面板未创建/被移除）时静默返回。每次调用都会先移除
+     * 全部状态类再按当前态添加，避免类名残留。
+     * [DEEP-DOC]
+     */
     function xyUpdateHeaderButton() {
         const btn = document.getElementById('xy-seg-update');
         if (!btn) return;
@@ -85,7 +172,22 @@
             btn.innerHTML = '↻ 检查更新<span class="xy-seg-dot"></span>';
         }
     }
-
+    /**
+     * 更新弹窗的内容渲染器（局部刷新，不重建容器）。
+     *
+     * 渲染内容：
+     *   - 双卡片对照：当前版本（SCRIPT_VERSION）与最新版本大字展示；
+     *     有新版时最新版卡片边框转绿色系以突出视觉焦点。
+     *   - 状态行：检查中 / 错误信息（红）/ 已是最新 / 发现新版，四态互斥。
+     *   - notes 数组存在时渲染更新日志 <ul>，每条经 escapeHtml 转义。
+     *   - 三个操作按钮：「重新检查」（检查中禁用）、「打开更新文件」（无新版禁用）、
+     *     「查看发布页」，均通过 data-url + onclick 绑定，stopPropagation 防止
+     *     点击冒泡到遮罩触发关闭。
+     *
+     * 副作用：重写 #xy-update-box 的 innerHTML 并重绑按钮事件；
+     * requestAnimationFrame 触发卡片 scale 入场动画。
+     * [DEEP-DOC]
+     */
     function xyUpdateRenderModal() {
         const modal = xyUpdateModal;
         if (!modal || !document.body.contains(modal)) return;
@@ -142,7 +244,18 @@
         const logBtn = box.querySelector('#xy-upd-log');
         if (logBtn) logBtn.onclick = (e) => { e.stopPropagation(); window.open(logBtn.dataset.url || SCRIPT_UPDATE.projectURL, '_blank'); };
     }
-
+    /**
+     * 打开更新弹窗的总入口。
+     *
+     * 流程：
+     *   1. document.body 未就绪直接返回（@run-at document-start 场景保护）；
+     *   2. 弹窗已存在则仅恢复 opacity=1（重复打开去重）后返回；
+     *   3. 否则创建全屏遮罩 div（z-index 取 int32 最大值保证置顶）+ 内层容器
+     *      #xy-update-box，点击遮罩空白区关闭；
+     *   4. requestAnimationFrame 下一帧把 opacity 从 0 过渡到 1（入场动画）；
+     *   5. 若从未成功加载过清单且当前不在检查中，自动补发一次静默检查。
+     * [DEEP-DOC]
+     */
     function xyShowUpdateModal() {
         if (!document.body) return;
         if (xyUpdateModal && document.body.contains(xyUpdateModal)) { xyUpdateModal.style.opacity = '1'; return; }
@@ -156,7 +269,21 @@
         xyUpdateRenderModal();
         if (!xyUpdateState.isLoaded && !xyUpdateState.isChecking) xyUpdateCheck(false);
     }
-
+    /**
+     * 版本检查执行器：GM_xmlhttpRequest 跨域拉取 Gitee 版本清单。
+     *
+     * 机制：
+     *   - URL 附时间戳查询参数绕过 CDN/浏览器缓存；timeout 12s；
+     *   - onload 中 JSON.parse 校验 version 字段存在性（缺字段视为坏响应抛错）；
+     *   - compareVersion 判定 hasNew；成功即写 GM 存储 xy_update_last_check 时间戳；
+     *   - 后台模式（manual=false）且有新版时，按版本号粒度去重提示
+     *     （xy_update_notified_{version} 键保证同版本只 toast 一次）；
+     *   - finally 无论成败都复位 isChecking 并刷新按钮与弹窗 UI。
+     *
+     * @param {boolean} [manual=false] - 手动触发标记：true 时发现新版必弹提示；
+     *                                   false 仅首次提示且受去重键约束
+     * [DEEP-DOC]
+     */
     function xyUpdateCheck(manual = false) {
         if (xyUpdateState.isChecking) return;
         xyUpdateState.isChecking = true;
@@ -216,7 +343,11 @@
             xyUpdateRenderModal();
         }
     }
-
+    /**
+     * 自动检查节流闸门：距上次成功检查不足 6 小时（6*60*60*1000ms）直接返回。
+     * 通过后才发起后台检查。读取 GM 存储的 xy_update_last_check 时间戳做判定。
+     * [DEEP-DOC]
+     */
     function xyUpdateAutoCheck() {
         const interval = 6 * 60 * 60 * 1000;
         const last = parseInt(GM_getValue('xy_update_last_check', '0'), 10);
@@ -422,7 +553,9 @@
         const script = document.createElement('script');
         script.textContent = `
             (function() {
-                // 1. 视界欺骗（防切屏）
+                // 1. 页面可见性固化：向页面主世界注入不可变属性覆盖，
+    //    使平台的前端可见性探测（document.hidden / visibilitychange）
+    //    恒定读到「可见」，从而保持后台标签页内的挂机计时不被暂停。
                 Object.defineProperties(document, {
                     hidden: { value: false, configurable: false },
                     visibilityState: { value: 'visible', configurable: false }
@@ -434,7 +567,10 @@
                     return originAdd.call(this, type, fn, opts);
                 };
 
-                // 2. 暴力音轨剥离（Web Audio API + DOM Media 双重拦截）
+                // 2. 音轨静默接管：双重拦截 HTMLMediaElement.play 与
+    //    AudioContext.createMediaElementSource，强制静音播放。
+    //    浏览器的自动播放策略将「已播放过有声媒体」视为用户交互凭证，
+    //    因此静音状态下仍可维持播放会话不被节流。
                 window._xy_hardware_mute = true;
                 
                 // 拦截原生视频播放
@@ -484,9 +620,9 @@
                         _antiThrottleCtx = new Ctx();
                         _antiThrottleOsc = _antiThrottleCtx.createOscillator();
                         const gain = _antiThrottleCtx.createGain();
-                        gain.gain.value = 0.001; // 近乎无声，但浏览器认为在播音频
+                        gain.gain.value = 0.001; // 增益非零使音频图保持 active，浏览器判定「正在播放」
                         _antiThrottleOsc.type = 'sine';
-                        _antiThrottleOsc.frequency.value = 20000; // 20kHz，人耳听不见
+                        _antiThrottleOsc.frequency.value = 20000; // 20kHz 超声频段，成人听阈之上
                         _antiThrottleOsc.connect(gain);
                         gain.connect(_antiThrottleCtx.destination);
                         _antiThrottleOsc.start();
@@ -506,49 +642,236 @@
     })();
 
     
-    const appState = {
-        activeZone: 'uninitialized',
+    // ================= 配置常量区（原魔法字面量的具名提取，值保持不变） =================
+    /** 任务引擎类型 */
+    const TASK_TYPE = Object.freeze({ VIDEO: 'video', DOC: 'doc', NONE: 'none' });
+
+    /** 播放挂机模式 */
+    const PLAY_MODE = Object.freeze({ SEQUENCE: 'sequence', LOOP: 'loop', MANUAL: 'manual' });
+
+    /** 计划调度任务策略 */
+    const STRATEGY = Object.freeze({ UNTIL_DONE: 'until_done', FIXED_DURATION: 'duration', INFINITE: 'infinite' });
+
+    /** 主控台界面区域 */
+    const ZONE = Object.freeze({
+        COURSE: 'course', COURSES: 'courses', DISC: 'disc', HW: 'hw',
+        DIR: 'dir', DOWNLOAD: 'download', OVERVIEW: 'overview', UNINITIALIZED: 'uninitialized'
+    });
+
+    /** 文档阅读时长阈值（秒） */
+    const DOC_READ = Object.freeze({
+        SUBMIT_SECONDS: 130,       // 发起首次验证请求线
+        RETRY_GAP_SECONDS: 30,     // 未达标时的周期重试间隔
+        FORCE_SECONDS: 300,        // 强制提交放行线
+        LOOP_SECONDS: 120          // 循环模式达标线
+    });
+
+    /** 雷达探测退避配置（毫秒） */
+    const BACKOFF = Object.freeze({
+        SUCCESS_DELAYS_MS: [5000, 10000, 20000, 40000, 80000, 600000],
+        ERROR_DELAYS_MS: [10000, 30000, 60000, 300000, 600000],
+        MAX_SUCCESS_FAILS: 6,
+        MAX_ERROR_FAILS: 5,
+        SLEEP_MS: 10 * 60 * 1000
+    });
+
+    /** 课件下载链接 DES 解密密钥对（平台侧约定） */
+    const DES = Object.freeze({ KEY: '94374647', IV: '99526255' });
+
+    /** 智能排课评分权重 */
+    const SCHEDULE_WEIGHTS = Object.freeze({
+        DDL_DAY_1: 1, DDL_DAY_3: 3, DDL_DAY_7: 7, DDL_DAY_14: 14, DDL_DAY_30: 30,
+        DDL_SCORE: [100, 80, 60, 40, 20, 5],
+        COMPLETION_PENALTY: 0.3,
+        TYPE_MEDIA: 0.5,
+        TYPE_OTHER: 0.3,
+        ALTERNATE_BONUS: 25,
+        FIRST_PICK_BONUS: 10,
+        COURSE_SWITCH_BONUS: 15
+    });
+
+    /** 今日学习提示优先级权重 */
+    const TODAY_PROMPT_WEIGHTS = Object.freeze({
+        STATUS: { actionable: 80, unsubmitted: 76, pending: 22, graded: 0, expired: -40 },
+        DEADLINE: { today: 40, soon: 27, later: 12, overdue: -35, unknown: 0 }
+    });
+
+    /** 共享文件扩展名判定正则（全脚本唯一定义点） */
+    const SHARED_PATTERNS = Object.freeze({
+        MEDIA: /\.(?:mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i,
+        DOC: /\.(?:pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i,
+        get WATCH() { return /\.(?:mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i; }
+    });
+
+    /* ================================================================
+     * [MODULE] vdom — 声明式视图微内核（lit-html 心智模型，零依赖）
+     * ----------------------------------------------------------------
+     * h(tag, props, ...children)   构造虚拟节点
+     * xyMount(el, vnode)           挂载并返回 { update } 差量更新句柄
+     * 动态高频视图（课程卡片/下载列表/调度队列）逐步迁移到此内核，
+     * 替代过程式 innerHTML 拼接；静态骨架暂保留模板函数。
+     * ================================================================ */
+    /**
+     * [MODULE] vdom — 声明式视图微内核（lit-html 心智模型，零依赖 ~120 行）
+     * ============================================================
+     * API:
+     *   h(tag, props, ...children)      构造虚拟节点（VNode）
+     *   mount(container, vnode)         挂载/差量更新（keyed reconciliation）
+     *   list(items, keyFn, renderFn)    keyed 列表描述（diff 复用 DOM）
+     *
+     * 设计取舍：
+     *   - 不做 SVG/组件类/生命周期——油猴面板场景只需「状态→视图」单向流
+     *   - props.onXxx 自动 addEventListener；style 支持字符串或对象
+     *   - diff 按「类型+key」复用，children 按位对齐（无 key 时）
+     * ============================================================
+     */
+    const VNODE = Symbol('xy-vnode');
+    
+    function h(tag, props, ...children) {
+        return { [VNODE]: true, tag, props: props || {}, children: children.flat(Infinity) };
+    }
+    
+    /** keyed 列表项：{ key, vnode } */
+    function list(entries) {
+        return entries.map(e => ({ ...e, [VNODE]: true, isListItem: true }));
+    }
+    
+    function setProps(el, props, old) {
+        for (const k of Object.keys(props)) {
+            const v = props[k];
+            if (old && old[k] === v) continue;
+            if (k.startsWith('on') && typeof v === 'function') {
+                const ev = k.slice(2).toLowerCase();
+                if (old && old[k]) el.removeEventListener(ev, old[k]);
+                el.addEventListener(ev, v);
+            } else if (k === 'style' && typeof v === 'object') {
+                Object.assign(el.style, v);
+            } else if (k === 'innerHTMLBridge') {
+            // 过渡桥：子视图暂由字符串模板产出时经此注入（仅创建时生效，不做 diff）
+            if (el.innerHTML !== v) el.innerHTML = String(v ?? '');
+        } else if (k === 'class') {
+                el.className = v;
+            } else if (k in el && k !== 'value' && k !== 'checked') {
+                try { el[k] = v; } catch (e) { el.setAttribute(k, v); }
+            } else {
+                if (v === false || v == null) el.removeAttribute(k);
+                else el.setAttribute(k, v === true ? '' : v);
+            }
+        }
+    }
+    
+    function createEl(vn) {
+        if (!vn || typeof vn !== 'object') {
+            // null/undefined/原始值 → 空文本或字符串节点（条件渲染的 false 分支安全落地）
+            return document.createTextNode(typeof vn === 'string' || typeof vn === 'number' ? String(vn) : '');
+        }
+        if (typeof vn === 'string') return document.createTextNode(vn);
+        if (vn.isListItem) return createEl(vn.vnode);
+        if (!vn[VNODE]) return document.createTextNode(String(vn));
+        const el = document.createElement(vn.tag);
+        setProps(el, vn.props, null);
+        for (const c of vn.children) {
+            const child = (c && c.isListItem) ? c.vnode : c;
+            el.appendChild(createEl(child));
+        }
+        return el;
+    }
+    
+    function diffChildren(parent, newChildren, oldMeta) {
+        // 简化策略：按位 diff；列表场景由调用方用 list()+key 自行管理
+        while (parent.childNodes.length > newChildren.length) parent.removeChild(parent.lastChild);
+        newChildren.forEach((c, i) => {
+            const child = (c && c.isListItem) ? c.vnode : c;
+            const existing = parent.childNodes[i];
+            if (!existing) { parent.appendChild(createEl(child)); return; }
+            patch(existing, child, oldMeta);
+        });
+    }
+    
+    function patch(el, vn, meta) {
+        if (typeof vn === 'string' || typeof vn === 'number') {
+            if (el.nodeType === 3) { if (el.textContent !== String(vn)) el.textContent = String(vn); return; }
+            const t = document.createTextNode(String(vn));
+            el.parentNode.replaceChild(t, el); return;
+        }
+        if (!vn || !vn[VNODE]) vn = { tag: '#text', props: {}, children: [String(vn ?? '')] , [VNODE]: true};
+        if (el.nodeName.toLowerCase() !== vn.tag.toLowerCase()) {
+            el.parentNode.replaceChild(createEl(vn), el); return;
+        }
+        const oldProps = (meta && meta.get(el)) || {};
+        setProps(el, vn.props, oldProps);
+        if (meta) meta.set(el, vn.props);
+        diffChildren(el, vn.children, meta);
+    }
+    
+    function mount(container, vnode) {
+        const meta = new WeakMap();
+        container.textContent = '';
+        container.appendChild(createEl(vnode));
+        return {
+            update(next) { patch(container.firstElementChild, next, meta); },
+        };
+    }
+
+
+    /** 播放挂机域：区域路由 / 引擎模式 / 跳转与任务完成状态 */
+    const playState = {
+        activeZone: ZONE.UNINITIALIZED,
         discScrapeAbort: false,
-        mode: GM_getValue('xy_play_mode', 'sequence'), 
-        recordActive: false,
-        guardActive: GM_getValue('xy_guard_active', true),
-        hardwareMute: GM_getValue('xy_hw_mute', true), 
-        isTaskCompleted: false, 
-        recordCount: parseInt(sessionStorage.getItem('xy_recordCount')) || 0,
-        totalTime: parseInt(sessionStorage.getItem('xy_totalTime')) || 0,
-        realTime: parseInt(sessionStorage.getItem('xy_realTime')) || 0,
-        lastRecordDate: null,
-        lastPopupClickTime: 0,
+        mode: GM_getValue('xy_play_mode', PLAY_MODE.SEQUENCE),
+        isTaskCompleted: false,
         isFreedomMode: false,
-        _lastCourseNodeId: null, 
-        aiMode: GM_getValue('xy_ai_mode', true),
-        videoAutoSubmit: GM_getValue('xy_video_submit', true),
-        docBatchSubmit: GM_getValue('xy_doc_batch', true),
-        mouseSimActive: GM_getValue('xy_mouse_sim', true),
-        showRefreshPanel: GM_getValue('xy_show_refresh_panel', true),
-        showTerminal: GM_getValue('xy_show_terminal', false),
-        theme: GM_getValue('xy_theme', 'auto'),
-        enableDomScan: true, 
         currentEngine: 'none',
         docReadTime: 0,
         lastDocSubmitTime: 0,
         videoScriptProgress: undefined,
         videoLastTime: 0,
         batchDocSubmitting: false,
-        courseResourcesCache: null,
-        lastCourseGroupId: null,
-        discGroupId: null, 
-        discussionId: null,
-        targetNames: [],
-        selectedNames: new Set(),
-        docPreviewDoneNodeId: null,
-        discLockedUrl: null,
         jumpFailCount: 0,
         jumpSleepUntil: 0,
         isProcessingJump: false,
         isJumping: false,
-        useCustomReply: GM_getValue('xy_use_custom_reply', false),
+        enableDomScan: true,
+        lastPopupClickTime: 0,
+        prevZone: ZONE.COURSE
+    };
+
+    /** 学习记录域：计数器与会话累计时长 */
+    const recState = {
+        recordActive: false,
+        recordCount: parseInt(sessionStorage.getItem('xy_recordCount')) || 0,
+        totalTime: parseInt(sessionStorage.getItem('xy_totalTime')) || 0,
+        realTime: parseInt(sessionStorage.getItem('xy_realTime')) || 0,
+        lastRecordDate: null
+    };
+
+    /** 防检测域：硬件静音 / 深度伪装 / 保活看门狗 */
+    const guardState = {
+        guardActive: GM_getValue('xy_guard_active', true),
+        hardwareMute: GM_getValue('xy_hw_mute', true),
+        deepCamouflage: GM_getValue('xy_deep_camo', true),
+        camoScrollActive: false,
+        camoKeyboardActive: false,
+        keepaliveEnabled: GM_getValue('xy_keepalive', true),
+        keepaliveWatchdog: null,
+        camoClickActive: false,
+        mouseSimActive: GM_getValue('xy_mouse_sim', true)
+    };
+
+    /** 讨论区互动域：ID 捕获 / 名单库 / 自定义回复 */
+    const discState = {
+        discussionId: null,
+        discGroupId: null,
+        targetNames: [],
+        selectedNames: new Set(),
         customReplies: [],
+        useCustomReply: GM_getValue('xy_use_custom_reply', false),
+        discLockedUrl: null,
+        docPreviewDoneNodeId: null
+    };
+
+    /** 课件下载域：文件列表 / 选择集 / 排序与过滤 */
+    const dlState = {
         downloadFiles: [],
         downloadCourseName: '',
         downloadCourseGroupKey: '',
@@ -557,26 +880,24 @@
         downloadSortMode: GM_getValue('xy_dl_sort', 'unit'),
         downloadSortMap: {},
         downloadDirTree: null,
-        downloadTypeFilter: (function() {
-            const all = ['video','audio','pdf','doc','ppt','xls','zip','other'];
-            let saved = [];
-            try { saved = String(GM_getValue('xy_dl_types','')||'').split(',').filter(k => all.includes(k)); } catch(e) {}
-            return new Set(saved.length ? saved : all);
-        })(),
+        downloadTypeFilter: (function() { const all = ['video','audio','pdf','doc','ppt','xls','zip','other']; let saved = []; try { saved = String(GM_getValue('xy_dl_types','')||'').split(',').filter(k => all.includes(k)); } catch(e) {} return new Set(saved.length ? saved : all); })(),
         downloadAbortController: null,
         downloadMode: 'idle',
         downloadPaused: false,
-        prevZone: 'course',
-        
-        deepCamouflage: GM_getValue('xy_deep_camo', true),
-        camoScrollActive: false,
-        camoKeyboardActive: false,
-        
-        keepaliveEnabled: GM_getValue('xy_keepalive', true),
-        keepaliveWatchdog: null,
-        camoClickActive: false
+        courseResourcesCache: null,
+        lastCourseGroupId: null,
+        _lastCourseNodeId: null
     };
 
+    /** 用户设置域：开关项与主题（持久化到 GM 存储） */
+    const settingsState = {
+        aiMode: GM_getValue('xy_ai_mode', true),
+        videoAutoSubmit: GM_getValue('xy_video_submit', true),
+        docBatchSubmit: GM_getValue('xy_doc_batch', true),
+        showRefreshPanel: GM_getValue('xy_show_refresh_panel', true),
+        showTerminal: GM_getValue('xy_show_terminal', false),
+        theme: GM_getValue('xy_theme', 'auto')
+    };
     
     let hwQuestionsData = [];
     let hwExtractedText = '';
@@ -589,8 +910,26 @@
     let hwResultFilter = 'all';     
     let hwResultOpen = false;       
     let hwActiveTab = 'answer';     
-
+    /**
+     * 拼接作业任务唯一标识键 group:node:paper。
+     *
+     * 三个 ID 段各自做空值兜底（''），用冒号连接。该键用于 hwActiveTaskKey：
+     * 当 SPA 路由变化时，hwCurrentUrlMatches 用它判断当前页面是否仍是
+     * 已捕获试卷的上下文，防止跨题串数据。
+     * [DEEP-DOC]
+     */
     function hwBuildTaskKey(gid, nid, pid) { return [gid||'', nid||'', pid||''].join(':'); }
+    /**
+     * 重置作业模块的全部会话级状态。
+     *
+     * 守卫：hwActiveTaskKey 与 hwQuestionsData 均为空说明本来就没有活动会话，
+     * 直接 return 避免无意义的 UI 抖动。否则清空题目数组/富文本提取结果/
+     * 图片资产/PDF题目/提交结果对象/三参ID/筛选页签等十余项状态，最后调
+     * hwUpdateUI 让界面回到「等待题目数据」初态。
+     *
+     * @param {string} [reason] - 重试原因（预留诊断参数，当前实现未使用）
+     * [DEEP-DOC]
+     */
     function hwResetState(reason) {
         if (!hwActiveTaskKey && !hwQuestionsData.length) return;
         hwQuestionsData = []; hwExtractedText = ''; hwImageAssets = []; hwPdfQuestions = [];
@@ -599,6 +938,19 @@
         hwRecordId = ''; hwResultFilter = 'all'; hwResultOpen = false; hwActiveTab = 'answer';
         hwUpdateUI();
     }
+    /**
+     * 判断当前页面 URL 是否仍属于已捕获试卷的上下文（防过期数据处理）。
+     *
+     * 两级校验：
+     *   1. 无活动任务键时恒真（尚未捕获任何试卷，任何页面都合法）；
+     *   2. 解析当前 URL 的 group_id/node_id/paper_id 查询参数（回退到全局
+     *      提取函数），逐一与捕获时记录的 hwGroupId/hwNodeId/hwPaperId 比对，
+     *      任一已记录且不匹配即判 false；
+     *   3. 兜底：URL href 必须包含全部已知 ID 子串。
+     *
+     * @returns {boolean} true 表示当前页面数据可以安全处理
+     * [DEEP-DOC]
+     */
     function hwCurrentUrlMatches() {
         if (!hwActiveTaskKey) return true;
         const href = window.location.href;
@@ -614,7 +966,15 @@
         const ids = [hwGroupId, hwNodeId].filter(Boolean);
         return ids.length ? ids.every(id => href.includes(id)) : true;
     }
-    
+    /**
+     * 同步「作答 / 结果」标签对的选中态。
+     *
+     * 机制：两个 pane 的 display 按 hwActiveTab 互斥切换；两个 tab 按钮
+     * 按选中态着色（选中用主题青色背景白字，未选透明底灰字，颜色经 T()
+     * 双主题适配）。激活 result 页签时联动调用 hwRenderResultPanel 重绘
+     * 结果内容（惰性渲染策略：切过去才画）。
+     * [DEEP-DOC]
+     */
     function hwUpdateTabs() {
         const ans = document.getElementById('xy-hw-pane-answer');
         const res = document.getElementById('xy-hw-pane-result');
@@ -633,7 +993,18 @@
         }
         if (hwActiveTab === 'result') hwRenderResultPanel();
     }
-
+    /**
+     * 作业区总渲染入口，被状态变化的各处调用。
+     *
+     * 分四步：
+     *   1. 状态条文案三态：已提交（含得分）/ 已捕获 N 题 / 等待题目数据；
+     *   2. hwRenderResultPanel 重绘结果面板；
+     *   3. hwUpdateTabs 同步页签；
+     *   4. 「复制提示词」「保存作答」两个主操作按钮按是否有题目数据启停。
+     *
+     * 全程 DOM 探测式（元素不存在静默跳过），保证在面板未创建时安全调用。
+     * [DEEP-DOC]
+     */
     function hwUpdateUI() {
         const st = document.getElementById('xy-hw-status');
         if (st) {
@@ -662,7 +1033,7 @@
     try { _r = GM_getValue('xy_schedule_running', false) === true; } catch(e) { _r = false; }
     try { _p = GM_getValue('xy_schedule_paused', false) === true; } catch(e) { _p = false; }
     try { _i = parseInt(GM_getValue('xy_schedule_idx', '0')) || 0; } catch(e) { _i = 0; }
-    try { _m = GM_getValue('xy_schedule_last_mode', 'sequence'); if (!_m) _m = 'sequence'; } catch(e) { _m = 'sequence'; }
+    try { _m = GM_getValue('xy_schedule_last_mode', PLAY_MODE.SEQUENCE); if (!_m) _m = PLAY_MODE.SEQUENCE; } catch(e) { _m = PLAY_MODE.SEQUENCE; }
 
     const xyScheduleState = {
         queue: _q,
@@ -677,14 +1048,14 @@
     
     xyScheduleState.queue.forEach(q => {
         if (q.infinite !== undefined) {
-            if (q.infinite) q.strategy = 'infinite';
-            else if (q.duration === -1) q.strategy = 'infinite';
-            else q.strategy = 'duration';
+            if (q.infinite) q.strategy = STRATEGY.INFINITE;
+            else if (q.duration === -1) q.strategy = STRATEGY.INFINITE;
+            else q.strategy = STRATEGY.FIXED_DURATION;
             delete q.infinite;
         }
-        if (!q.strategy) q.strategy = 'until_done';
+        if (!q.strategy) q.strategy = STRATEGY.UNTIL_DONE;
         
-        if (q.strategy === 'duration' && (!q.duration || q.duration < 1)) q.duration = 30;
+        if (q.strategy === STRATEGY.FIXED_DURATION && (!q.duration || q.duration < 1)) q.duration = 30;
     });
 
     
@@ -710,7 +1081,12 @@
     if (xyScheduleState.isRunning) {
         setTimeout(() => { try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {} }, 500);
     }
-
+    /**
+     * 计划调度状态持久化：队列 JSON、运行标志、暂停标志、游标、上次模式
+     * 五个键一次性写入 GM 存储。调度引擎的每个状态迁移点（启动/暂停/推进/
+     * 停止/入队出队）都必须调用它，保证任意时刻刷新页面都能无损恢复现场。
+     * [DEEP-DOC]
+     */
     function saveScheduleState() {
         GM_setValue('xy_schedule_queue', JSON.stringify(xyScheduleState.queue));
         GM_setValue('xy_schedule_running', xyScheduleState.isRunning);
@@ -720,15 +1096,15 @@
     }
 
     try { 
-        appState.targetNames = JSON.parse(GM_getValue('xy_target_names', '[]')); 
+        discState.targetNames = JSON.parse(GM_getValue('xy_target_names', '[]')); 
     } catch(e) { 
-        appState.targetNames = []; 
+        discState.targetNames = []; 
     }
 
     try {
-        appState.customReplies = JSON.parse(GM_getValue('xy_custom_replies', '[]'));
+        discState.customReplies = JSON.parse(GM_getValue('xy_custom_replies', '[]'));
     } catch(e) {
-        appState.customReplies = [];
+        discState.customReplies = [];
     }
     
     let sessionLogs = [];
@@ -744,7 +1120,15 @@
     let isJumpingLock = false;
     let isRecordSending = false;
     let recordFailCount = 0;
-
+    /**
+     * RFC4122 v4 UUID 生成器（双路径）。
+     *
+     * 优先 crypto.randomUUID（现代浏览器原生实现）；不可用时回退手工算法：
+     * crypto.getRandomValues 取 16 随机字节 → 设置 version 位（buf[6] 高半
+     * 字节或 0x40）与 variant 位（buf[8] 高两位置 10）→ 16 进制展开并按
+     * 8-4-4-4-12 插入连字符。用于调度队列条目的 uuid 字段（DOM data-uuid 关联）。
+     * [DEEP-DOC]
+     */
     function generateUUID() {
         if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
             return crypto.randomUUID();
@@ -761,56 +1145,148 @@
     let dynamicRefreshTimeoutId = null;
     let refreshCountdownTimer = null;
     let lastRefreshStrategy = 'none';
-
-    function syncHardwareMute() { document.dispatchEvent(new CustomEvent('xy-volume-change', { detail: { mute: appState.hardwareMute } })); }
+    /**
+     * 静音状态广播：将 guardState.hardwareMute 打包为 CustomEvent
+     * 'xy-volume-change' 在 document 上派发。主世界注入的隐身引擎监听同一
+     * 事件：更新 window._xy_hardware_mute 标记并把所有 video/audio 元素的
+     * muted 属性同步到最新值。这是沙箱→主世界的单向控制通道。
+     * [DEEP-DOC]
+     */
+    function syncHardwareMute() { document.dispatchEvent(new CustomEvent('xy-volume-change', { detail: { mute: guardState.hardwareMute } })); }
+    /**
+     * 课程 ID 提取器：正则匹配当前 href 中的 mycourse/{digits} 或 course/{digits}
+     * 片段，捕获组即课程 ID。
+     * @returns {string|null} 课程 ID 数字串；不在课程上下文时 null
+     * [DEEP-DOC]
+     */
     function getCourseGroupId() { const match = window.location.href.match(/(?:mycourse|course)\/(\d+)/); return match ? match[1] : null; }
+    /**
+     * 路由前缀自适应：平台同时存在 /course/{id}（新版）与 /mycourse/{id}
+     * （旧版）两种路径形态。检测 pathname 是否匹配 /course/\d+ 决定拼接
+     * 跳转链接时沿用哪种前缀，避免跳到旧版路由导致 404。
+     * @returns {'course'|'mycourse'}
+     * [DEEP-DOC]
+     */
     function xyCourseRoutePrefix() { return /\/course\/\d+(?:\/|$)/.test(window.location.pathname) ? 'course' : 'mycourse'; }
+    /** 我的课程首页检测：pathname 精确匹配 ^/app/jx-web/mycourse/?$（允许尾斜杠）。
+     * [DEEP-DOC]
+     */
     function isActiveCourseHomePage() { return /^\/app\/jx-web\/mycourse\/?$/.test(window.location.pathname); }
+    /**
+     * 学情概览钉住保护判定。
+     *
+     * 场景：用户在课程首页点开某课概览后，SPA 路由扫描可能因微小的 URL 变化
+     * 试图把视图抢走。此函数判断「钉住条件」是否成立：
+     *   - activeZone 必须已是 overview 且 pinnedCourseId 与概览 courseId 一致；
+     *   - 传入 courseId 时精确比对；未传入时要求当前就在课程首页且
+     *     dashboardCourseId 与钉住 ID 一致。
+     * 任一不满足即返回 false（不保护，允许正常切区）。
+     * [DEEP-DOC]
+     */
     function xyShouldKeepDashboardOverview(courseId = '') {
         const dashboardCourseId = String(xyOverviewState.dashboardCourseId || '');
         const pinnedCourseId = String(xyOverviewState.pinnedCourseId || '');
-        if (appState.activeZone !== 'overview' || !pinnedCourseId || pinnedCourseId !== xyOverviewState.courseId) return false;
+        if (playState.activeZone !== ZONE.OVERVIEW || !pinnedCourseId || pinnedCourseId !== xyOverviewState.courseId) return false;
         if (courseId) return String(courseId) === pinnedCourseId;
         return isActiveCourseHomePage() && dashboardCourseId === pinnedCourseId;
     }
+    /** 资源节点 ID 提取：匹配 resource/{parent}/{node} 的第二段数字。
+     * [DEEP-DOC]
+     */
     function getNodeId() { const match = window.location.href.match(/resource\/\d+\/(\d+)/); return match ? match[1] : null; }
+    /**
+     * 试卷 ID 提取（双路由形态）：优先匹配 course_paper/mycourse/{g}/{p}
+     * 取第一捕获组；回退 resource/{a}/{b} 取第二捕获组。
+     * @returns {string|null}
+     * [DEEP-DOC]
+     */
     function getPaperId() {
-        
-        let match = window.location.href.match(/course_paper\/mycourse\/\d+\/(\d+)/);
-        if (match) return match[1];
-        
-        match = window.location.href.match(/resource\/(\d+)\/(\d+)/);
+        // course_paper URL 两种代际结构：
+        //   新版: /course_paper/mycourse/{gid}/{nodeId}/{flowId}/{paperId}（paper 为末段）
+        //   旧版: /course_paper/mycourse/{gid}/{paperId}/{nodeId}
+        const nums = window.location.pathname.match(/course_paper\/mycourse\/\d+((?:\/\d+)+)$/);
+        if (nums && nums[1]) {
+            const parts = nums[1].split('/').filter(Boolean);
+            if (parts.length >= 3) return parts[parts.length - 1]; // 新结构：末段为 paperId
+            if (parts.length >= 1) return parts[0];                // 旧结构：首段为 paperId
+        }
+        let match = window.location.href.match(/resource\/(\d+)\/(\d+)/);
         return match ? match[2] : null;
     }
+    /**
+     * 资源父节点 ID 提取：优先 course_paper 路由的第三段；回退 resource/{id}/
+     * 的第一段。
+     * [DEEP-DOC]
+     */
     function getResourceNodeId() {
-        
-        let match = window.location.href.match(/course_paper\/mycourse\/\d+\/\d+\/(\d+)/);
-        if (match) return match[1];
-        
-        match = window.location.href.match(/resource\/(\d+)\//);
+        // 与 getPaperId 同一套代际判断：新结构 node=第1段；旧结构 node=第2段
+        const nums = window.location.pathname.match(/course_paper\/mycourse\/\d+((?:\/\d+)+)$/);
+        if (nums && nums[1]) {
+            const parts = nums[1].split('/').filter(Boolean);
+            if (parts.length >= 3) return parts[0];  // 新结构：首参数段为 nodeId
+            if (parts.length === 2) return parts[1]; // 旧结构：第2段为 nodeId
+            if (parts.length === 1) return '';
+        }
+        let match = window.location.href.match(/resource\/(\d+)\//);
         return match ? match[1] : null;
     }
-
+    /**
+     * 课程目录页判定：pathname 匹配 /mycourse/{id}/resource[/可选层级]/?
+     * 结尾形态（允许带资源子层级）。
+     * [DEEP-DOC]
+     */
     function isCourseDirPage() {
         return /\/mycourse\/\d+(?:\/resource(?:\/\d+)?)?\/?$/.test(window.location.pathname);
     }
-
+    /**
+     * 路由分类器 —— SPA 感知的基石。runLowLevelScanner 每次 URL 变化都调用它。
+     *
+     * 分类规则（自上而下首个命中生效，尾部斜杠先归一化）：
+     *   '/app/jx-web/mycourse' 精确命中 → courses（课程总览）
+     *   含 course_paper/              → hw（作业答题）
+     *   discussion|discuss 词缀       → disc（讨论区）
+     *   课程ID/task|home|courseTools → overview（学情概览挂载点）
+     *   课程ID/resource/{a}/{b}      → course（刷课内容页）
+     *   课程ID/resource               → dir（目录页）
+     *   兜底：含课程 ID → overview，否则 courses
+     *
+     * @param {string} [pathname=location.pathname]
+     * @returns {string} ZONE 常量对应的字符串键
+     * [DEEP-DOC]
+     */
     function xyRouteKind(pathname = window.location.pathname) {
         const path = String(pathname || '').replace(/\/+$/, '') || '/';
-        if (path === '/app/jx-web/mycourse') return 'courses';
-        if (/\/course_paper\//.test(path)) return 'hw';
-        if (/\/(?:discussion|discuss)(?:\/|$)/.test(path)) return 'disc';
-        if (/\/(?:mycourse|course)\/\d+\/(?:task|home|courseTools)$/.test(path)) return 'overview';
+        if (path === '/app/jx-web/mycourse') return ZONE.COURSES;
+        if (/\/course_paper\//.test(path)) return ZONE.HW;
+        if (/\/(?:discussion|discuss)(?:\/|$)/.test(path)) return ZONE.DISC;
+        if (/\/(?:mycourse|course)\/\d+\/(?:task|home|courseTools)$/.test(path)) return ZONE.OVERVIEW;
         if (/\/(?:mycourse|course)\/\d+\/resource\/\d+\/\d+$/.test(path)) return 'course';
-        if (/\/(?:mycourse|course)\/\d+\/resource$/.test(path)) return 'dir';
-        return /\/(?:mycourse|course)\/\d+(?:\/|$)/.test(path) ? 'overview' : 'courses';
+        if (/\/(?:mycourse|course)\/\d+\/resource$/.test(path)) return ZONE.DIR;
+        return /\/(?:mycourse|course)\/\d+(?:\/|$)/.test(path) ? ZONE.OVERVIEW : ZONE.COURSES;
     }
-
+    /**
+     * 讨论区 DOM 启发式检测：querySelector 匹配 .discussion-container /
+     * .jx-discussion 及任意 class 名含 discuss 的元素。比纯路由判断更可靠，
+     * 因为部分讨论入口是弹层而非独立路由。
+     * [DEEP-DOC]
+     */
     function xyIsDiscussionPage() {
         return !!document.querySelector('.discussion-container, .jx-discussion, [class*="discuss"]');
     }
 
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    /**
+     * Cookie 查找器：按 '; ' 切分 document.cookie，逐条取第一个 '=' 前的
+     * 名称段与关键字做 includes 匹配（模糊匹配，兼容带前缀的变体名），
+     * 命中即返回 '=' 之后的值。
+     *
+     * 默认关键字 'prd-access-token' 即平台登录令牌——所有 API 调用的
+     * Bearer Token 都源于此。
+     *
+     * @param {string} [keyword='prd-access-token']
+     * @returns {string|null} Cookie 值；不存在返回 null
+     * [DEEP-DOC]
+     */
     function getCookie(keyword = 'prd-access-token') {
         for (const cookie of document.cookie.split('; ')) {
             const separatorIndex = cookie.indexOf('=');
@@ -820,6 +1296,15 @@
         }
         return null;
     }
+    /**
+     * 登录令牌获取（async 包装）：内部调 getCookie()；拿到即返回 Token 串，
+     * 拿不到抛 Error('未找到Token')——调用方统一按「登录失效」分支处理
+     * （通常表现为 toast 提示 + 中止当前自动化流程）。
+     *
+     * @returns {Promise<string>} Bearer Token 原文
+     * @throws {Error} Cookie 中不存在令牌时
+     * [DEEP-DOC]
+     */
     async function getAuthToken() { const token = getCookie(); if (token) return token; throw new Error('未找到Token'); }
 
     const xyOverviewState = {
@@ -853,7 +1338,19 @@
         cacheAppliedAt: 0,
         cacheTtl: 3 * 60 * 1000
     };
-
+    /**
+     * 学情概览域的统一 JSON GET 通道。
+     *
+     * 机制：getAuthToken 取 Token → fetch(path 相对 origin) 带 authorization 头
+     * → HTTP 非 2xx 抛「请求失败 (status)」→ 解析 JSON 后校验 payload.success === true，
+     * 否则把平台 message 透传为业务错误。所有 xyOverview* 的数据接口都经由它，
+     * 保证鉴权与错误形态一致。
+     *
+     * @param {string} path - API 路径（相对站点 origin，如 /api/jx-stat/...）
+     * @returns {Promise<*>} 平台响应体中的 data 字段
+     * @throws {Error} 网络异常/HTTP 错误/success!==true（message 取平台返回或默认文案）
+     * [DEEP-DOC]
+     */
     async function xyOverviewFetchJson(path) {
         const token = await getAuthToken();
         const response = await fetch(new URL(path, window.location.origin), {
@@ -866,12 +1363,30 @@
         }
         return payload.data;
     }
-
+    /**
+     * 安全数值收敛器：Number(value) 结果为有限数则返回之，否则回退 fallback（默认 0）。
+     * 概览域所有来自接口的字段都先过它，杜绝 NaN 污染后续算术与排序。
+     * [DEEP-DOC]
+     */
     function xyOverviewNumber(value, fallback = 0) {
         const number = Number(value);
         return Number.isFinite(number) ? number : fallback;
     }
-
+    /**
+     * 截止时间分桶器，「今日学习提示」优先级模型的输入之一。
+     *
+     * 分桶规则（now 为基准）：
+     *   deadlineAt 非有限数        → 'unknown'
+     *   ≤ now                      → 'overdue'（已截止）
+     *   ≤ now + 24h                → 'today'（今日内）
+     *   ≤ now + 72h                → 'soon'（近期）
+     *   其余                        → 'later'
+     *
+     * @param {number} deadlineAt - 截止时间戳(ms)；NaN/undefined 视为未知
+     * @param {number} [now=Date.now()]
+     * @returns {'overdue'|'today'|'soon'|'later'|'unknown'}
+     * [DEEP-DOC]
+     */
     function xyTodayPromptDeadlineBucket(deadlineAt, now = Date.now()) {
         if (!Number.isFinite(deadlineAt)) return 'unknown';
         if (deadlineAt <= now) return 'overdue';
@@ -879,13 +1394,35 @@
         if (deadlineAt <= now + 72 * 60 * 60 * 1000) return 'soon';
         return 'later';
     }
-
+    /**
+     * 任务状态键归一化。两级来源：
+     *   1. 平台显式字段 task.status.key / statusKey（trim 后非空即信）；
+     *   2. 推导兜底：有截止时间且已过期 → 'expired'，否则 'actionable'。
+     * 输出与 TODAY_PROMPT_WEIGHTS.STATUS 权重表的键严格对应。
+     * [DEEP-DOC]
+     */
     function xyTodayPromptStatusKey(task, deadlineAt, now = Date.now()) {
         const explicit = String(task?.status?.key || task?.statusKey || '').trim();
         if (explicit) return explicit;
         return Number.isFinite(deadlineAt) && deadlineAt <= now ? 'expired' : 'actionable';
     }
-
+    /**
+     * 单任务信号构建 —— 今日提示推荐模型的核心单元。
+     *
+     * 步骤：
+     *   1. 归一标题（title/name 兜底「未命名任务」）与截止时间戳；
+     *   2. 计算 deadlineBucket 与 statusKey；isExpired = 显式 expired 或
+     *      （可行动且 overdue）；isActionable 最终排除 expired；
+     *   3. 提取 nodeId/parentId（跳转三元组的两元）；
+     *   4. priorityScore = STATUS 权重 + DEADLINE 权重 + 可直达加分(8)
+     *      + 有真实标题加分(2)；
+     *   5. priorityReasons 生成至多三条中文理由（未提交/24h内截止/可直达…）。
+     *
+     * @param {Object} task - 平台任务对象（字段形态多变，全量可选）
+     * @param {number} [now=Date.now()]
+     * @returns {Object} 含 title/statusKey/deadlineBucket/priorityScore/priorityReasons 等的信号对象（原字段保留）
+     * [DEEP-DOC]
+     */
     function xyTodayPromptBuildTaskSignal(task, now = Date.now()) {
         const source = task && typeof task === 'object' ? task : {};
         const title = String(source.title || source.name || '未命名任务').trim() || '未命名任务';
@@ -898,8 +1435,8 @@
             || (isActionable && deadlineBucket === 'overdue');
         const nodeId = String(source.nodeId ?? source.node_id ?? '').trim();
         const parentId = String(source.parentId ?? source.parent_id ?? '').trim();
-        const statusWeight = { actionable: 80, unsubmitted: 76, pending: 22, graded: 0, expired: -40 };
-        const deadlineWeight = { today: 40, soon: 27, later: 12, overdue: -35, unknown: 0 };
+        const statusWeight = TODAY_PROMPT_WEIGHTS.STATUS;
+        const deadlineWeight = TODAY_PROMPT_WEIGHTS.DEADLINE;
         const priorityReasons = [];
         if (isActionable) priorityReasons.push(statusKey === 'unsubmitted' ? '尚未提交' : '当前可直接完成');
         else if (statusKey === 'pending') priorityReasons.push('等待批阅');
@@ -926,7 +1463,12 @@
                 + (title !== '未命名任务' ? 2 : 0)
         };
     }
-
+    /**
+     * 任务列表排序：逐条补建信号（已有 priorityReasons+deadlineBucket 的透传）
+     * 后按 priorityScore 降序；同分先按截止时间升序（紧迫者优先），再按原始
+     * 下标保持稳定。排序后剥掉内部下标字段 _todayPromptIndex。
+     * [DEEP-DOC]
+     */
     function xyTodayPromptRankTasks(tasks, now = Date.now()) {
         return (Array.isArray(tasks) ? tasks : []).map((task, index) => {
             const signal = task?.priorityReasons && task?.deadlineBucket
@@ -940,7 +1482,18 @@
             return leftDeadline - rightDeadline || left._todayPromptIndex - right._todayPromptIndex;
         }).map(({ _todayPromptIndex, ...task }) => task);
     }
-
+    /**
+     * 课程级信号聚合：把一门课的任务集合折叠为「今天该不该管这门课」的决策对象。
+     *
+     * 关键推导：
+     *   - effectiveActionable/ExpiredCount：待办接口计数与本地明细取大者
+     *     （两路数据源可能不一致，宁可多报不漏报）；
+     *   - state 七态机：urgent(首个任务24h内) > continue(有可做) > waiting
+     *     (全部待批阅) > history(仅剩已截止) > unknown(数据不全) > clear；
+     *   - title/meta 生成人读文案；priorityScore 继承首任务的分值并叠加
+     *     完成率缺口奖励（越没做完越靠前）。
+     * [DEEP-DOC]
+     */
     function xyTodayPromptBuildCourseSignal(course, tasks = [], now = Date.now()) {
         const source = course && typeof course === 'object' ? course : {};
         const sourceTasks = Array.isArray(tasks) && tasks.length
@@ -1019,7 +1572,9 @@
             }
         };
     }
-
+    /** 课程信号排序：priorityScore 降序 + 原始序稳定，结构与 RankTasks 对称。
+     * [DEEP-DOC]
+     */
     function xyTodayPromptRankCourses(courses, now = Date.now()) {
         return (Array.isArray(courses) ? courses : []).map((course, index) => {
             const signal = course?.state && course?.priorityReasons
@@ -1029,7 +1584,17 @@
         }).sort((left, right) => right.priorityScore - left.priorityScore || left._todayPromptIndex - right._todayPromptIndex)
             .map(({ _todayPromptIndex, ...course }) => course);
     }
-
+    /**
+     * 全局今日提示：跨课程汇总的最高层摘要。
+     *
+     * 聚合逻辑：
+     *   - actions：urgent/continue 课程的首个行动项各取 ≤2 个，全局截前 3，
+     *     并注入 courseId/courseName 供跳转定位课程上下文；
+     *   - counts：reduce 累加各课程的 actionable/expired/pending 与 dueToday；
+     *   - state：partialError 存在 → 'partial'；否则继承 Top 课程状态或按
+     *     pending 判 waiting/clear。
+     * [DEEP-DOC]
+     */
     function xyTodayPromptBuildGlobalSummary(courses, now = Date.now(), partialError = '') {
         const ranked = xyTodayPromptRankCourses(courses, now);
         const actionableCourses = ranked.filter(course => ['urgent', 'continue'].includes(course.state));
@@ -1060,13 +1625,22 @@
             courses: ranked
         };
     }
-
+    /**
+     * 单课程摘要便捷入口：入参已是完整信号对象（含 state+priorityReasons）时
+     * 直接透传；否则委托 xyTodayPromptBuildCourseSignal 现场构建。用于渲染层
+     * 不确定上游是否已归一的场合。
+     * [DEEP-DOC]
+     */
     function xyTodayPromptBuildCourseSummary(course, now = Date.now()) {
         return course?.state && course?.priorityReasons
             ? course
             : xyTodayPromptBuildCourseSignal(course, course?.todayTasks || course?.pendingTasks || [], now);
     }
-
+    /**
+     * 分钟时长 → 人读文案：「H 小时 M 分钟」/「H 小时」/「M 分钟」三态。
+     * 负数钳到 0，四舍五入到整数分钟。
+     * [DEEP-DOC]
+     */
     function xyOverviewFormatMinutes(value) {
         const total = Math.max(0, Math.round(xyOverviewNumber(value)));
         const hours = Math.floor(total / 60);
@@ -1075,7 +1649,18 @@
         if (hours) return `${hours} 小时`;
         return `${minutes} 分钟`;
     }
-
+    /**
+     * 由平台原始字段推导任务状态对象。
+     *
+     * 判定树：
+     *   is_answer 缺失 → 有截止时间？过期 'expired'(已截止)：未过期
+     *   'actionable'(待提交)：无截止 'unsubmitted'(未提交)
+     *   已作答且不公示成绩 → 'pending'(待批阅)
+     *   已作答且公示成绩   → 'graded'(已批阅)
+     *
+     * @returns {{key: string, label: string}}
+     * [DEEP-DOC]
+     */
     function xyOverviewTaskStatus(task) {
         if (!task?.is_answer) {
             const deadline = Date.parse(task?.end_time || '');
@@ -1089,7 +1674,13 @@
         if (!task?.is_show_score) return { key: 'pending', label: '待批阅' };
         return { key: 'graded', label: '已批阅' };
     }
-
+    /**
+     * 成员画像归一化：learn_durations.duration/days/avg 与 tasks.count/
+     * finished_count/on_time/late_submit 全部经 xyOverviewNumber 收敛，
+     * finishedCount 钳制在 [0, taskCount]，rate = 完成率百分比 [0,100]。
+     * 输出形状固定，渲染层不再做任何防御判断。
+     * [DEEP-DOC]
+     */
     function xyOverviewNormalizePortrait(data) {
         const learnDurations = data?.learn_durations || {};
         const tasks = data?.tasks || {};
@@ -1106,7 +1697,12 @@
             lateSubmitCount: Math.max(0, xyOverviewNumber(tasks.late_submit_count))
         };
     }
-
+    /**
+     * 作业分数任务数组归一化：过滤非对象项后逐条抽取 title/totalScore/
+     * myScore(null 保真)/answerTime/endTime/parent_id/node_id 并附 status
+     * 推导结果。nodeId/parentId 统一 String 化供跳转拼 URL。
+     * [DEEP-DOC]
+     */
     function xyOverviewNormalizeTasks(data) {
         if (!Array.isArray(data)) return [];
         return data.filter(task => task && typeof task === 'object').map(task => {
@@ -1123,7 +1719,12 @@
             };
         });
     }
-
+    /**
+     * 待办接口归一化：必须提供非空 courseId 才处理（该接口返回全校待办，
+     * 需按 group_id 过滤出当前课程）。每条按截止时间推导 expired/actionable
+     * 状态，label 用「待完成」区别于作业接口的「待提交」。
+     * [DEEP-DOC]
+     */
     function xyOverviewNormalizePendingTasks(data, courseId, now = Date.now()) {
         const normalizedCourseId = String(courseId ?? '').trim();
         if (!normalizedCourseId || !Array.isArray(data)) return [];
@@ -1144,7 +1745,12 @@
             };
         });
     }
-
+    /**
+     * 双源任务合并去重：以 nodeId 为主键（缺失时退化用 title:index 组合键），
+     * 先入 pendingTasks 再入 surveyTasks 中未被占用的键。保证同一任务不会因
+     * 两个接口都返回而重复展示。
+     * [DEEP-DOC]
+     */
     function xyOverviewMergeTasks(pendingTasks, surveyTasks) {
         const tasksByKey = new Map();
         const taskKey = (task, index) => String(task?.nodeId || '').trim() || `title:${task?.title || ''}:${index}`;
@@ -1157,7 +1763,12 @@
         });
         return Array.from(tasksByKey.values());
     }
-
+    /**
+     * 任务分布统计：reduce 计数 actionable/unsubmitted 归 actionable、expired、
+     * pending、graded 四类，其余状态忽略。输出固定形状
+     * {actionable, pending, graded, expired}。
+     * [DEEP-DOC]
+     */
     function xyOverviewTaskBreakdown(tasks) {
         return (Array.isArray(tasks) ? tasks : []).reduce((result, task) => {
             const key = task?.status?.key;
@@ -1168,11 +1779,19 @@
             return result;
         }, { actionable: 0, pending: 0, graded: 0, expired: 0 });
     }
-
+    /**
+     * 明细区展开态决策：expanded 是显式布尔（用户上次手动开合的记忆）则尊重；
+     * null/undefined 时默认「有可做任务就展开」。breakdown 为空视为不展开。
+     * [DEEP-DOC]
+     */
     function xyOverviewTaskDetailsOpen(expanded, breakdown) {
         return typeof expanded === 'boolean' ? expanded : !!breakdown?.actionable;
     }
-
+    /**
+     * 截止时间短文案：Date.parse 成功则 toLocaleString('zh-CN') 出
+     * 「M/D HH:mm」形态；解析失败返回 ''（调用方以空串决定隐藏该字段）。
+     * [DEEP-DOC]
+     */
     function xyOverviewDeadlineText(value) {
         const deadline = Date.parse(value || '');
         if (!Number.isFinite(deadline)) return '';
@@ -1180,7 +1799,13 @@
             month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
         });
     }
-
+    /**
+     * 当前用户 ID 获取（模块级缓存）：首次调 oauth2/info 接口取 info.id，
+     * String 化后写入 xyOverviewState.userId。后续调用直接命中缓存零开销。
+     * 学情画像接口的 user_id 参数依赖此值。
+     * @throws {Error} 接口成功但拿不到 id 时抛「无法识别当前用户」
+     * [DEEP-DOC]
+     */
     async function xyOverviewGetUserId() {
         if (xyOverviewState.userId) return xyOverviewState.userId;
         const data = await xyOverviewFetchJson('/api/jx-auth/oauth2/info');
@@ -1189,13 +1814,20 @@
         xyOverviewState.userId = String(userId);
         return xyOverviewState.userId;
     }
-
+    /**
+     * 异常消息翻译器：Error 实例取 message，否则 String(reason)，再兜底
+     * 「数据加载失败」。命中 /Token|登录|401|403/ 特征时统一替换为
+     * 「登录状态已失效，请刷新页面后重试」——对用户更有行动指引。
+     * [DEEP-DOC]
+     */
     function xyOverviewErrorMessage(reason) {
         const message = reason instanceof Error ? reason.message : String(reason || '数据加载失败');
         if (/Token|登录|401|403/.test(message)) return '登录状态已失效，请刷新页面后重试';
         return message;
     }
-
+    /** 渲染加载骨架：旋转 spinner + 「正在读取课程学习数据...」，写入 #xy-overview-content。容器不存在静默跳过。
+     * [DEEP-DOC]
+     */
     function xyOverviewRenderLoading() {
         const content = document.getElementById('xy-overview-content');
         if (!content) return;
@@ -1205,7 +1837,11 @@
                 <span>正在读取课程学习数据...</span>
             </div>`;
     }
-
+    /**
+     * 错误面板片段工厂：标题+消息双行结构，两个动态值均经 escapeHtml。
+     * 返回 HTML 字符串而非直接写 DOM——由调用方拼进整体布局。
+     * [DEEP-DOC]
+     */
     function xyOverviewRenderErrorModule(title, message) {
         return `
             <div class="xy-overview-panel xy-overview-error">
@@ -1213,17 +1849,31 @@
                 <div>${escapeHtml(message)}</div>
             </div>`;
     }
-
+    /** 今日提示七态 → 中文标签映射查询（urgent 优先处理 / continue 可继续推进 /
+     *  waiting 等待结果 / history 仅有已截止任务 / unknown 依据不完整 /
+     *  partial 部分数据可用 / clear 今日已安排妥当）；未知键兜底「今日提示」。
+     * [DEEP-DOC]
+     */
     function xyTodayPromptStateLabel(state) {
         return ({ urgent: '优先处理', continue: '可继续推进', waiting: '等待结果', history: '仅有已截止任务', unknown: '依据不完整', partial: '部分数据可用', clear: '今日已安排妥当' })[state] || '今日提示';
     }
-
+    /** 理由徽章渲染：数组截前 3 条，每条包一层 .xy-today-prompt-reason span，逐条 escapeHtml。
+     * [DEEP-DOC]
+     */
     function xyTodayPromptRenderReasons(reasons) {
         return (Array.isArray(reasons) ? reasons : []).slice(0, 3).map(reason =>
             `<span class="xy-today-prompt-reason">${escapeHtml(reason)}</span>`
         ).join('');
     }
-
+    /**
+     * 单课程今日提示卡渲染。
+     *
+     * 结构：状态图标（五态映射 ⏱🎯🕒⚠✓）+ 标题区（面板题头+状态标签）+
+     * 主标题 + meta 行 + 理由徽章 + 行动步骤按钮组（可直达任务生成
+     * data-today-task-* 属性按钮，缺 ID 的显示「待确认」并禁用）+ 三计数行。
+     * 卡片根节点带 is-{state} 类驱动 CSS 变量配色。
+     * [DEEP-DOC]
+     */
     function xyTodayPromptRenderCourse(summary) {
         const icon = summary.state === 'urgent' ? '⏱' : summary.state === 'continue' ? '🎯' : summary.state === 'waiting' ? '🕒' : summary.state === 'unknown' ? '⚠' : '✓';
         const actions = summary.actions.slice(0, 3).map((task, index) => {
@@ -1251,7 +1901,14 @@
                 </div>
             </div>`;
     }
-
+    /**
+     * 课程总览页顶部的全局今日提示区块渲染。
+     *
+     * 与单课卡片不同点：actions 里每个任务带两个按钮（进入任务 + 学情），
+     * 通过 data-today-global-action 区分行为；数据错误时 summary.state 为
+     * partial 并在 meta 显示原因。图标四态 🧭⚠🕒✓。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardRenderToday() {
         const container = document.getElementById('xy-course-dashboard-today');
         if (!container) return;
@@ -1289,7 +1946,12 @@
                 ${actions ? `<div class="xy-course-dashboard-today-actions">${actions}</div>` : ''}
             </section>`;
     }
-
+    /**
+     * 数据一致性告警生成器：平台画像的任务完成数与待办接口对不上时的
+     * 解释性文案。pendingTasksError 非空 → 报「待办接口加载失败」并列出
+     * 两边数字；否则报「平台统计相差 N 项」并建议以作业页为准。
+     * [DEEP-DOC]
+     */
     function xyOverviewUnresolvedTaskNotice(finishedCount, taskCount, pendingTasksError = '') {
         if (pendingTasksError) {
             return {
@@ -1303,7 +1965,19 @@
             meta: `成员画像为 ${xyOverviewNumber(finishedCount)} / ${xyOverviewNumber(taskCount)}，但待办接口未返回对应任务；请以“作业任务”页的状态为准。`
         };
     }
-
+    /**
+     * 学情概览主渲染器（三段布局拼装）。
+     *
+     * 段1 指标网格：画像正常 → 学习时长卡 + 任务进度卡（进度条/按时补交）；
+     *       画像出错 → 错误面板替代。
+     * 段2 今日提示：promptCourse 组装（portrait/计数/错误信息汇合）后走
+     *       BuildCourseSummary → RenderCourse；
+     * 段3 任务明细：details 元素包裹任务行列表（statusPriority 排序：
+     *       待提交→待批阅→已批阅→已截止），每行带 data-task-index 供点击委托。
+     *
+     * 进入时记忆 details 的 open 态（taskDetailsExpanded）保持用户偏好。
+     * [DEEP-DOC]
+     */
     function xyOverviewRender(data) {
         const content = document.getElementById('xy-overview-content');
         if (!content || !data) return;
@@ -1408,7 +2082,18 @@
 
         content.innerHTML = `${summaryHtml}${focusHtml}${tasksHtml}`;
     }
-
+    /**
+     * 单课程四路数据并发拉取与容错聚合。
+     *
+     * 流程：courseGroupKey 归一 → TTL+版本号双重缓存校验（force 可穿透）→
+     * dataRequestSeq 自增防竞态 → Promise.allSettled 并发四请求（画像需先
+     * GetUserId、作业、待办、课程名）→ 逐路成败装配 result：
+     *   tasks.dataAvailable = 任一任务源成功；两源都挂才置 error。
+     * 仅当本课程 seq 未被更新的请求超越时才写缓存（过期响应丢弃）。
+     *
+     * @returns {Promise<Object|null>} 聚合结果；courseId 无效返回 null
+     * [DEEP-DOC]
+     */
     async function xyOverviewFetchCourseData(courseId, force = false) {
         const normalizedCourseId = courseGroupKey(courseId);
         if (!normalizedCourseId) return null;
@@ -1457,7 +2142,15 @@
         }
         return result;
     }
-
+    /**
+     * 概览装载编排入口（渲染前的最后一道闸）。
+     *
+     * 机制：切课时清空明细展开记忆 → requestSeq 自增 → TTL 缓存命中则直渲染
+     * → 未命中先画骨架屏再 await FetchCourseData → 回来后四重竞态校验
+     * （结果存在 / seq 未过期 / 仍在 overview 区 / 路由课程未变）全过才写
+     * currentData 并渲染。任何一个不过就静默丢弃，绝不过期上屏。
+     * [DEEP-DOC]
+     */
     async function xyOverviewLoad(courseId, force = false) {
         const normalizedCourseId = courseGroupKey(courseId);
         if (!normalizedCourseId) return;
@@ -1468,30 +2161,42 @@
         if (!force && cached && cached.dataVersion === xyOverviewState.dataRequestSeq.get(normalizedCourseId)
             && Date.now() - cached.loadedAt < xyOverviewState.cacheTtl) {
             xyOverviewState.currentData = cached;
-            if (appState.activeZone === 'overview') xyOverviewRender(cached);
+            if (playState.activeZone === ZONE.OVERVIEW) xyOverviewRender(cached);
             return;
         }
         xyOverviewRenderLoading();
         const result = await xyOverviewFetchCourseData(normalizedCourseId, force);
         const routeCourseId = courseGroupKey(getCourseGroupId());
-        const isActiveOverview = appState.activeZone === 'overview'
+        const isActiveOverview = playState.activeZone === ZONE.OVERVIEW
             && xyOverviewState.courseId === normalizedCourseId;
         if (!result || requestSeq !== xyOverviewState.requestSeq || !isActiveOverview || (routeCourseId && routeCourseId !== normalizedCourseId)) return;
         xyOverviewState.currentData = result;
         xyOverviewRender(result);
     }
-
-    function xyOverviewReturnZone(zone = appState.activeZone) {
-        return ['course', 'disc', 'hw', 'dir', 'download', 'courses'].includes(zone) ? zone : 'courses';
+    /**
+     * 返回区域合法性闸门：zone 在六区白名单（course/disc/hw/dir/download/courses）
+     * 内原样放行，否则兜底 courses（课程总览是永远安全的落点）。
+     * [DEEP-DOC]
+     */
+    function xyOverviewReturnZone(zone = playState.activeZone) {
+        return [ZONE.COURSE, ZONE.DISC, ZONE.HW, ZONE.DIR, ZONE.DOWNLOAD, ZONE.COURSES].includes(zone) ? zone : ZONE.COURSES;
     }
-
+    /**
+     * 记录进入概览前的来源区域：仅在 activeZone 不是 overview 时更新
+     * returnZone（已在概览内反复刷新不应覆盖最初来源）。返回记录值，空则 courses。
+     * [DEEP-DOC]
+     */
     function xyOverviewRememberReturn() {
-        if (appState.activeZone !== 'overview') {
+        if (playState.activeZone !== ZONE.OVERVIEW) {
             xyOverviewState.returnZone = xyOverviewReturnZone();
         }
-        return xyOverviewState.returnZone || 'courses';
+        return xyOverviewState.returnZone || ZONE.COURSES;
     }
-
+    /**
+     * 执行返回动作：读取并清空 returnZone、pinnedCourseId、dashboardCourseId
+     * 三个上下文字段（一次性消费），然后 switchToZone 到来源区域。
+     * [DEEP-DOC]
+     */
     function xyOverviewReturn() {
         const returnZone = xyOverviewReturnZone(xyOverviewState.returnZone);
         xyOverviewState.returnZone = '';
@@ -1500,14 +2205,25 @@
         switchToZone(returnZone);
         return returnZone;
     }
-
+    /**
+     * 概览开关总入口：当前在概览 → 执行 Return 回原区域；不在 → RememberReturn
+     * 记录上下文后 Open 打开。返回最终所在区域标识。
+     * [DEEP-DOC]
+     */
     function xyOverviewToggle() {
-        if (appState.activeZone === 'overview') return xyOverviewReturn();
+        if (playState.activeZone === ZONE.OVERVIEW) return xyOverviewReturn();
         xyOverviewRememberReturn();
         xyOverviewOpen();
-        return 'overview';
+        return ZONE.OVERVIEW;
     }
-
+    /**
+     * 打开指定课程的学情概览。
+     *
+     * 编排：courseId 归一失败提示「请先进入具体课程页面」→ RememberReturn →
+     * 从课程首页打开时记 dashboardCourseId（钉住保护用）→ 设 pinnedCourseId →
+     * 若主面板处于最小化则自动还原 → switchToZone('overview') → 异步 Load。
+     * [DEEP-DOC]
+     */
     function xyOverviewOpen(courseId = getCourseGroupId()) {
         const normalizedCourseId = courseGroupKey(courseId);
         if (!normalizedCourseId) {
@@ -1521,17 +2237,26 @@
         xyOverviewState.pinnedCourseId = normalizedCourseId;
         const body = document.getElementById('xy-main-body');
         if (body?.style.display === 'none') document.getElementById('xy-minimize')?.click();
-        switchToZone('overview');
+        switchToZone(ZONE.OVERVIEW);
         void xyOverviewLoad(normalizedCourseId, false);
     }
-
+    /**
+     * 手动强制刷新：确定目标 courseId（当前路由优先，课程首页回退上次查看的）→
+     * 删除该课缓存 → force=true 重新 Load。无可用 courseId 时静默返回。
+     * [DEEP-DOC]
+     */
     function xyOverviewRefresh() {
         const courseId = getCourseGroupId() || (isActiveCourseHomePage() ? xyOverviewState.courseId : '');
         if (!courseId) return;
         xyOverviewState.cache.delete(courseGroupKey(courseId));
         void xyOverviewLoad(courseId, true);
     }
-
+    /**
+     * 概览任务跳转导航：三元组（courseId/parentId/nodeId）任一缺失提示
+     * 「该任务缺少跳转信息」；齐全则按路由前缀拼 resource/{parent}/{node}
+     * 整页跳转（encodeURIComponent 逐段转义）。
+     * [DEEP-DOC]
+     */
     function xyOverviewOpenTask(courseId, parentId, nodeId) {
         if (!courseId || !parentId || !nodeId) {
             showToast('该任务缺少跳转信息', 'warning');
@@ -1540,15 +2265,23 @@
         const prefix = xyCourseRoutePrefix();
         window.location.href = `/app/jx-web/${prefix}/${encodeURIComponent(courseId)}/resource/${encodeURIComponent(parentId)}/${encodeURIComponent(nodeId)}`;
     }
-
+    /**
+     * 路由变化时的概览状态同步。
+     *
+     * 分支：无课程 ID → 非首页或不在概览态时清空三个上下文 ID 后返回；
+     * pinnedCourseId 与当前课程不符 → 清空钉住（换课了）；
+     * dashboardCourseId 一律清空（它只在课程首页语义有效）；
+     * 在概览区且 courseId 变了 → 自动 Load 新课数据。
+     * [DEEP-DOC]
+     */
     function xyOverviewSyncRoute() {
         const courseId = getCourseGroupId() || '';
         const isCourseHome = isActiveCourseHomePage();
         const openButton = document.getElementById('xy-overview-open');
-        if (openButton) openButton.style.display = (courseId || appState.activeZone === 'overview') ? 'inline-flex' : 'none';
+        if (openButton) openButton.style.display = (courseId || playState.activeZone === ZONE.OVERVIEW) ? 'inline-flex' : 'none';
 
         if (!courseId) {
-            if (!isCourseHome || appState.activeZone !== 'overview') {
+            if (!isCourseHome || playState.activeZone !== ZONE.OVERVIEW) {
                 xyOverviewState.courseId = '';
                 xyOverviewState.dashboardCourseId = '';
                 xyOverviewState.pinnedCourseId = '';
@@ -1560,17 +2293,30 @@
             xyOverviewState.dashboardCourseId = '';
         }
         xyOverviewState.dashboardCourseId = '';
-        if (appState.activeZone !== 'overview') return;
+        if (playState.activeZone !== ZONE.OVERVIEW) return;
         if (xyOverviewState.courseId !== courseId) {
             void xyOverviewLoad(courseId, false);
         }
     }
-
+    /**
+     * 课程资源目录页 URL 拼接器：/app/jx-web/{路由前缀}/{courseId}/resource，
+     * courseId 经 encodeURIComponent。courseId 为空返回空串（调用方以真值判断）。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardResourceUrl(courseId) {
         if (!courseId) return '';
         return `/app/jx-web/${xyCourseRoutePrefix()}/${encodeURIComponent(courseId)}/resource`;
     }
-
+    /**
+     * 课程列表接口多形态归一化。
+     *
+     * 平台同一接口在不同入口返回数组 / {groups:[]} / {list:[]} 三种形态，
+     * 这里统一探测后取数组源；逐项提取 courseId（courseGroupKey 归一）并按
+     * seen 集合去重；每门课初始化完整子状态对象：pendingCount/expiredCount
+     * 置 null（表示「未知」而非 0）、nearestDeadline、任务明细四态机字段
+     * （idle/loading/loaded/error）、portrait 三态（loading 起）。输出顺序即接口顺序。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardNormalizeCourses(data) {
         const source = Array.isArray(data)
             ? data
@@ -1602,7 +2348,14 @@
             return courses;
         }, []);
     }
-
+    /**
+     * 由 nodeId 反查父目录 ID（跳转三元组缺 parentId 时的补救路径）。
+     *
+     * 两级策略：1) 在课程资源树中找到该节点的 parent_id（排除根节点 '1'）；
+     * 2) 回退解析资源 path 字段的倒数第二段；都失败返回 nodeId 自身
+     * （跳转至少能落到节点页）。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardResolveTaskParentId(resources, nodeId) {
         const normalizedNodeId = normalizeDownloadId(nodeId);
         if (!normalizedNodeId) return '';
@@ -1619,7 +2372,17 @@
         if (pathParts.length >= 2) return pathParts[pathParts.length - 2];
         return normalizedNodeId;
     }
-
+    /**
+     * 全校待办按课程分组聚合。
+     *
+     * 对每条待办：group_id 归一为键 → 累加到对应桶的 tasks 数组；截止时间
+     * 可解析且 ≤ now 计入 expiredCount 并刷新 nearestExpiredDeadline（取更早），
+     * 否则计入 actionableCount 与 nearestDeadline（同样取更早）。时间不可解析
+     * 的归入 actionable（宁可提示用户去看一眼也不默默漏掉）。
+     *
+     * @returns {Map<courseId, {actionableCount, expiredCount, nearestDeadline, nearestExpiredDeadline, tasks}>}
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardGroupPending(data, now = Date.now()) {
         const grouped = new Map();
         if (!Array.isArray(data)) return grouped;
@@ -1656,7 +2419,16 @@
         });
         return grouped;
     }
-
+    /**
+     * 单课程任务明细四分类构建。
+     *
+     * 去重策略：seenTaskKeys 以 nodeId 全局去重两轮——第一轮对 surveyTasks
+     * 取已完成子集（排除 actionable/expired/unsubmitted 态），第二轮 pendingTasks
+     * 剔除已完成键后按截止分 actionable（未过期或无截止）/ expired 两堆。
+     * uncertainCount = 画像总数 − 已完成 − 可做 − 已截止（差值为平台统计与
+     * 明细的缺口，展示为「状态待确认」组）。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardBuildTaskDetails(portrait, pendingTasks, surveyTasks, now = Date.now()) {
         const taskCount = Math.max(0, xyOverviewNumber(portrait?.taskCount));
         const completedCount = Math.min(taskCount, Math.max(0, xyOverviewNumber(portrait?.finishedCount)));
@@ -1685,7 +2457,12 @@
             uncertainCount: Math.max(0, taskCount - completedCount - actionable.length - expired.length)
         };
     }
-
+    /**
+     * 课程任务概要三元组：画像必须 loaded 且存在才计算（否则返回 null 让
+     * 调用方走骨架态）。taskCount/finishedCount 收敛钳制，actionable/expired
+     * 尊重分组计数的 null 语义（未知），rate 为完成率百分比 [0,100]。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardTaskBreakdown(course) {
         if (course?.portraitState !== 'loaded' || !course.portrait) return null;
         const taskCount = Math.max(0, xyOverviewNumber(course.portrait.taskCount));
@@ -1704,7 +2481,14 @@
             rate: taskCount > 0 ? Math.min(100, Math.max(0, finishedCount / taskCount * 100)) : 0
         };
     }
-
+    /**
+     * 课程卡片排序比较器（非原地，拷贝排序）。
+     *
+     * 四级优先级：有待办(0) > 无可做但有已截止(1) > 完全清空(2) > 未知(3)；
+     * 同级先比最近截止时间升序（更紧迫在前，Infinity 兜底排尾），再比任务总量
+     * 降序（内容多的靠前），最后 sourceIndex 保稳定。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardSortCourses(items) {
         const getPriority = course => {
             if (course?.pendingCount > 0) return 0;
@@ -1732,7 +2516,12 @@
             return taskCountDelta || leftIndex - rightIndex;
         });
     }
-
+    /**
+     * 课程状态徽标推导（六态）：pendingCount 未知 → unknown「可做任务未知」；
+     * >0 → pending「N 项可做」；expiredCount>0 → expired「N 项已截止」；
+     * 无 breakdown → idle；taskCount=0 → empty「暂无任务」；全部完成 → complete。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardCourseStatus(course, breakdown) {
         if (course.pendingCount === null) return { key: 'unknown', label: '可做任务未知' };
         if (course.pendingCount > 0) return { key: 'pending', label: `${course.pendingCount} 项可做` };
@@ -1742,7 +2531,14 @@
         if (breakdown.finishedCount >= breakdown.taskCount) return { key: 'complete', label: '任务已完成' };
         return { key: 'idle', label: '暂无可做待办' };
     }
-
+    /**
+     * 并发受限映射工具（Promise 并发闸）。
+     *
+     * 启动 min(limit, items.length) 个 worker 协程共享 nextIndex 游标自旋取任务，
+     * 结果按原下标写入保证顺序。任一 worker 抛错会整体 reject（Promise.all）。
+     * 用于课程列表的逐课待办探测限流，防止几十个请求同时打爆接口。
+     * [DEEP-DOC]
+     */
     async function xyCourseDashboardMapLimit(items, limit, worker) {
         if (!Array.isArray(items) || !items.length) return [];
         const results = new Array(items.length);
@@ -1756,11 +2552,20 @@
         await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, runWorker));
         return results;
     }
-
+    /**
+     * 双重时效校验：requestSeq === 当前序号（未被更新的请求顶替）且当前仍在
+     * 课程首页路由。两者都成立才允许把异步结果渲染上屏。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardIsCurrent(requestSeq) {
         return requestSeq === xyCourseDashboardState.requestSeq && isActiveCourseHomePage();
     }
-
+    /**
+     * 合帧防抖渲染调度：renderTimer 存在则直接返回；否则设 40ms 定时器，
+     * 到期清标记并执行 xyCourseDashboardRender。同一帧内的多次脏标记合并为
+     * 一次真实渲染，避免搜索输入等高频事件引发渲染风暴。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardScheduleRender() {
         if (xyCourseDashboardState.renderTimer) return;
         xyCourseDashboardState.renderTimer = setTimeout(() => {
@@ -1768,7 +2573,13 @@
             xyCourseDashboardRender();
         }, 40);
     }
-
+    /**
+     * 缓存快照应用：深拷贝缓存里的课程数组（portrait 浅拷贝、pendingTasks
+     * 逐条浅拷贝、taskGroupExpanded 展开），复位明细四态为 idle、展开态收起；
+     * 同步 pendingAvailable/pendingError/error 与 cacheAppliedAt 时间戳，
+     * 关闭 loading 后立即渲染。让二次进入页面瞬时呈现上次数据。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardApplyCache(cached) {
         xyCourseDashboardState.courses = cached.courses.map(course => ({
             ...course,
@@ -1789,7 +2600,16 @@
         xyCourseDashboardState.cacheAppliedAt = cached.loadedAt;
         xyCourseDashboardRender();
     }
-
+    /**
+     * 课程总览数据装载编排。
+     *
+     * 分支：不在首页直接返回；error 未清且 routeActive 时不再重复尝试（防死循环）
+     * 返回 null；TTL(3min) 内缓存有效 → 已应用过就直接返回缓存，否则 ApplyCache
+     * 秒开；过期/强制 → requestSeq 自增拉取：学生课程列表 + 全部课程的待办接口
+     * + MapLimit 并发逐课资源探测，聚合出每课 pendingCount/expiredCount/
+     * nearestDeadline，NormalizeCourses 去重归一后写入状态与缓存，最终渲染。
+     * [DEEP-DOC]
+     */
     async function xyCourseDashboardLoad(force = false) {
         if (!isActiveCourseHomePage()) return;
         if (!force && xyCourseDashboardState.routeActive && xyCourseDashboardState.error) return null;
@@ -1898,12 +2718,19 @@
             if (xyCourseDashboardState.promise === loadPromise) xyCourseDashboardState.promise = null;
         }
     }
-
+    /** 清空仪表盘缓存并强制重新 Load（绕过 TTL 与错误短路）。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardRefresh() {
         xyCourseDashboardState.cache = null;
         void xyCourseDashboardLoad(true);
     }
-
+    /**
+     * 单课程任务明细装载：已 loaded 且非 force 直接返回；置 loading 态触发
+     * 行内 spinner → 并发拉该课画像与作业/待办 → BuildTaskDetails 四分类 →
+     * 写回 course.taskDetails 并切 loaded/error。竞态由 IsCurrent 校验兜底。
+     * [DEEP-DOC]
+     */
     async function xyCourseDashboardLoadTaskDetails(course, force = false) {
         if (!course?.courseId || (!force && (course.taskDetailsState === 'loaded' || course.taskDetailsState === 'loading'))) return;
         course.taskDetailsState = 'loading';
@@ -1926,7 +2753,9 @@
         }
         xyCourseDashboardRender();
     }
-
+    /** 从课程卡片的任务行点击进入具体任务节点（复用概览的三元组导航）。
+     * [DEEP-DOC]
+     */
     async function xyCourseDashboardOpenTask(course, task) {
         const nodeId = normalizeDownloadId(task?.nodeId);
         if (!course?.courseId || !nodeId) {
@@ -1944,7 +2773,9 @@
         }
         xyOverviewOpenTask(course.courseId, parentId, nodeId);
     }
-
+    /** 翻转课程卡片的 taskDetailsExpanded 标记并触发合帧重渲；首开时若明细未装载自动拉取。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardToggleTaskDetails(course) {
         if (!course) return;
         course.taskDetailsExpanded = !course.taskDetailsExpanded;
@@ -1954,7 +2785,9 @@
         }
         xyCourseDashboardRender();
     }
-
+    /** 离开课程首页时的清理：routeActive=false 复位活动标志，进行中的请求靠 IsCurrent 自然失效。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardDeactivate() {
         if (!xyCourseDashboardState.routeActive && !xyCourseDashboardState.isLoading) return;
         xyCourseDashboardState.routeActive = false;
@@ -1966,7 +2799,9 @@
             xyCourseDashboardState.renderTimer = null;
         }
     }
-
+    /** 截止时间人性化短文案：「今天 HH:mm」/「明天 HH:mm」/「M月D日 HH:mm」；解析失败返回空串。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardFormatDeadline(value) {
         if (!Number.isFinite(value)) return '';
         const date = new Date(value);
@@ -1978,7 +2813,12 @@
         const time = date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
         return isToday ? `今天 ${time}` : `${date.getMonth() + 1}月${date.getDate()}日 ${time}`;
     }
-
+    /**
+     * 任务明细单行 HTML：type 参数决定样式类（completed/actionable/expired/
+     * uncertain 各配色）与主信息列内容——已完成显示得分或状态标签，其余显示
+     * 「截止：{时间}」。可打开的任务生成按钮结构，缺失 nodeId 的降级禁用态。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardRenderTaskDetailRow(task, type, taskIndex) {
         const canOpen = !!task?.nodeId;
         const isCompleted = type === 'completed';
@@ -1994,7 +2834,9 @@
                 <span class="xy-course-dashboard-task-status">${escapeHtml(statusLabel)}</span>
             </button>`;
     }
-
+    /** 明细区容器渲染：renderGroup 工厂按四分类各生成一组（组头计数+折叠记忆+行列表），拼进卡片 body。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardRenderTaskDetails(course, sourceIndex, breakdown) {
         if (!breakdown) return '';
         const expanded = course.taskDetailsExpanded === true;
@@ -2042,7 +2884,11 @@
                 ${expanded ? `<div id="xy-course-dashboard-details-${sourceIndex}" class="xy-course-dashboard-details">${body}</div>` : ''}
             </div>`;
     }
-
+    /**
+     * 可见课程集过滤：搜索词（名称包含，大小写不敏感）∩ 筛选器
+     * （all 全部 / pending 有待办 / no-pending 无待办）。两个条件独立可选。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardVisibleCourses() {
         const query = xyCourseDashboardState.query.trim().toLocaleLowerCase('zh-CN');
         const visibleCourses = xyCourseDashboardState.courses
@@ -2055,7 +2901,9 @@
             });
         return xyCourseDashboardSortCourses(visibleCourses);
     }
-
+    /** 顶部统计摘要渲染：总课程数与各类计数汇总文案。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardRenderSummary() {
         const summary = document.getElementById('xy-course-dashboard-summary');
         if (!summary) return;
@@ -2096,7 +2944,13 @@
                 <strong>${escapeHtml(value)}</strong>
             </div>`).join('');
     }
-
+    /**
+     * 课程总览主渲染器：今日提示区块（RenderToday）→ 统计摘要 → 搜索框与
+     * 筛选器同步选中态 → 排序后的课程卡片列表（SortCourses → VisibleCourses
+     * 过滤 → 卡片 HTML：名称/学期/状态徽标/学情按钮/任务明细插槽）→
+     * 底部加载状态条。全程 escapeHtml 包裹动态文本。
+     * [DEEP-DOC]
+     */
     function xyCourseDashboardRender() {
         const list = document.getElementById('xy-course-dashboard-list');
         const loadState = document.getElementById('xy-course-dashboard-load-state');
@@ -2155,56 +3009,77 @@
             return;
         }
 
-        list.innerHTML = visibleCourses.map(({ course, sourceIndex }) => {
+        // 声明式渲染：课程卡片组件树（vdom 微内核），keyed 复用 DOM 节点。
+        // data-course-index / data-course-action 属性与事件委托约定保持不变。
+        const cardOf = ({ course, sourceIndex }) => {
             const breakdown = xyCourseDashboardTaskBreakdown(course);
             const courseStatus = xyCourseDashboardCourseStatus(course, breakdown);
             const deadline = xyCourseDashboardFormatDeadline(course.nearestDeadline);
-            let portraitHtml = '<div class="xy-course-dashboard-course-meta">正在读取完成度与学习时长...</div>';
+            let portraitChildren = [h('div', { class: 'xy-course-dashboard-course-meta' }, '正在读取完成度与学习时长...')];
             if (course.portraitState === 'error') {
-                portraitHtml = '<div class="xy-course-dashboard-course-meta is-error">完成度与学习时长暂不可用</div>';
+                portraitChildren = [h('div', { class: 'xy-course-dashboard-course-meta is-error' }, '完成度与学习时长暂不可用')];
             } else if (breakdown) {
                 const duration = course.portrait.duration > 0 ? xyOverviewFormatMinutes(course.portrait.duration) : '暂无时长';
                 const breakdownText = breakdown.actionableCount === null
                     ? `已完成 ${breakdown.finishedCount} / ${breakdown.taskCount} · 可做与截止暂不可用`
                     : `已完成 ${breakdown.finishedCount} / ${breakdown.taskCount} · 未完成 ${breakdown.actionableCount} · 已截止 ${breakdown.expiredCount}`;
-                const progressHtml = breakdown.taskCount > 0
-                    ? `<div class="xy-course-dashboard-progress" role="progressbar" aria-label="课程任务完成度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(breakdown.rate)}">
-                           <span style="width:${breakdown.rate}%"></span>
-                       </div>`
-                    : '';
-                portraitHtml = `${progressHtml}
-                    <div class="xy-course-dashboard-course-meta">
-                        <span>${breakdown.taskCount > 0 ? escapeHtml(breakdownText) : '暂无任务'}</span>
-                        <span>${escapeHtml(duration)}</span>
-                    </div>`;
+                const progressNode = breakdown.taskCount > 0
+                    ? h('div', { class: 'xy-course-dashboard-progress', role: 'progressbar', 'aria-label': '课程任务完成度', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': Math.round(breakdown.rate) },
+                        h('span', { style: `width:${breakdown.rate}%` }))
+                    : null;
+                portraitChildren = [
+                    progressNode,
+                    h('div', { class: 'xy-course-dashboard-course-meta' },
+                        h('span', {}, breakdown.taskCount > 0 ? breakdownText : '暂无任务'),
+                        h('span', {}, duration)),
+                ];
             }
-            return `
-                <div class="xy-course-dashboard-course" data-course-index="${sourceIndex}">
-                    <div class="xy-course-dashboard-course-main" role="link" tabindex="0">
-                        <div class="xy-course-dashboard-course-head">
-                            <strong>${escapeHtml(course.courseName)}</strong>
-                            <span class="xy-course-dashboard-status is-${courseStatus.key}">${escapeHtml(courseStatus.label)}</span>
-                        </div>
-                        ${course.termName ? `<div class="xy-course-dashboard-term">${escapeHtml(course.termName)}</div>` : ''}
-                        ${portraitHtml}
-                        ${deadline ? `<div class="xy-course-dashboard-deadline">最近待办截止：${escapeHtml(deadline)}</div>` : ''}
-                    </div>
-                    ${xyCourseDashboardRenderTaskDetails(course, sourceIndex, breakdown)}
-                    <div class="xy-course-dashboard-actions">
-                        <button class="xy-mini-btn" type="button" data-course-action="enter">进入课程</button>
-                        <button class="xy-mini-btn" type="button" data-course-action="overview">学情</button>
-                    </div>
-                </div>`;
-        }).join('');
+            return h('div', { class: 'xy-course-dashboard-course', 'data-course-index': sourceIndex },
+                h('div', { class: 'xy-course-dashboard-course-main', role: 'link', tabindex: 0 },
+                    h('div', { class: 'xy-course-dashboard-course-head' },
+                        h('strong', {}, course.courseName),
+                        h('span', { class: `xy-course-dashboard-status is-${courseStatus.key}` }, courseStatus.label)),
+                    course.termName ? h('div', { class: 'xy-course-dashboard-term' }, course.termName) : null,
+                    ...portraitChildren.filter(Boolean),
+                    deadline ? h('div', { class: 'xy-course-dashboard-deadline' }, `最近待办截止：${deadline}`) : null),
+                // 过渡桥接：任务明细子视图暂为 HTML 字符串产出，经 innerHTML 注入
+                h('div', { innerHTMLBridge: xyCourseDashboardRenderTaskDetails(course, sourceIndex, breakdown) }),
+                h('div', { class: 'xy-course-dashboard-actions' },
+                    h('button', { class: 'xy-mini-btn', type: 'button', 'data-course-action': 'enter' }, '进入课程'),
+                    h('button', { class: 'xy-mini-btn', type: 'button', 'data-course-action': 'overview' }, '学情')));
+        };
+        list.textContent = '';
+        visibleCourses.map(cardOf).forEach(cardNode => {
+            list.appendChild(createEl(cardNode));
+        });
     }
-
+    /** 用户名净化：String 化去首尾空白，压缩内部连续空白，空结果兜底「匿名」。讨论区名单入库前的最后一道清洗。
+     * [DEEP-DOC]
+     */
     function cleanName(str) { if (!str) return ""; return str.replace(/[\u200B-\u200D\uFEFF]/g, '').trim(); }
+    /**
+     * HTML 转义五字符集（& < > " '）。本脚本所有 innerHTML 拼插点的动态文本
+     * 都必须经过它——XSS 防线的唯一入口约定。
+     * @param {string} s - 任意输入（nullish 安全，转 String 处理）
+     * [DEEP-DOC]
+     */
     function escapeHtml(value) { if (value === null || value === undefined) return ''; const div = document.createElement('div'); div.textContent = String(value); return div.innerHTML; }
+    /**
+     * 下载 ID 归一化：nullish 直接 null；String 化 trim 后空串也返回 null。
+     * 全下载域的资源标识统一出口，勾选集(Set)/查找/URL 拼接都以它的输出为键。
+     * [DEEP-DOC]
+     */
     function normalizeDownloadId(value) {
         if (value === null || value === undefined) return null;
         const id = String(value).trim();
         return id ? id : null;
     }
+    /**
+     * 资源对象 → 下载资源 ID：按 id → resource_id → file_id 顺序探测首个
+     * 可归一化的值。云盘文件换直链（file_url/{quote_id}）之外的第二身份来源。
+     * @returns {string|null}
+     * [DEEP-DOC]
+     */
     function dlResourceId(resource) {
         if (!resource || typeof resource !== 'object') return null;
         return normalizeDownloadId(resource.id)
@@ -2213,18 +3088,35 @@
             ?? normalizeDownloadId(resource.resourceId)
             ?? normalizeDownloadId(resource.nodeId);
     }
+    /**
+     * 引用 ID 提取：quote_id → quoteId 字段顺序探测，均缺时回退 dlResourceId
+     * （部分资源 quote 与 resource 同值）。file_url 接口的路径参数即此值。
+     * [DEEP-DOC]
+     */
     function dlQuoteId(resource) {
         if (!resource || typeof resource !== 'object') return null;
         return normalizeDownloadId(resource.quote_id)
             ?? normalizeDownloadId(resource.quoteId)
             ?? dlResourceId(resource);
     }
+    /**
+     * 资源树子节点遍历抽象：平台树结构的子节点可能挂在 children / child_nodes /
+     * items 任一字段，此函数把三种形态收敛为单一数组输出，上层 walk 逻辑
+     * 无需关心字段差异。
+     * [DEEP-DOC]
+     */
     function dlResourceValues(value) {
         if (Array.isArray(value)) return value.filter(item => item && typeof item === 'object');
         if (!value || typeof value !== 'object') return [];
         if (dlResourceId(value) !== null || dlQuoteId(value) !== null || value.name || value.title) return [value];
         return Object.values(value).filter(item => item && typeof item === 'object');
     }
+    /**
+     * 资源树全量扁平收集（带 id 去重）：递归 dlResourceValues 三形态子节点，
+     * 以 id:xxx 为键（无 id 的对象引用兜底）seen 集合去重。供父目录反查等
+     * 需要无视层级的全局资源视图的场景。
+     * [DEEP-DOC]
+     */
     function dlCollectResources(value) {
         const result = [];
         const seen = new Set();
@@ -2244,8 +3136,16 @@
         walk(value);
         return result;
     }
+    /** 正则元字符转义：.*+?^${}()|[]\\ 全集前置反斜杠。用于把用户输入安全嵌入动态 RegExp（如名单搜索词）。
+     * [DEEP-DOC]
+     */
     function escapeRegex(str) { if (!str) return ''; return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-
+    /**
+     * 课程名查询（group visit 接口）：POST group_id + role_type:'normal'，
+     * success 且 data.name 存在才返回名字；token 缺失/groupId 空/网络异常
+     * 一律静默返回 null（课程名是锦上添花字段，不允许它拖垮主流程）。
+     * [DEEP-DOC]
+     */
     async function getCourseNameFromAPI(groupId) {
         try {
             const token = getCookie();
@@ -2257,22 +3157,40 @@
             });
             const data = await res.json();
             return (data.success && data.data && data.data.name) ? data.data.name : null;
-        } catch(e) { return null; }
+        } catch(e) { console.warn('[小雅] 课程名接口请求失败:', e); return null; }
     }
-
+    /**
+     * 生效主题解析：theme='auto' 时按小时映射（6-17 点 light，其余 dark）；
+     * 显式 'light'/'dark' 直接返回。所有取色点经 T() 间接消费本函数结果。
+     * @returns {'light'|'dark'}
+     * [DEEP-DOC]
+     */
     function resolveTheme() {
-        if (appState.theme === 'auto') {
+        if (settingsState.theme === 'auto') {
             const h = new Date().getHours();
             return (h >= 6 && h < 18) ? 'light' : 'dark';
         }
-        return appState.theme;
+        return settingsState.theme;
     }
-
-    
+    /**
+     * 双主题取色函数 —— UI 层使用频率最高的工具。
+     *
+     * @param {string} dark - 深色主题下的取值（颜色/渐变/阴影任意 CSS 值）
+     * @param {string} light - 浅色主题下的取值
+     * @returns {string} 按当前生效主题选择的变体
+     *
+     * 约定：所有模板字符串里的动态配色都必须经 T() 包裹，禁止裸写色值，
+     * 否则主题切换后该处颜色失效（整页 reload 生效机制下的静态快照）。
+     * [DEEP-DOC]
+     */
     function T(dark, light) { return resolveTheme() === 'light' ? light : dark; }
 
     let _lastEffectiveTheme = null;
-
+    /**
+     * 主题 class 应用：面板根节点加/移除 xy-theme-light 类驱动 CSS 变量切换；
+     * 同时更新主题按钮图标（☀️/🌙）与 title 提示（三态：自动(当前生效)/浅色/深色）。
+     * [DEEP-DOC]
+     */
     function applyThemeClasses() {
         const wrapper = document.getElementById('xy-super-console');
         if (!wrapper) return;
@@ -2286,17 +3204,22 @@
         
         const btn = document.getElementById('xy-theme-toggle');
         if (btn) {
-            if (appState.theme === 'auto') {
+            if (settingsState.theme === 'auto') {
                 btn.textContent = effective === 'light' ? '☀️' : '🌙';
                 btn.title = '自动模式 (' + effective + ') - 点击切换';
-            } else if (appState.theme === 'light') {
+            } else if (settingsState.theme === 'light') {
                 btn.textContent = '☀️'; btn.title = '浅色模式 - 点击切换';
             } else {
                 btn.textContent = '🌙'; btn.title = '深色模式 - 点击切换';
             }
         }
     }
-
+    /**
+     * 主题切换执行：生效主题与上次一致直接返回（避免无谓 reload）；变化时整页
+     * window.location.reload()——因为面板 CSS 是初始一次性注入的，reload 是
+     * 最可靠的变量刷新手段（代价是页面重载，故只在真实翻转时触发）。
+     * [DEEP-DOC]
+     */
     function applyTheme() {
         const effective = resolveTheme();
         if (_lastEffectiveTheme === effective) return;
@@ -2306,7 +3229,15 @@
     }
 
     const originalTitle = document.title;
-
+    /**
+     * 标签页标题状态机：
+     *   调度运行中 → 「[i/n] 计划调度 · 任务名前10字」（截断防超长）
+     *   course 区 → video 引擎显示播放百分比+循环/连播标记；doc 引擎显示阅读
+     *               进度百分比或达标 ✓；其他引擎显示通用挂机标记
+     *   disc 区   → 「[N人] 讨论区」（名单规模一目了然）
+     *   其余      → 还原 originalTitle（模块加载时保存的原始标题）
+     * [DEEP-DOC]
+     */
     function updateTitleBar() {
         if (xyScheduleState.isRunning) {
             const cur = xyScheduleState.queue[xyScheduleState.currentIdx];
@@ -2314,40 +3245,56 @@
             document.title = `[${xyScheduleState.currentIdx + 1}/${xyScheduleState.queue.length}] 计划调度 · ${name}`;
             return;
         }
-        if (appState.activeZone === 'course') {
-            const taskType = appState.currentEngine;
-            if (taskType === 'video') {
+        if (playState.activeZone === ZONE.COURSE) {
+            const taskType = playState.currentEngine;
+            if (taskType === TASK_TYPE.VIDEO) {
                 let video = document.querySelector('video');
                 if (video && video.duration) {
                     const pct = Math.round((video.currentTime / video.duration) * 100);
-                    document.title = `[${pct}%] ${appState.mode === 'loop' ? '循环' : '连播'}挂机中`;
+                    document.title = `[${pct}%] ${playState.mode === PLAY_MODE.LOOP ? '循环' : '连播'}挂机中`;
                 } else {
                     document.title = '[视频] 挂机中';
                 }
-            } else if (taskType === 'doc') {
-                const pct = Math.min(Math.round((appState.docReadTime / 130) * 100), 100);
-                document.title = appState.isTaskCompleted ? '[✓] 文档已达标' : `[${pct}%] 文档阅读中`;
+            } else if (taskType === TASK_TYPE.DOC) {
+                const pct = Math.min(Math.round((playState.docReadTime / DOC_READ.SUBMIT_SECONDS) * 100), 100);
+                document.title = playState.isTaskCompleted ? '[✓] 文档已达标' : `[${pct}%] 文档阅读中`;
             } else {
-                document.title = appState.isTaskCompleted ? '[✓] 已达标' : '[·] 挂机中';
+                document.title = playState.isTaskCompleted ? '[✓] 已达标' : '[·] 挂机中';
             }
-        } else if (appState.activeZone === 'disc') {
-            document.title = `[${appState.targetNames.length}人] 讨论区`;
+        } else if (playState.activeZone === ZONE.DISC) {
+            document.title = `[${discState.targetNames.length}人] 讨论区`;
         } else {
             document.title = originalTitle;
         }
     }
+    /**
+     * 讨论区昵称解码器（平台私有编码）：base64 解码 → UTF-8 还原 → 字符序列
+     * 整体反转。旧版兼容路径：TextDecoder 不可用或解码失败时退回
+     * decodeURIComponent(escape(atob(...))) 组合。最终经 cleanName 净化。
+     * @returns {string} 解码后的真实姓名（失败兜底「匿名」）
+     * [DEEP-DOC]
+     */
     function decodeNickname(encodedStr) {
         if (!encodedStr) return "匿名"; let res = encodedStr;
         try { res = new TextDecoder().decode(Uint8Array.from(atob(encodedStr), c => c.charCodeAt(0))).split('').reverse().join(''); } catch(e) { try { res = decodeURIComponent(escape(atob(encodedStr))).split('').reverse().join(''); } catch (err) {} }
         return cleanName(res);
     }
-
-    
-    
+    /**
+     * 下载域的资源树深度优先提取器。
+     *
+     * 遍历规则：dlResourceValues 抽取子节点递归 walk，同时维护 unitPath
+     * （途经的非文件节点名栈）与 idPath（ID 栈，缺失时用 __seq 占位保证路径唯一）；
+     * 文件判定：task_type ∈ [2,5] 直接保留（平台标记的媒体/文档任务），
+     * 否则按 MEDIA/DOC 扩展名白名单匹配（type 字段不可靠是已知坑）。保留项克隆
+     * 并附加元数据：computed_task_type、__order（遍历序）、__unitPath、__idPath、
+     * __path（原始 path 或 idPath 拼接）、__sortPos、__parentId 与多字段兼容的
+     * __createdAt 时间戳。输出扁平文件数组供下载列表与目录树共用。
+     * [DEEP-DOC]
+     */
     function extractFilesFromResources(arr) {
         let res = [];
         let __seq = 0;
-        const FILE_EXT_RE = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i;
+        const FILE_EXT_RE = SHARED_PATTERNS.WATCH;
         function walk(list, unitPath, idPath) {
             dlResourceValues(list).forEach(item => {
                 const seg = (item.name || item.title || '').trim();
@@ -2372,8 +3319,8 @@
                 }
                 
                 else {
-                    const isMedia = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
-                    const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+                    const isMedia = SHARED_PATTERNS.MEDIA.test(name);
+                    const isDoc = SHARED_PATTERNS.DOC.test(name);
                     
                     if (isMedia || isDoc) keep = true;
                 }
@@ -2397,8 +3344,11 @@
         walk(arr, [], []);
         return res;
     }
-
-    
+    /**
+     * 单元排序映射构建：递归资源树，遇到单元目录按出现顺序编号写入 map
+     * （单元名 → 序号）。该映射是 dlUnitCompare 排序时「同级单元先后」的依据。
+     * [DEEP-DOC]
+     */
     function dlBuildSortMap(nodes, map) {
         dlResourceValues(nodes).forEach(n => {
             const id = dlResourceId(n);
@@ -2409,10 +3359,12 @@
         });
         return map;
     }
-
-    
-    
-    
+    /**
+     * 概览缓存即时渲染：切入 overview 区时先取 xyOverviewState.currentData
+     * （上次成功渲染的数据）立即上屏消除白屏感；随后由 Load 流程决定是否
+     * 后台刷新。无缓存时不做任何事等 Load 画骨架屏。
+     * [DEEP-DOC]
+     */
     function xyOverviewRenderCachedNow() {
         const expectedCourseId = getCourseGroupId() || xyOverviewState.pinnedCourseId || '';
         const normalized = courseGroupKey(expectedCourseId);
@@ -2422,17 +3374,33 @@
         xyOverviewState.currentData = cached;
         xyOverviewRender(cached);
     }
-
+    /**
+     * 区域切换核心状态机 —— 整个面板视图管理的唯一入口。
+     *
+     * 编排顺序：
+     *   1. 概览钉住互斥：目标非 overview 且钉住条件成立 → 直接 return（保护）；
+     *   2. 离开概览时清空 pinned/dashboardCourseId；
+     *   3. mainBody 滚动策略：overview 区隐藏滚动条其余恢复；
+     *   4. 同区重入短路：activeZone 已等于 newZone 时只做轻量补救（列表渲染/
+     *      分区文案复位）后返回——避免重复初始化副作用；
+     *   5. 记录 oldZone → 更新 playState.activeZone = newZone → 八个视图容器
+     *      display 互斥切换 → 分区标签与标题更新 → 各区进入钩子分发：
+     *      courses→DashboardRender、overview→RenderCachedNow、course→
+     *      updateCourseUI+ensureAutoRecord、dir→loadCourseDirectory 等。
+     *
+     * @param {string} newZone - ZONE 常量值
+     * [DEEP-DOC]
+     */
     function switchToZone(newZone) {
-        if (newZone !== 'overview' && xyShouldKeepDashboardOverview(getCourseGroupId())) return;
-        if (newZone !== 'overview') {
+        if (newZone !== ZONE.OVERVIEW && xyShouldKeepDashboardOverview(getCourseGroupId())) return;
+        if (newZone !== ZONE.OVERVIEW) {
             xyOverviewState.pinnedCourseId = '';
             xyOverviewState.dashboardCourseId = '';
         }
         const mainBody = document.getElementById('xy-main-body');
-        if (mainBody) mainBody.style.overflowY = newZone === 'overview' ? 'hidden' : 'auto';
-        if (appState.activeZone === newZone) {
-            if (newZone === 'courses') {
+        if (mainBody) mainBody.style.overflowY = newZone === ZONE.OVERVIEW ? 'hidden' : 'auto';
+        if (playState.activeZone === newZone) {
+            if (newZone === ZONE.COURSES) {
                 const viewCourses = document.getElementById('xy-view-courses');
                 if (viewCourses) viewCourses.style.display = 'flex';
                 const segZone = document.getElementById('xy-seg-zone');
@@ -2448,15 +3416,15 @@
             }
             return;
         }
-        const oldZone = appState.activeZone;
-        appState.activeZone = newZone;
+        const oldZone = playState.activeZone;
+        playState.activeZone = newZone;
 
-        if (oldZone === 'course') {
+        if (oldZone === ZONE.COURSE) {
             toggleRecord(false); 
         }
         
         
-        if (newZone === 'courses' || newZone === 'disc' || newZone === 'overview') {
+        if (newZone === ZONE.COURSES || newZone === ZONE.DISC || newZone === ZONE.OVERVIEW) {
             clearDynamicRefresh();
             lastRefreshStrategy = 'none';
         }
@@ -2469,46 +3437,52 @@
         
         const viewC = document.getElementById('xy-view-course'), viewD = document.getElementById('xy-view-disc'), viewCourses = document.getElementById('xy-view-courses'), viewOverview = document.getElementById('xy-view-overview'), viewDL = document.getElementById('xy-view-download'), viewHW = document.getElementById('xy-view-hw'), viewDIR = document.getElementById('xy-view-dir'), segZone = document.getElementById('xy-seg-zone');
         if (viewC && viewD && viewCourses && viewOverview && viewDL && segZone) {
-            viewC.style.display = newZone === 'course' ? 'block' : 'none';
-            viewD.style.display = newZone === 'disc' ? 'block' : 'none';
-            viewCourses.style.display = newZone === 'courses' ? 'flex' : 'none';
-            viewOverview.style.display = newZone === 'overview' ? 'flex' : 'none';
-            viewDL.style.display = newZone === 'download' ? 'block' : 'none';
-            if (viewHW) viewHW.style.display = newZone === 'hw' ? 'block' : 'none';
-            if (viewDIR) viewDIR.style.display = newZone === 'dir' ? 'block' : 'none';
+            viewC.style.display = newZone === ZONE.COURSE ? 'block' : 'none';
+            viewD.style.display = newZone === ZONE.DISC ? 'block' : 'none';
+            viewCourses.style.display = newZone === ZONE.COURSES ? 'flex' : 'none';
+            viewOverview.style.display = newZone === ZONE.OVERVIEW ? 'flex' : 'none';
+            viewDL.style.display = newZone === ZONE.DOWNLOAD ? 'block' : 'none';
+            if (viewHW) viewHW.style.display = newZone === ZONE.HW ? 'block' : 'none';
+            if (viewDIR) viewDIR.style.display = newZone === ZONE.DIR ? 'block' : 'none';
 
-            const zoneLabel = newZone === 'course' ? '📚 刷课区' : newZone === 'courses' ? '📚 课程总览' : newZone === 'overview' ? '📊 学情概览' : newZone === 'disc' ? '💭 讨论区' : newZone === 'download' ? '📥 下载区' : newZone === 'hw' ? '📝 作业区' : '📂 课程目录';
+            const zoneLabel = newZone === ZONE.COURSE ? '📚 刷课区' : newZone === ZONE.COURSES ? '📚 课程总览' : newZone === ZONE.OVERVIEW ? '📊 学情概览' : newZone === ZONE.DISC ? '💭 讨论区' : newZone === ZONE.DOWNLOAD ? '📥 下载区' : newZone === ZONE.HW ? '📝 作业区' : '📂 课程目录';
             segZone.innerHTML = zoneLabel;
             segZone.classList.add('active');
             if (newZone === 'overview') xyOverviewRenderCachedNow();
         }
 
-        if (oldZone !== 'uninitialized') {
-            const zoneName = newZone === 'course' ? '视频/文档自动引擎' : newZone === 'courses' ? '进行中课程总览' : newZone === 'overview' ? '课程学习数据概览' : newZone === 'disc' ? '互动点赞引擎' : newZone === 'download' ? '课件下载区' : newZone === 'hw' ? '作业答题台' : '课程目录区';
+        if (oldZone !== ZONE.UNINITIALIZED) {
+            const zoneName = newZone === ZONE.COURSE ? '视频/文档自动引擎' : newZone === ZONE.COURSES ? '进行中课程总览' : newZone === ZONE.OVERVIEW ? '课程学习数据概览' : newZone === ZONE.DISC ? '互动点赞引擎' : newZone === ZONE.DOWNLOAD ? '课件下载区' : newZone === ZONE.HW ? '作业答题台' : '课程目录区';
             logMsg(`📍 底层指令：已切换至【${zoneName}】`, 'success', true);
         }
 
-        if (newZone === 'course') {
+        if (newZone === ZONE.COURSE) {
             ensureAutoRecord();
             globalTaskStatusChecker(true);
             
             const currentNodeId = getNodeId();
-            if (!appState._lastCourseNodeId || appState._lastCourseNodeId !== currentNodeId) {
-                appState._lastCourseNodeId = currentNodeId;
-                appState.docReadTime = 0;
-                appState.lastDocSubmitTime = 0;
-                appState.videoScriptProgress = undefined;
-                appState.isTaskCompleted = false;
+            if (!dlState._lastCourseNodeId || dlState._lastCourseNodeId !== currentNodeId) {
+                dlState._lastCourseNodeId = currentNodeId;
+                playState.docReadTime = 0;
+                playState.lastDocSubmitTime = 0;
+                playState.videoScriptProgress = undefined;
+                playState.isTaskCompleted = false;
             }
         }
-        if (newZone === 'dir') {
+        if (newZone === ZONE.DIR) {
             setTimeout(loadCourseDirectory, 150);
         }
-        if (newZone === 'courses') xyCourseDashboardRender();
+        if (newZone === ZONE.COURSES) xyCourseDashboardRender();
     }
 
     
     let _radarCache = { data: null, time: 0, promise: null };
+    /**
+     * 全局雷达数据源（带缓存）：调 fetchGlobalTasks 取全网任务并附课程名映射。
+     * 缓存命中直接返回旧引用；未命中拉取后写缓存。供秒判/跳转/调度复用，
+     * 降低同一轮询周期内的重复请求。
+     * [DEEP-DOC]
+     */
     async function fetchRadarCached() {
         const now = Date.now();
         if (_radarCache.data && (now - _radarCache.time) < 3000) return _radarCache.data;
@@ -2527,37 +3501,47 @@
         })();
         return _radarCache.promise;
     }
-
+    /**
+     * SPA 路由感知主扫描器 —— 由 createPersistentInterval 低频驱动的「心跳」。
+     *
+     * 流程：xyRouteKind 分类当前路由 → 与上次记录比对，变化时执行区域钩子链：
+     *   hw 路由 → 切作业区 + 延时主动拉题；dir → 切目录区；overview → 切概览；
+     *   course → 刷课区 + 引擎类型探测 + 动态刷新检查；disc → 讨论区锁定判断；
+     *   courses → 回总览。每轮都跑 checkDynamicRefresh 维持防卡死兜底，
+     *   最后 updateTitleBar 同步标签页标题。所有切区都经 xyShouldKeepDashboard
+     *   Overview 钉住保护闸门。
+     * [DEEP-DOC]
+     */
     async function runLowLevelScanner() {
         const routeCourseId = getCourseGroupId();
         if (xyShouldKeepDashboardOverview(routeCourseId)) return;
         if (!isActiveCourseHomePage()) xyCourseDashboardDeactivate();
         
-        if (appState.activeZone === 'download') {
+        if (playState.activeZone === ZONE.DOWNLOAD) {
             const currentGroupId = getCourseGroupId();
             const currentGroupKey = courseGroupKey(currentGroupId);
             if (!currentGroupKey) {
                 downloadPanelRequestSeq++;
-                appState.downloadCourseGroupKey = '';
-                appState.downloadCourseName = '';
-                appState.downloadFiles = [];
-                appState.downloadSelectedIds.clear();
-                appState.downloadSearchKeyword = '';
-                appState.downloadSortMap = {};
-                appState.downloadDirTree = null;
+                dlState.downloadCourseGroupKey = '';
+                dlState.downloadCourseName = '';
+                dlState.downloadFiles = [];
+                dlState.downloadSelectedIds.clear();
+                dlState.downloadSearchKeyword = '';
+                dlState.downloadSortMap = {};
+                dlState.downloadDirTree = null;
                 renderDownloadList();
-                switchToZone('courses');
+                switchToZone(ZONE.COURSES);
                 void xyCourseDashboardLoad(false);
                 return;
             }
-            if (appState.downloadCourseGroupKey !== currentGroupKey) {
+            if (dlState.downloadCourseGroupKey !== currentGroupKey) {
                 void loadDownloadPanel(currentGroupId).catch(e => {
                     console.warn('[小雅] 下载区课程切换加载失败:', e);
                 });
             }
             return;
         }
-        if (appState.discLockedUrl === window.location.href) { switchToZone('disc'); return; }
+        if (discState.discLockedUrl === window.location.href) { switchToZone(ZONE.DISC); return; }
         const groupId = routeCourseId; const nodeId = getNodeId() || getResourceNodeId() || getPaperId();
         const routeKind = xyRouteKind();
         const scanGroupKey = courseGroupKey(groupId);
@@ -2566,23 +3550,23 @@
             && courseGroupKey(getNodeId() || getResourceNodeId() || getPaperId()) === scanNodeKey;
         if (!groupId) {
             if (xyShouldKeepDashboardOverview(groupId)) return;
-            switchToZone('courses');
+            switchToZone(ZONE.COURSES);
             void xyCourseDashboardLoad(false);
             return;
         }
         if (!nodeId) {
-            if (routeKind === 'disc') {
+            if (routeKind === ZONE.DISC) {
                 switchToZone('disc');
                 return;
-            } else if (routeKind === 'dir') {
-                if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', true);
+            } else if (routeKind === ZONE.DIR) {
+                if (playState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', true);
                 switchToZone('dir');
                 setTimeout(loadCourseDirectory, 200);
-            } else if (routeKind === 'overview') {
+            } else if (routeKind === ZONE.OVERVIEW) {
                 switchToZone('overview');
                 void xyOverviewLoad(groupId, false);
             } else {
-                switchToZone('courses');
+                switchToZone(ZONE.COURSES);
                 void xyCourseDashboardLoad(false);
             }
             return;
@@ -2606,8 +3590,8 @@
                         const currentRes = flatRes.find(r => r.node_id == nodeId || r.id == nodeId || (paperIdForMatch && (r.node_id == paperIdForMatch || r.id == paperIdForMatch)));
                         if (currentRes) taskType = currentRes.computed_task_type;
                     }
-                    if (!appState.isTaskCompleted && appState.activeZone === 'course') {
-                        appState.isTaskCompleted = true;
+                    if (!playState.isTaskCompleted && playState.activeZone === ZONE.COURSE) {
+                        playState.isTaskCompleted = true;
                         logMsg('✅ [雷达秒判] 当前任务已在全局雷达达成，瞬间放行！', 'success', false);
                         updateCourseUI();
                     }
@@ -2617,56 +3601,70 @@
 
         if (!isSameScanContext()) return;
         if (xyShouldKeepDashboardOverview(groupId)) return;
-        if (taskType === 1) { switchToZone('course'); return; }
-        else if (taskType === 6) { switchToZone('disc'); return; }
+        if (taskType === 1) { switchToZone(ZONE.COURSE); return; }
+        else if (taskType === 6) { switchToZone(ZONE.DISC); return; }
         else if (taskType > 1 && taskType <= 5) {
-            if (appState.activeZone !== 'hw') logMsg('📝 侦测到【测验/作业/问卷】→ 已切换作业区', 'success', true);
-            switchToZone('hw');
+            if (playState.activeZone !== ZONE.HW) logMsg('📝 侦测到【测验/作业/问卷】→ 已切换作业区', 'success', true);
+            switchToZone(ZONE.HW);
             setTimeout(hwProactiveFetchData, 300);
             return;
         }
 
         if (window.location.href.includes('/course_paper/')) {
-            if (appState.activeZone !== 'hw') logMsg('📝 侦测到【作业/测验页面】→ 已切换作业区', 'success', true);
-            switchToZone('hw');
+            if (playState.activeZone !== ZONE.HW) logMsg('📝 侦测到【作业/测验页面】→ 已切换作业区', 'success', true);
+            switchToZone(ZONE.HW);
             setTimeout(hwProactiveFetchData, 300);
             return;
         }
         if (document.querySelector('video, iframe[src*="ow365"], iframe[src*="office"], .prism-player, .aliplayer, .xy_disk_preview, .pdf-viewer')) {
-            switchToZone('course'); return;
+            switchToZone(ZONE.COURSE); return;
         }
         if (xyIsDiscussionPage()) {
-            switchToZone('disc'); return;
+            switchToZone(ZONE.DISC); return;
         }
         
-        if (appState.activeZone === 'hw' && window.location.href.includes('/resource/') && getPaperId()) {
+        if (playState.activeZone === ZONE.HW && window.location.href.includes('/resource/') && getPaperId()) {
             return;
         }
-        if (routeKind === 'dir') {
-            if (appState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', true);
+        if (routeKind === ZONE.DIR) {
+            if (playState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', true);
             switchToZone('dir');
             setTimeout(loadCourseDirectory, 200);
             return;
         }
-        if (routeKind === 'overview') {
+        if (routeKind === ZONE.OVERVIEW) {
             switchToZone('overview');
             void xyOverviewLoad(groupId, false);
             return;
         }
-        switchToZone('courses');
+        switchToZone(ZONE.COURSES);
         void xyCourseDashboardLoad(false);
     }
-
+    /** 课程 ID 归一化出口：String(value).trim()。空串语义为「无效课程上下文」。
+     * [DEEP-DOC]
+     */
     function courseGroupKey(value) {
         if (value === null || value === undefined) return '';
         return String(value).trim();
     }
-
+    /** 当前 URL 课程与给定 groupId 一致性判断（getCourseGroupId 后严格比对）。
+     * [DEEP-DOC]
+     */
     function isCurrentCourseGroup(groupId) {
         const expected = courseGroupKey(groupId);
         return !!expected && courseGroupKey(getCourseGroupId()) === expected;
     }
-
+    /**
+     * 课程全量资源树装载（带三重防护）。
+     *
+     * 1) in-flight 去重：同 group 的并发请求复用同一 Promise；
+     * 2) code=50007 授权流：先 POST group/visit 拿 site_id → GET access/
+     *    authorization 换 access_group_token → 带 X-Course-Access 头重试原查询；
+     * 3) 模块级 Map 缓存 + 成功时同步一份到 dlState.courseResourcesCache。
+     *
+     * @returns {Promise<Array|null>} 资源树数组；失败返回 null 不抛出
+     * [DEEP-DOC]
+     */
     async function loadCourseResources(groupId) {
         const key = courseGroupKey(groupId);
         if (!key) return null;
@@ -2674,8 +3672,8 @@
         const cached = courseResourcesCacheByGroup.get(key);
         if (cached) {
             if (isCurrentCourseGroup(key)) {
-                appState.courseResourcesCache = cached;
-                appState.lastCourseGroupId = key;
+                dlState.courseResourcesCache = cached;
+                dlState.lastCourseGroupId = key;
             }
             return cached;
         }
@@ -2717,8 +3715,8 @@
                 if (!data.success || !data.data) return null;
                 courseResourcesCacheByGroup.set(key, data.data);
                 if (isCurrentCourseGroup(key)) {
-                    appState.courseResourcesCache = data.data;
-                    appState.lastCourseGroupId = key;
+                    dlState.courseResourcesCache = data.data;
+                    dlState.lastCourseGroupId = key;
                 }
                 return data.data;
             } catch (e) {
@@ -2731,12 +3729,17 @@
         courseResourceRequests.set(key, request);
         return request;
     }
-
-    
+    /** 目录节点的单元子列表抽取：兼容 children/child_nodes/items 三形态（内部走 dlResourceValues）。
+     * [DEEP-DOC]
+     */
     function dirUnitChildren(n) {
         return (n && n._children) || [];
     }
-
+    /**
+     * 「单元」判定：有名称且无文件扩展名（不匹配 WATCH 白名单）即视为分组
+     * 目录节点。平台没有显式 type 标记，只能靠扩展名反向推断。
+     * [DEEP-DOC]
+     */
     function dirIsUnit(n) {
         if (dirUnitChildren(n).length) return true;
         if (String(n.type || '') === 'folder') return true;
@@ -2748,9 +3751,13 @@
         const type = n.task_type !== undefined ? n.task_type : n.type;
         if (Number(type) >= 2 && Number(type) <= 5) return false;
         if (Number(n.resource_type) > 0) return false;
-        return !/\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(String(n.name || n.title || ''));
+        return !SHARED_PATTERNS.WATCH.test(String(n.name || n.title || ''));
     }
-
+    /**
+     * 目录树构建器：从扁平资源树重组为「单元嵌套 + 叶子文件」结构。
+     * 递归中维护 _id 赋值（缺失时 seq 补位保证 DOM key 稳定）与层级 depth。
+     * [DEEP-DOC]
+     */
     function buildDirTree(resources) {
         const byId = new Map();
         dlCollectResources(resources).forEach(r => {
@@ -2778,13 +3785,19 @@
         }
         return roots;
     }
-
+    /**
+     * 体积文案：文件直接取 size 字段人话化；目录递归累加子文件体积后格式化
+     * （B<1KB / KB<1MB / MB<1GB / GB 自适应保留一位小数）。
+     * [DEEP-DOC]
+     */
     function dirFileSize(n) {
         const s = Number(n.file_size || n.size || 0);
         if (!s) return '';
         return s > 1048576 ? (s / 1048576).toFixed(1) + 'MB' : (s / 1024).toFixed(0) + 'KB';
     }
-
+    /** 递归统计目录下的叶子文件总数（不含单元节点自身）。
+     * [DEEP-DOC]
+     */
     function countDirFiles(nodes) {
         let c = 0;
         (Array.isArray(nodes) ? nodes : []).forEach(n => {
@@ -2793,7 +3806,9 @@
         });
         return c;
     }
-
+    /** 目录区数据装载编排：取课程 ID → loadCourseResources → buildDirTree → 渲染；全程状态条反馈（加载中/N项/失败可重试）。
+     * [DEEP-DOC]
+     */
     async function loadCourseDirectory() {
         const box = document.getElementById('xy-dir-list');
         const statusEl = document.getElementById('xy-dir-status');
@@ -2826,7 +3841,9 @@
             console.warn('[小雅] 课程目录读取失败:', e);
         }
     }
-
+    /** 平台 Web 端资源查看链接拼接（resource/{parent}/{node} 形态，带路由前缀自适应）。
+     * [DEEP-DOC]
+     */
     function dirResourceUrl(r) {
         const groupId = getCourseGroupId();
         if (!groupId || !r) return '';
@@ -2840,7 +3857,12 @@
         const parentId = rawParentId !== null && rawParentId !== '1' ? rawParentId : selfId;
         return `/app/jx-web/${pathPrefix}/${groupId}/resource/${parentId}/${selfId}`;
     }
-
+    /**
+     * 目录树 HTML 生成：逐节点产出单元折叠头（缩进=depth*14px、± 折叠标记、
+     * 项数角标）或文件行（勾选框 + 类型徽章 + 名称 + 大小 + 单文件下载按钮），
+     * 全部动态文本 escapeHtml；勾选态从 downloadSelectedIds 读回保持视觉一致。
+     * [DEEP-DOC]
+     */
     function buildDirHtml(nodes, depth) {
         let html = '';
         (Array.isArray(nodes) ? nodes : []).forEach(n => {
@@ -2878,18 +3900,27 @@
         });
         return html;
     }
-
+    /** 目录区总渲染：状态条（✅ N 项 / 加载中 / 失败重试）+ buildDirHtml 产物注入 + 底部计数。
+     * [DEEP-DOC]
+     */
     function renderCourseDirectory(nodes) {
         const box = document.getElementById('xy-dir-list');
         if (!box) return;
         box.innerHTML = buildDirHtml(nodes, 0);
     }
-
+    /** 当前过滤条件（关键词+类型集）下可见文件数统计，供目录区与下载区的计数徽章。
+     * [DEEP-DOC]
+     */
     function countVisibleFiles(node, visibleIds) {
         if (!dirIsUnit(node)) return visibleIds.has(node._id) ? 1 : 0;
         return dirUnitChildren(node).reduce((s, k) => s + countVisibleFiles(k, visibleIds), 0);
     }
-
+    /**
+     * 下载区树视图 HTML 构建：递归 dirTree，单元节点生成折叠头（data-dl-marker
+     * ± 号 + 名称 + 子项计数），叶子文件生成完整行（勾选框 data-fid / 单文件
+     * 按钮 data-quote-id / 大小列）。不可见 ID 直接剪枝不渲染。
+     * [DEEP-DOC]
+     */
     function buildDownloadTreeHtml(nodes, visibleIds, depth) {
         let html = '';
         (Array.isArray(nodes) ? nodes : []).forEach(n => {
@@ -2909,7 +3940,7 @@
             } else {
                 if (!visibleIds.has(n._id)) return;
                 const name = n.name || n.title || '未知文件';
-                const checked = appState.downloadSelectedIds.has(String(n._id));
+                const checked = dlState.downloadSelectedIds.has(String(n._id));
                 const sizeStr = dirFileSize(n);
                 const quoteId = dlQuoteId(n) ?? normalizeDownloadId(n._id);
                 html += `
@@ -2928,11 +3959,20 @@
         });
         return html;
     }
-
+    /**
+     * 云盘加密直链解密器（DES-CBC，密钥对见 DES 常量）。
+     *
+     * 步骤：URL-safe base64 变体还原（_ → +、* → /、- → =）→ CryptoJS
+     * Base64.parse 得 ciphertext → DES.decrypt(key/iv/Pkcs7) → Utf8 输出明文 URL。
+     * 容错：任何一步异常 warn 后原样返回入参——部分链路传入的本身就是明文。
+     *
+     * 依赖：unsafeWindow.CryptoJS（页面全局加载的 crypto-js.min.js）。
+     * [DEEP-DOC]
+     */
     function decryptFileUrl(encryptedUrl) {
         try {
-            const key = "94374647";
-            const vector = "99526255";
+            const key = DES.KEY;
+            const vector = DES.IV;
             const base64Str = encryptedUrl
                 .replace(/_/g, '+')
                 .replace(/\*/g, '/')
@@ -2952,15 +3992,28 @@
             return encryptedUrl;
         }
     }
-
-    
+    /** 时间戳归一化：数字 <1e12 视为秒 ×1000 转 ms；字符串走 Date.parse；均失败返回 0。用于 createdAt 排序字段统一。
+     * [DEEP-DOC]
+     */
     function dlParseTs(v) {
         if (v === undefined || v === null || v === '') return 0;
         if (typeof v === 'number') return (v < 1e12) ? v * 1000 : v;
         const t = Date.parse(v);
         return Number.isFinite(t) ? t : 0;
     }
-
+    /**
+     * 下载区数据源总装。
+     *
+     * in-flight 复用：同课程的并发调用共享同一个 Promise（downloadResourceRequests
+     * 登记，finally 注销）。主体：token 校验 → queryCourseResources（含 50007
+     * 授权重试流，同 loadCourseResources 的三级处理）→ success 校验 →
+     * 三件套产出：dlBuildSortMap 排序映射、buildDirTree 目录树、
+     * extractFilesFromResources 过滤后的 files 数组（逐条补 nodeId 兜底链 /
+     * video|doc 类型标记 / quoteId 兜底链 / 尺寸 / 排序元数据 / ms 时间戳）。
+     *
+     * @returns {Promise<{files, sortMap, dirTree}|null>} 失败返回 null
+     * [DEEP-DOC]
+     */
     async function fetchDownloadResources(groupId) {
         const key = courseGroupKey(groupId);
         if (!key) return [];
@@ -3004,15 +4057,19 @@
                 const flat = extractFilesFromResources(data.data);
                 const files = flat.filter(r => {
                     const name = (r.name || r.title || '').toLowerCase();
-                    return /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+                    return SHARED_PATTERNS.WATCH.test(name);
                 }).map(r => {
                     const id = dlResourceId(r);
                     if (id === null) return null;
+                    // type=9/resource_type=5 是「视频任务引用」节点：quote_id 指向任务而非云盘文件，
+                    // file_url 接口对其返回 resource not exist。真实媒体走 VOD 点播系统（video_id）。
+                    const isVodTask = Number(r.type) === 9 || Number(r.resource_type) === 5;
                     return {
                         id,
                         nodeId: normalizeDownloadId(r.node_id) ?? normalizeDownloadId(r.nodeId) ?? id,
                         name: r.name || r.title || '未知文件',
-                        type: /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test((r.name || '').toLowerCase()) ? 'video' : 'doc',
+                        type: SHARED_PATTERNS.MEDIA.test((r.name || '').toLowerCase()) ? 'video' : 'doc',
+                        source: isVodTask ? 'vod' : 'cloud',
                         quoteId: dlQuoteId(r) ?? id,
                         size: r.file_size || r.size || 0,
                         order: r.__order || 0,
@@ -3033,7 +4090,17 @@
         downloadResourceRequests.set(key, request);
         return request;
     }
-
+    /**
+     * 云盘直链换取器（file_url/{quoteId}）。
+     *
+     * 循环 3 次：AbortSignal 检查 → token 缺失 continue → fetch 换链 →
+     * success 且 url 存在：is_encryption 时经 decryptFileUrl 解密后返回；
+     * 异常（非 Abort）warn 继续重试；间隔 sleep(500)。三次耗尽返回 null——
+     * 上层 runDownloadQueue 以「获取失败」计数并继续下一文件，不会中断队列。
+     *
+     * @returns {Promise<string|null>} 可直接 GET 的文件直链
+     * [DEEP-DOC]
+     */
     async function getDownloadUrl(quoteId, signal) {
         const normalizedQuoteId = normalizeDownloadId(quoteId);
         if (normalizedQuoteId === null) return null;
@@ -3063,10 +4130,250 @@
         }
         return null;
     }
+    /**
+     * 主世界 Aliplayer 换流桥安装器（一次性）。
+     *
+     * 背景：TM 沙箱里 window.Aliplayer 不可见（页面脚本的全局挂在 unsafeWindow），
+     * 跨沙箱直接实例化 SDK 不可靠，CustomEvent detail 跨世界可能被 Xray 隔离。
+     *
+     * 实现：向 document.head 注入内联 script 在主世界建立——
+     *   unsafeWindow._xyVodQueue 共享数组 + setInterval(200ms) 消费循环：
+     *   取 {reqId, videoId, playAuth} 条目 → 隐藏容器实例化 Aliplayer →
+     *   ready 回调后 2.5s 读 player._urls 提取 .mp4 直链 → 结果 JSON 序列化写回
+     *   条目 result 字段 → dispose 销毁播放器。队列超 40 条自动清理已完成项。
+     * 全程只传纯字符串，规避一切跨世界结构化克隆问题。
+     * [DEEP-DOC]
+     */
+    function xyInjectVodBridge() {
+        if (window._xyVodBridgeInstalled) return;
+        window._xyVodBridgeInstalled = true;
+        // 沙箱侧初始化队列容器（主世界脚本会重建同名数组前先检查）
+        try {
+            if (!unsafeWindow._xyVodQueue || typeof unsafeWindow._xyVodQueue.length !== 'number') {
+                unsafeWindow._xyVodQueue = [];
+            }
+        } catch(e) {}
+        const script = document.createElement('script');
+        script.textContent = `
+            (function() {
+                if (window._xyVodBridgeReady) return;
+                window._xyVodBridgeReady = true;
+                if (!Array.isArray(window._xyVodQueue)) window._xyVodQueue = [];
+                function processOne(item) {
+                    if (!item || item.result !== undefined) return;
+                    var videoId = item.videoId, playAuth = item.playAuth;
+                    var fail = function(msg) { item.result = JSON.stringify({ ok: false, error: String(msg) }); };
+                    try {
+                        if (typeof window.Aliplayer !== 'function') { fail('Aliplayer SDK 未加载'); return; }
+                        var holder = document.createElement('div');
+                        holder.id = 'xy-vod-bridge-' + item.reqId;
+                        holder.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:320px;height:180px;';
+                        document.body.appendChild(holder);
+                        var settled = false;
+                        var p = null;
+                        var finish = function(err, url) {
+                            if (settled) return; settled = true;
+                            try { if (p && p.dispose) p.dispose(); } catch(e) {}
+                            if (holder.parentNode) holder.parentNode.removeChild(holder);
+                            setTimeout(function() {
+                                if (err) item.result = JSON.stringify({ ok: false, error: String(err && err.message || err) });
+                                else item.result = JSON.stringify({ ok: true, url: url });
+                            }, 0);
+                        };
+                        var timeoutId = setTimeout(function(){ finish(new Error('Aliplayer 换流超时')); }, 15000);
+                        try {
+                            p = new window.Aliplayer({
+                                id: holder.id,
+                                vid: videoId,
+                                playauth: playAuth,
+                                region: 'cn-shanghai',
+                                format: 'mp4',
+                                mediaType: 'video',
+                                isLive: false,
+                                autoplay: false
+                            }, function(player) {
+                                setTimeout(function() {
+                                    clearTimeout(timeoutId);
+                                    var urls = (player && player._urls) || [];
+                                    var mp4 = null;
+                                    for (var i = 0; i < urls.length; i++) {
+                                        if (String(urls[i] && urls[i].Url || '').indexOf('.mp4') !== -1) { mp4 = urls[i]; break; }
+                                    }
+                                    if (!mp4) mp4 = urls[0];
+                                    if (mp4 && mp4.Url) finish(null, mp4.Url);
+                                    else finish(new Error('未解析到播放地址'));
+                                }, 2500);
+                            });
+                        } catch(e) { clearTimeout(timeoutId); finish(e); }
+                    } catch(e) { fail(String(e)); }
+                }
+                setInterval(function() {
+                    var q = window._xyVodQueue;
+                    if (!Array.isArray(q)) return;
+                    for (var i = 0; i < q.length; i++) processOne(q[i]);
+                    // 清理已完成的旧条目，防止无限增长
+                    if (q.length > 40) {
+                        window._xyVodQueue = q.filter(function(it){ return it.result === undefined; });
+                    }
+                }, 200);
+            })();
+        `;
+        (document.head || document.documentElement).appendChild(script);
+        script.remove();
+    }
+    /**
+     * 通过共享队列请求主世界换流，Promise 化封装。
+     *
+     * 协议：入队 {reqId, videoId, playAuth} → 250ms 轮询读同条目 result →
+     * JSON.parse 后 ok?url resolve / error reject。双超时保护：18s 无结果或
+     * 主世界侧 15s 换流失败均以明确错误结算。队列不可用（unsafeWindow 异常）
+     * 时同步 reject 不挂起。
+     *
+     * @param {string} videoId - 平台 VOD 视频 ID（queryResource/v3 获得）
+     * @param {string} playAuth - play_auth 接口下发的播放凭证
+     * @returns {Promise<string>} 带 auth_key 的公网 mp4 直链
+     * [DEEP-DOC]
+     */
+    function xyAliplayerResolveMp4(videoId, playAuth) {
+        xyInjectVodBridge();
+        return new Promise((resolve, reject) => {
+            let queue;
+            try {
+                queue = unsafeWindow._xyVodQueue;
+                if (!queue || typeof queue.push !== 'function') throw new Error('VOD 桥队列未就绪');
+            } catch(e) {
+                reject(new Error('VOD 桥不可用: ' + e.message));
+                return;
+            }
+            const reqId = Math.random().toString(36).slice(2, 10);
+            const entry = { reqId, videoId: String(videoId), playAuth: String(playAuth), createdAt: Date.now() };
+            let settled = false;
+            const cleanupTimer = setInterval(() => {
+                if (settled) { clearInterval(cleanupTimer); return; }
+                let item = null;
+                try {
+                    for (const it of queue) { if (it && it.reqId === reqId) { item = it; break; } }
+                } catch(e) {
+                    settled = true; clearInterval(cleanupTimer);
+                    reject(new Error('VOD 桥队列读取失败'));
+                    return;
+                }
+                if (!item) {
+                    if (Date.now() - entry.createdAt > 18000) {
+                        settled = true; clearInterval(cleanupTimer);
+                        reject(new Error('换流通信超时'));
+                    }
+                    return;
+                }
+                if (item.result === undefined) {
+                    if (Date.now() - entry.createdAt > 18000) {
+                        settled = true; clearInterval(cleanupTimer);
+                        reject(new Error('Aliplayer 换流超时'));
+                    }
+                    return;
+                }
+                settled = true;
+                clearInterval(cleanupTimer);
+                try {
+                    const parsed = JSON.parse(item.result);
+                    if (parsed.ok && parsed.url) resolve(parsed.url);
+                    else reject(new Error(parsed.error || '主世界换流失败'));
+                } catch(e) {
+                    reject(new Error('VOD 桥结果解析失败'));
+                }
+            }, 250);
+            try {
+                queue.push(entry);
+            } catch(e) {
+                settled = true; clearInterval(cleanupTimer);
+                reject(new Error('VOD 桥请求入队失败: ' + e.message));
+            }
+        });
+    }
+    /**
+     * VOD 视频直链获取编排（type=9 任务节点的专用链路）。
+     *
+     * 两步取数：queryResource/v3?node_id → resource.video_id；play_auth/{videoId}
+     * → 播放凭证。然后双链路取直链：
+     *   A（优先）xyAliplayerResolveMp4 公网换流 → vod.ai-augmented.com mp4，
+     *     校内外均可下载；
+     *   B（备选）private_vod[0].private_url 校内点播 m3u8 —— 仅校园网可达，
+     *     作为 A 失败时的降级。
+     * AbortSignal 全程透传；两路都失败返回 null 并 warn 具体环节。
+     * [DEEP-DOC]
+     */
+    async function getVodDownloadUrl(nodeId, signal) {
+        const normalizedNodeId = normalizeDownloadId(nodeId);
+        if (normalizedNodeId === null) return null;
+        const token = getCookie();
+        if (!token) return null;
+        try {
+            if (signal?.aborted) throw new DOMException('用户终止下载', 'AbortError');
+            const resRes = await fetch(`https://${domain}/api/jx-iresource/resource/queryResource/v3?node_id=${encodeURIComponent(normalizedNodeId)}`, {
+                signal: signal || undefined,
+                headers: { 'authorization': `Bearer ${token}` }
+            });
+            const resData = await resRes.json();
+            const videoId = resData?.data?.resource?.video_id;
+            if (!videoId) {
+                console.warn('[小雅] VOD 下载：queryResource/v3 未返回 video_id，节点:', normalizedNodeId);
+                return null;
+            }
+            const authRes = await fetch(`https://${domain}/api/jx-oresource/vod/video/play_auth/${videoId}`, {
+                signal: signal || undefined,
+                headers: { 'accept': '*/*', 'authorization': `Bearer ${token}`, 'x-language': 'zh-CN' }
+            });
+            const authData = await authRes.json();
 
-    // 与“小雅爬爬爬”的 handleFetchDownload 保持同一条链路：
-    // fetch(带 Authorization) → ReadableStream 逐块读取 → Blob → a.click()。
-    // onProgress 只用于显示当前文件进度，不改变批量下载的完成计数。
+            // 链路A：Aliplayer 公网换流（校内外均可下载）——实测返回 vod.ai-augmented.com/mp4
+            try {
+                if (authData?.data?.play_auth) {
+                    const publicUrl = await xyAliplayerResolveMp4(videoId, authData.data.play_auth);
+                    if (publicUrl) return publicUrl;
+                }
+            } catch(e) {
+                if (e?.name === 'AbortError') throw e;
+                console.warn('[小雅] VOD 公网换流失败，尝试校内直链:', e.message);
+            }
+
+            // 链路B（备选）：校内 private_url —— 仅校园网环境可达
+            const privateVod = authData?.data?.private_vod;
+            if (Array.isArray(privateVod) && privateVod.length > 0 && privateVod[0].private_url) {
+                console.warn('[小雅] VOD 使用校内点播直链（需校园网环境）');
+                return privateVod[0].private_url;
+            }
+            console.warn('[小雅] VOD 下载：公网与校内双链路均未取得地址，video_id:', videoId);
+            return null;
+        } catch(e) {
+            if (e?.name === 'AbortError') throw e;
+            console.warn('[小雅] VOD 链路获取失败:', e);
+            return null;
+        }
+    }
+    /**
+     * 直链获取统一路由入口。
+     *
+     * file.source === 'vod' 且有 nodeId → 必须走 VOD 链路（quote_id 是任务 ID
+     * 打云盘接口必然 resource not exist，失败也不回退云盘白白浪费重试）；
+     * 其余走 getDownloadUrl 云盘链路。新增下载来源类型时只需在此登记路由规则。
+     * [DEEP-DOC]
+     */
+    async function getFileDownloadUrl(file, signal) {
+        // VOD 视频任务：quote_id 是任务 ID 不是云盘资源，必须走 VOD 链路
+        if (file && file.source === 'vod' && file.nodeId) {
+            const vodUrl = await getVodDownloadUrl(file.nodeId, signal);
+            if (vodUrl) return vodUrl;
+            // VOD 失败不重试云盘（quote_id 必然 resource not exist）
+            return null;
+        }
+        return getDownloadUrl(file ? file.quoteId : null, signal);
+    }
+    /**
+     * 下载文件名消毒：split(/[\\/])/ 取末段防路径穿越 → 替换 Windows 非法字符集
+     * 与控制字符为下划线 → trim → 纯点号名兜底 → 截长 180 字符。空结果兜底
+     * 「下载文件」。a[download] 属性的唯一入口。
+     * [DEEP-DOC]
+     */
     function xySanitizeDownloadFilename(filename) {
         const baseName = String(filename ?? '').split(/[\\/]/).pop() || '';
         const safeName = baseName
@@ -3075,8 +4382,114 @@
             .replace(/^\.+$/, '');
         return safeName ? safeName.slice(0, 180) : '下载文件';
     }
-
+    /**
+     * GM_xmlhttpRequest 特权下载通道 —— CORS 无关紧要的全量下载实现。
+     *
+     * 适用：跨域媒体直链（vod.ai-augmented.com 等，响应无 Access-Control-
+     * Allow-Origin，页面 fetch 无法读取响应体）。GM 特权请求绕过同源策略。
+     *
+     * 机制：responseType:'arraybuffer' 全量接收（onprogress 上报 loaded/total
+     * 进度）→ onload 校验 2xx → Blob 包装（Content-Type 或默认 video/mp4）→
+     * objectURL + a[download] 触发保存 → 5s 后 revoke。abortHandler 监听外部
+     * signal，触发时 reqObj.abort() 并以 AbortError 结算。
+     *
+     * 权衡：无流式落盘，大文件占内存；换来的是零 CORS 配置依赖。
+     * [DEEP-DOC]
+     */
+    function gmDownloadFile(url, filename, signal, onProgress) {
+        return new Promise((resolve, reject) => {
+            if (typeof GM_xmlhttpRequest !== 'function') {
+                reject(new Error('GM_xmlhttpRequest 不可用'));
+                return;
+            }
+            let settled = false;
+            let reqObj = null;
+            const finish = (err, ok) => {
+                if (settled) return;
+                settled = true;
+                if (signal) signal.removeEventListener('abort', abortHandler);
+                setTimeout(() => err ? reject(err) : resolve(ok), 0);
+            };
+            const abortHandler = () => {
+                try { if (reqObj && reqObj.abort) reqObj.abort(); } catch(e) {}
+                finish(new DOMException('用户终止下载', 'AbortError'));
+            };
+            if (signal) {
+                if (signal.aborted) { finish(new DOMException('用户终止下载', 'AbortError')); return; }
+                signal.addEventListener('abort', abortHandler, { once: true });
+            }
+            try {
+                reqObj = GM_xmlhttpRequest({
+                    method: 'GET',
+                    url,
+                    responseType: 'arraybuffer',
+                    onprogress: (e) => {
+                        if (settled || !e) return;
+                        if (typeof onProgress === 'function') {
+                            const totalBytes = e.total || e.totalLength || 0;
+                            const receivedBytes = e.loaded || e.loadedBytes || 0;
+                            const percent = totalBytes > 0 ? receivedBytes / totalBytes * 100 : null;
+                            onProgress({ receivedBytes, totalBytes, percent });
+                        }
+                    },
+                    onload: (resp) => {
+                        if (settled) return;
+                        if (resp.status >= 200 && resp.status < 300 && resp.response) {
+                            let mime = 'video/mp4';
+                            try { mime = resp.getResponseHeader('Content-Type') || mime; } catch(e) {}
+                            const blob = new Blob([resp.response], { type: mime });
+                            const objectUrl = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = objectUrl;
+                            a.download = xySanitizeDownloadFilename(filename);
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+                            finish(null, true);
+                        } else {
+                            finish(new Error(`HTTP ${resp.status}`));
+                        }
+                    },
+                    onerror: () => finish(new TypeError('Failed to fetch')),
+                    ontimeout: () => finish(new Error('下载超时')),
+                });
+            } catch(e) {
+                finish(e);
+            }
+        });
+    }
+    /**
+     * 跨域媒体判定（下载通道路由依据）：解析 URL 后两个条件同时满足才走 GM
+     * 通道——origin ≠ 页面 origin 且 pathname+search 匹配 .mp4/.m3u8/.ts 后缀。
+     * 同源云盘文件（oss 代理路径等）留在原生 fetch 流式通道享受进度与低内存。
+     * [DEEP-DOC]
+     */
+    function xyIsCrossOriginMedia(url) {
+        try {
+            const u = new URL(String(url), window.location.origin);
+            // 同源云盘文件走原 fetch 流式链路；其余媒体域名（vod.* 等）走 GM 通道
+            return u.origin !== window.location.origin && /\.(mp4|m3u8|ts)([?#]|$)/i.test(u.pathname + u.search);
+        } catch(e) {
+            return false;
+        }
+    }
+    /**
+     * 文件落盘分发器（下载链路的最后一跳）。
+     *
+     * 路由规则 xyIsCrossOriginMedia(url)：
+     *   true  → gmDownloadFile 特权通道（跨域媒体，绕 CORS）；
+     *   false → 原生 fetch 流式通道：带 Bearer Token GET → ReadableStream 逐块
+     *           读取实时进度 → Blob 拼装 → objectURL + a[download] 触发保存 →
+     *           5s 后 revoke（过早 revoke 会取消保存）。支持 signal 终止（reader
+     *           cancel + AbortError 结算）与 Content-Range 总长解析的进度计算。
+     * [DEEP-DOC]
+     */
     function downloadFile(url, filename, signal, onProgress) {
+        // 跨域媒体直链：页面 fetch 会被 CORS 拦截，改走 GM_xmlhttpRequest 特权通道
+        if (xyIsCrossOriginMedia(url)) {
+            return gmDownloadFile(url, filename, signal, onProgress);
+        }
         return new Promise((resolve, reject) => {
             const token = getCookie();
             let settled = false;
@@ -3176,7 +4589,9 @@
             })();
         });
     }
-
+    /** 字节量三段格式化：<1KB 显示 B；KB/MB 一位小数；≥1GB 两位小数。Number 强转兜底非法输入为 0B。
+     * [DEEP-DOC]
+     */
     function formatDownloadBytes(bytes) {
         const value = Number(bytes) || 0;
         if (value < 1024) return `${value} B`;
@@ -3184,7 +4599,12 @@
         if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
         return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GB`;
     }
-
+    /**
+     * 下载进度区渲染：total<=0 时整体隐藏；否则显示完成计数、当前文件名、
+     * 百分比条宽与字节明细（receivedBytes/totalBytes 经 formatDownloadBytes）。
+     * 参数全部可选，缺省项保留上一次的 DOM 值不做覆写。
+     * [DEEP-DOC]
+     */
     function updateDownloadProgress(done, total, currentName, currentPercent, currentBytes, currentTotalBytes) {
         const wrap = document.getElementById('xy-dl-progress-wrap');
         const bar = document.getElementById('xy-dl-progress-bar');
@@ -3224,6 +4644,12 @@
             detail.title = detail.textContent;
         }
     }
+    /**
+     * 下载区按钮组状态同步（单一事实来源模式）：downloading 控制「批量下载」
+     * 显隐与「停止」可用；canPause 进一步控制「暂停」可见性。所有入口（单文件/
+     * 批量/终止/异常清理）都经此函数收敛按钮状态，杜绝多处手写导致的错乱。
+     * [DEEP-DOC]
+     */
     function setDownloadButtonsState(downloading, paused) {
         const batchBtn = document.getElementById('xy-dl-batch-download');
         const stopBtn = document.getElementById('xy-dl-stop');
@@ -3231,26 +4657,45 @@
         if (batchBtn) { batchBtn.style.display = downloading ? 'none' : ''; batchBtn.disabled = false; }
         if (stopBtn) stopBtn.style.display = downloading ? '' : 'none';
         if (pauseBtn) {
-            const canPause = appState.downloadMode === 'batch';
+            const canPause = dlState.downloadMode === 'batch';
             pauseBtn.style.display = downloading && canPause ? '' : 'none';
             pauseBtn.textContent = paused ? '▶️ 继续' : '⏸️ 暂停';
         }
     }
-
-    // 单个下载和批量下载统一走同一个队列执行器，确保进度、终止和状态互不打架。
+    /**
+     * 用户终止入口：读当前 downloadMode 决定日志文案（单文件/批量），
+     * abort controller.signal 触发后整条队列在下一个检查点抛 AbortError 收场，
+     * finally 统一归位。幂等：controller 已 null 时安全空操作。
+     * [DEEP-DOC]
+     */
     function stopBatchDownload() {
-        const mode = appState.downloadMode;
-        const controller = appState.downloadAbortController;
+        const mode = dlState.downloadMode;
+        const controller = dlState.downloadAbortController;
         if (!controller) return;
         controller.abort();
-        appState.downloadPaused = false;
+        dlState.downloadPaused = false;
         logMsg(mode === 'single' ? '⏹️ 用户终止了单文件下载' : '⏹️ 用户终止了批量下载', 'info', true);
     }
-
+    /**
+     * 下载队列执行器 —— 单文件与批量共用的核心引擎。
+     *
+     * 主循环逐文件：暂停门（while paused + signal 双检查）→ getFileDownloadUrl
+     * 取直链 → 成功交 downloadFile 流式/特权落盘（onProgress 透传进度回调）
+     * → done++ 记「已下载」日志；url 为空记「获取失败」（VOD 场景附转码提示）；
+     * 抛错记「下载失败」（错误分类提示：网络不可达区分 m3u8 校园网场景/HTTP 码）。
+     * AbortError 向上穿透由外层 catch 统计已完成的数量。文件间 sleep(500)
+     * 礼貌间隔。finally：controller 解绑、mode 归 idle、按钮全量复位、进度条
+     * 3 秒后隐藏。
+     *
+     * @param {Array<{name, quoteId?, source?, nodeId?}>} files
+     * @param {'single'|'batch'} mode
+     * @param {HTMLElement} [activeButton] - 触发按钮（执行期间置 ⏳ 并禁用）
+     * [DEEP-DOC]
+     */
     async function runDownloadQueue(files, mode, activeButton = null) {
         const queue = Array.isArray(files) ? files.filter(file => file && file.name) : [];
         if (queue.length === 0) return;
-        if (appState.downloadAbortController) {
+        if (dlState.downloadAbortController) {
             showToast('已有下载任务进行中，请等待完成或先终止当前任务', 'warning');
             return;
         }
@@ -3261,9 +4706,9 @@
         const total = queue.length;
         let done = 0;
         let failed = 0;
-        appState.downloadAbortController = controller;
-        appState.downloadMode = mode;
-        appState.downloadPaused = false;
+        dlState.downloadAbortController = controller;
+        dlState.downloadMode = mode;
+        dlState.downloadPaused = false;
         if (activeButton) {
             activeButton.disabled = true;
             activeButton.textContent = '⏳';
@@ -3274,19 +4719,20 @@
         try {
             for (const file of queue) {
                 if (signal.aborted) throw new DOMException('用户终止下载', 'AbortError');
-                while (appState.downloadPaused && !signal.aborted) await sleep(300);
+                while (dlState.downloadPaused && !signal.aborted) await sleep(300);
                 if (signal.aborted) throw new DOMException('用户终止下载', 'AbortError');
 
                 updateDownloadProgress(done + failed, total);
                 let lastProgress = { receivedBytes: 0, totalBytes: 0, percent: null };
                 let fileSucceeded = false;
+                let url = null;
                 try {
-                    const quoteId = normalizeDownloadId(file.quoteId) ?? dlQuoteId(file);
-                    const url = await getDownloadUrl(quoteId, signal);
+                    url = await getFileDownloadUrl(file, signal);
                     if (signal.aborted) throw new DOMException('用户终止下载', 'AbortError');
                     if (!url) {
                         failed++;
-                        logMsg('❌ 获取失败: ' + file.name, 'error', true);
+                        const vodHint = file.source === 'vod' ? '（VOD视频未转码或不可直链，请先在播放页打开一次该视频）' : '';
+                        logMsg('❌ 获取失败: ' + file.name + vodHint, 'error', true);
                     } else {
                         await downloadFile(url, file.name, signal, progress => {
                             lastProgress = progress;
@@ -3299,12 +4745,24 @@
                 } catch (error) {
                     if (error?.name === 'AbortError') throw error;
                     failed++;
-                    logMsg('❌ 下载失败: ' + file.name, 'error', true);
+                    // 可诊断错误分类：网络不可达 / HTTP 状态错 / 其他
+                    const isNetworkFail = error instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(String(error?.message || ''));
+                    const httpMatch = /HTTP (\d+)/.exec(String(error?.message || ''));
+                    let hint = '';
+                    if (isNetworkFail) {
+                        hint = url && /\.m3u8/i.test(url)
+                            ? '（视频流服务器不可达：校内点播源需校园网/VPN 环境）'
+                            : '（网络不可达，请检查网络连接）';
+                    } else if (httpMatch) {
+                        hint = `（服务器返回 ${httpMatch[1]}）`;
+                    }
+                    console.warn('[小雅] 下载失败详情:', file.name, url ? String(url).slice(0, 120) : '(no-url)', error);
+                    logMsg('❌ 下载失败: ' + file.name + hint, 'error', true);
                 }
 
                 if (signal.aborted) throw new DOMException('用户终止下载', 'AbortError');
                 updateDownloadProgress(done + failed, total, file.name, fileSucceeded ? 100 : lastProgress.percent, lastProgress.receivedBytes, lastProgress.totalBytes);
-                if (done + failed < total && !appState.downloadPaused) await sleep(500);
+                if (done + failed < total && !dlState.downloadPaused) await sleep(500);
             }
             showToast('下载完成: ' + done + '/' + total + ' 个文件' + (failed > 0 ? ' (' + failed + ' 个失败)' : ''), 'success');
         } catch (error) {
@@ -3316,9 +4774,9 @@
                 showToast(error?.message || '文件下载失败', 'error');
             }
         } finally {
-            if (appState.downloadAbortController === controller) appState.downloadAbortController = null;
-            appState.downloadMode = 'idle';
-            appState.downloadPaused = false;
+            if (dlState.downloadAbortController === controller) dlState.downloadAbortController = null;
+            dlState.downloadMode = 'idle';
+            dlState.downloadPaused = false;
             setDownloadButtonsState(false, false);
             const btn = document.getElementById('xy-dl-batch-download');
             if (btn) btn.innerText = '⬇️ 下载选中';
@@ -3329,11 +4787,16 @@
             setTimeout(() => updateDownloadProgress(-1, 0), 3000);
         }
     }
-
+    /**
+     * 批量下载入口：downloadFiles 按 normalizeDownloadId(id) ∈ 勾选集过滤出
+     * selected；空集提示「请先勾选要下载的文件」；否则整体交给 runDownloadQueue
+     * 以 batch 模式执行。
+     * [DEEP-DOC]
+     */
     async function batchDownloadSelected() {
-        const selected = appState.downloadFiles.filter(f => {
+        const selected = dlState.downloadFiles.filter(f => {
             const id = normalizeDownloadId(f.id);
-            return id !== null && appState.downloadSelectedIds.has(id);
+            return id !== null && dlState.downloadSelectedIds.has(id);
         });
         if (selected.length === 0) { showToast('请先勾选要下载的文件', 'warning'); return; }
         await runDownloadQueue(selected, 'batch');
@@ -3349,7 +4812,12 @@
         { key: 'zip', label: '压缩' },
         { key: 'other', label: '其他' }
     ];
-
+    /**
+     * 扩展名 → 类型键分类器：MP4 族→video、MP3 族→audio、PDF→pdf、
+     * DOC/WPS/TXT→doc、PPT 族→ppt、XLS/CSV→xls、ZIP/RAR/7Z→zip，兜底 other。
+     * 输出键与 DL_TYPES 及 downloadTypeFilter 的成员严格对应。
+     * [DEEP-DOC]
+     */
     function dlFileType(name) {
         const m = String(name || '').match(/\.([A-Za-z0-9]+)$/);
         const ext = m ? m[1].toUpperCase() : '';
@@ -3362,7 +4830,9 @@
         if (/^(ZIP|RAR|7Z)$/.test(ext)) return 'zip';
         return 'other';
     }
-
+    /** 文件类型彩色小徽章 HTML（按扩展名配色，固定宽度防抖动）。
+     * [DEEP-DOC]
+     */
     function dlFileChip(name) {
         const m = String(name || '').match(/\.([A-Za-z0-9]+)$/);
         const ext = m ? m[1].toUpperCase() : 'FILE';
@@ -3377,10 +4847,14 @@
         else if (/^(ZIP|RAR|7Z)$/.test(ext)) bg = '#a16207';
         return `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:1px 5px;border-radius:5px;background:${bg};color:#fff;font-size:9px;font-weight:800;letter-spacing:.5px;line-height:1.7;flex-shrink:0;">${ext}</span>`;
     }
-
-    
+    /**
+     * 下载列表排序比较器：path 按 '/' 分段逐级比较——每段查 sortMap 的单元序号；
+     * 公共前缀比完后短者在前；最终以遍历序 order 定 tie-break。保证「单元内
+     * 文件紧跟单元头」的自然阅读顺序。
+     * [DEEP-DOC]
+     */
     function dlUnitCompare(a, b) {
-        const sortMap = appState.downloadSortMap || {};
+        const sortMap = dlState.downloadSortMap || {};
         const ap = String(a.path || '').split('/').filter(Boolean);
         const bp = String(b.path || '').split('/').filter(Boolean);
         const minLen = Math.min(ap.length, bp.length);
@@ -3390,19 +4864,33 @@
         if (ap.length !== bp.length) return ap.length - bp.length;
         return (a.order || 0) - (b.order || 0);
     }
-
+    /**
+     * 单文件下载点击处理。
+     *
+     * 数据恢复双保险：优先按钮 data-quote-id（列表刷新前快照，避免状态映射
+     * 短暂不一致），回退按 fid 在 downloadFiles 里匹配 id/nodeId/quoteId 反查。
+     * VOD 节点（source='vod'）构造携带 nodeId 的任务对象进队列走 VOD 链路；
+     * 普通文件 quoteId 为 null 时提示「找不到下载资源编号」并中止。
+     * preventDefault + stopPropagation 阻断行内其他点击行为。
+     * [DEEP-DOC]
+     */
     async function handleSingleDownloadClick(event, singleButton) {
         if (!singleButton) return;
         event.preventDefault();
         event.stopPropagation();
 
         const fid = normalizeDownloadId(singleButton.getAttribute('data-fid'));
-        const file = fid === null ? null : appState.downloadFiles.find(f => [f.id, f.nodeId, f.quoteId]
+        const file = fid === null ? null : dlState.downloadFiles.find(f => [f.id, f.nodeId, f.quoteId]
             .some(value => normalizeDownloadId(value) === fid));
         // 优先使用按钮生成时绑定的值，避免列表刷新后状态映射短暂不一致。
         const quoteId = normalizeDownloadId(singleButton.getAttribute('data-quote-id'))
             ?? (file ? dlQuoteId(file) : null);
         const fileName = singleButton.getAttribute('data-file-name') || file?.name || '未知文件';
+        // VOD 视频任务：quote_id 是任务 ID，云盘接口必然拒绝，走 VOD 链路
+        if (file && file.source === 'vod') {
+            await runDownloadQueue([{ id: file.id, nodeId: file.nodeId, quoteId, name: fileName, source: 'vod' }], 'single', singleButton);
+            return;
+        }
         if (quoteId === null) {
             console.warn('[小雅] 单文件下载缺少 quote_id:', { fid, fileName, button: singleButton });
             showToast('找不到下载资源编号，请刷新下载列表', 'error');
@@ -3411,31 +4899,42 @@
 
         await runDownloadQueue([{ id: fid, quoteId, name: fileName }], 'single', singleButton);
     }
-
+    /** 为容器内全部 .xy-dl-single 按钮绑定 onclick（void 化异步处理防 unhandled rejection）。列表每次 renderDownloadList 后必须重绑（innerHTML 重建丢失监听）。
+     * [DEEP-DOC]
+     */
     function bindDownloadButtons(container) {
         if (!container) return;
         container.querySelectorAll('.xy-dl-single').forEach(button => {
             button.onclick = event => { void handleSingleDownloadClick(event, button); };
         });
     }
-
+    /**
+     * 下载文件列表主渲染管线。
+     *
+     * 空列表早退（0 个文件文案）；否则四段流水线：类型集 + 关键词双重过滤 →
+     * downloadSortMode 选择排序器（name_asc/desc localeCompare zh-Hans-CN、
+     * time_asc/desc 按 createdAt、默认 dlUnitCompare）→ 行 HTML 拼装（勾选态
+     * 回显/搜索高亮省略）→ 写入 DOM 并 bindDownloadButtons 重绑。头部同步
+     * 「N 个文件 (已过滤)」计数。
+     * [DEEP-DOC]
+     */
     function renderDownloadList() {
         const listDiv = document.getElementById('xy-dl-file-list');
         if (!listDiv) return;
-        if (appState.downloadFiles.length === 0) {
+        if (dlState.downloadFiles.length === 0) {
             listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">暂无课件资源</div>`;
             const countEl = document.getElementById('xy-dl-file-count');
             if (countEl) countEl.textContent = '0 个文件';
             return;
         }
-        const keyword = (appState.downloadSearchKeyword || '').toLowerCase().trim();
-        const typeSet = appState.downloadTypeFilter;
-        const filtered = appState.downloadFiles.filter(f => {
+        const keyword = (dlState.downloadSearchKeyword || '').toLowerCase().trim();
+        const typeSet = dlState.downloadTypeFilter;
+        const filtered = dlState.downloadFiles.filter(f => {
             if (typeSet && typeSet.size > 0 && !typeSet.has(dlFileType(f.name))) return false;
             return !keyword || f.name.toLowerCase().includes(keyword);
         });
         
-        const mode = appState.downloadSortMode;
+        const mode = dlState.downloadSortMode;
         filtered.sort((a, b) => {
             if (mode === 'name_asc') return String(a.name).localeCompare(String(b.name), 'zh-Hans-CN');
             if (mode === 'name_desc') return String(b.name).localeCompare(String(a.name), 'zh-Hans-CN');
@@ -3450,9 +4949,9 @@
             listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
             return;
         }
-        if (mode === 'unit' && appState.downloadDirTree && appState.downloadDirTree.length) {
+        if (mode === 'unit' && dlState.downloadDirTree && dlState.downloadDirTree.length) {
             const visibleIds = new Set(filtered.map(f => String(f.id)));
-            let treeHtml = buildDownloadTreeHtml(appState.downloadDirTree, visibleIds, 0);
+            let treeHtml = buildDownloadTreeHtml(dlState.downloadDirTree, visibleIds, 0);
             if (!treeHtml) treeHtml = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
             listDiv.innerHTML = treeHtml;
             bindDownloadButtons(listDiv);
@@ -3462,7 +4961,7 @@
         const showTime = mode === 'time_desc' || mode === 'time_asc';
         let html = '';
         filtered.forEach(f => {
-            const checked = appState.downloadSelectedIds.has(String(f.id));
+            const checked = dlState.downloadSelectedIds.has(String(f.id));
             const icon = dlFileChip(f.name);
             const sizeStr = f.size ? (f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : (f.size/1024).toFixed(0)+'KB') : '';
             const unitLabel = showUnit && Array.isArray(f.unitPath) && f.unitPath.length ? f.unitPath.join(' › ') : '';
@@ -3486,7 +4985,13 @@
         listDiv.innerHTML = html;
         bindDownloadButtons(listDiv);
     }
-
+    /**
+     * 下载面板数据装载编排：isCurrentPanelRequest 序号防竞态 → 课程名与资源
+     * 数据并发拉取 → 成功写 dlState 五件套（files/sortMap/dirTree/courseName/
+     * courseGroupKey）并清空勾选集 → renderDownloadList；异常分支置错误状态条
+     * 提示可点击刷新重试。面板序号不匹配的结果静默丢弃。
+     * [DEEP-DOC]
+     */
     async function loadDownloadPanel(groupId) {
         const requestId = ++downloadPanelRequestSeq;
         const statusEl = document.getElementById('xy-dl-status');
@@ -3495,16 +5000,16 @@
         if (requestedGroupKey && !isCurrentCourseGroup(requestedGroupKey)) return;
         const isCurrentPanelRequest = () => requestId === downloadPanelRequestSeq
             && isCurrentCourseGroup(requestedGroupKey);
-        appState.downloadCourseGroupKey = requestedGroupKey;
-        appState.downloadCourseName = '';
-        appState.downloadSortMap = {};
-        appState.downloadDirTree = null;
+        dlState.downloadCourseGroupKey = requestedGroupKey;
+        dlState.downloadCourseName = '';
+        dlState.downloadSortMap = {};
+        dlState.downloadDirTree = null;
         if (statusEl) statusEl.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">📡 正在加载课件资源...</span>`;
         if (nameEl) nameEl.textContent = '📦 课件资源';
 
-        appState.downloadFiles = [];
-        appState.downloadSelectedIds.clear();
-        appState.downloadSearchKeyword = '';
+        dlState.downloadFiles = [];
+        dlState.downloadSelectedIds.clear();
+        dlState.downloadSearchKeyword = '';
         const searchInput = document.getElementById('xy-dl-search');
         if (searchInput) searchInput.value = '';
         renderDownloadList();
@@ -3517,24 +5022,24 @@
         try {
             const apiName = await getCourseNameFromAPI(groupId);
             if (!isCurrentPanelRequest()) return;
-            appState.downloadCourseName = apiName || '课件资源';
-            if (nameEl) nameEl.textContent = '📦 ' + appState.downloadCourseName;
+            dlState.downloadCourseName = apiName || '课件资源';
+            if (nameEl) nameEl.textContent = '📦 ' + dlState.downloadCourseName;
 
             const resourceResult = await fetchDownloadResources(groupId);
             if (!isCurrentPanelRequest()) return;
             if (resourceResult === null) {
-                appState.downloadCourseGroupKey = '';
-                appState.downloadCourseName = '';
-                appState.downloadFiles = [];
-                appState.downloadSortMap = {};
-                appState.downloadDirTree = null;
+                dlState.downloadCourseGroupKey = '';
+                dlState.downloadCourseName = '';
+                dlState.downloadFiles = [];
+                dlState.downloadSortMap = {};
+                dlState.downloadDirTree = null;
                 if (statusEl) statusEl.innerHTML = `<span style="color:${T('#f87171','#b91c1c')};">⚠️ 课件资源加载失败，可点击刷新重试</span>`;
                 renderDownloadList();
                 return;
             }
-            appState.downloadSortMap = resourceResult.sortMap;
-            appState.downloadDirTree = resourceResult.dirTree;
-            appState.downloadFiles = resourceResult.files;
+            dlState.downloadSortMap = resourceResult.sortMap;
+            dlState.downloadDirTree = resourceResult.dirTree;
+            dlState.downloadFiles = resourceResult.files;
             if (statusEl) {
                 statusEl.innerHTML = resourceResult.files.length > 0
                     ? `<span style="color:${T('#34d399','#065f46')};">✅ 已加载 ${resourceResult.files.length} 个课件文件</span>`
@@ -3543,27 +5048,37 @@
             renderDownloadList();
         } catch (e) {
             if (!isCurrentPanelRequest()) return;
-            appState.downloadCourseGroupKey = '';
-            appState.downloadCourseName = '';
-            appState.downloadFiles = [];
-            appState.downloadSortMap = {};
-            appState.downloadDirTree = null;
+            dlState.downloadCourseGroupKey = '';
+            dlState.downloadCourseName = '';
+            dlState.downloadFiles = [];
+            dlState.downloadSortMap = {};
+            dlState.downloadDirTree = null;
             if (statusEl) statusEl.innerHTML = `<span style="color:${T('#f87171','#b91c1c')};">⚠️ 课件资源加载异常，可点击刷新重试</span>`;
             renderDownloadList();
             console.warn('[小雅] 下载区面板加载失败:', e);
         }
     }
-
+    /**
+     * 进入下载区编排：不在下载区时把当前区记入 prevZone（返回按钮的落点）→
+     * getCourseGroupId 取课程上下文 → switchToZone(ZONE.DOWNLOAD) →
+     * 异步 loadDownloadPanel(groupId)，异常 warn 不打断 UI。
+     * [DEEP-DOC]
+     */
     function enterDownloadZone() {
-        if (appState.activeZone !== 'download') appState.prevZone = appState.activeZone;
+        if (playState.activeZone !== ZONE.DOWNLOAD) playState.prevZone = playState.activeZone;
         const groupId = getCourseGroupId();
-        switchToZone('download');
+        switchToZone(ZONE.DOWNLOAD);
         void loadDownloadPanel(groupId).catch(e => {
             console.warn('[小雅] 下载区加载失败:', e);
         });
     }
-
-    
+    /**
+     * 任务 → 资源 ID 反查：resource_id 直取；缺失时 loadCourseResources 拉
+     * 课程资源树，extractFilesFromResources 展平后按 node_id/id 匹配目标节点
+     * 取其资源 ID。全程 try-catch 包裹（树拉取失败不致命），最终兜底 task.id
+     * ——宁可跳到近似位置也不让连播断链。
+     * [DEEP-DOC]
+     */
     async function getTaskResourceId(task) {
         if (task.resource_id) return task.resource_id;
         try {
@@ -3573,13 +5088,15 @@
                 const rInfo = flatRes.find(r => r.node_id == task.node_id || r.id == task.node_id);
                 if (rInfo) return (rInfo.id || rInfo.resource_id);
             }
-        } catch(e) {}
+        } catch(e) { console.warn('[小雅] 获取任务资源ID失败:', task && task.node_id, e); }
         return task.id; 
     }
-
-    
-    
-    
+    /**
+     * 阻断式确认弹窗工厂：全屏遮罩 + 渐入卡片（红色警示头部 + 消息区 +
+     * 「我知道了」按钮）。onConfirm 在弹窗关闭动画后回调。遮罩点击空白关闭。
+     * 用于不可逆操作前的确认（如越级解锁警告）。
+     * [DEEP-DOC]
+     */
     function xyShowModal(title, message, onConfirm = null) {
         if (!document.body) return;
         const modal = document.createElement('div');
@@ -3603,7 +5120,12 @@
         content.querySelector('.modal-confirm').onclick = () => { closeModal(); if(onConfirm) onConfirm(); };
         modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
     }
-
+    /**
+     * 轻提示浮层：body 右下角堆叠，四类型配色映射（success 绿/warning 黄/
+     * error 红/info 灰），入场 translateY 弹性动画，2600ms 后淡出移除。
+     * document.body 未就绪时静默丢弃（启动期保护）。
+     * [DEEP-DOC]
+     */
     function showToast(msg, type = 'info') {
         
         if (!document.body) {
@@ -3623,7 +5145,14 @@
         requestAnimationFrame(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0) scale(1)'; });
         setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(-20px) scale(0.9)'; setTimeout(() => toast.remove(), 400); }, 3000);
     }
-
+    /**
+     * 统一日志管线 —— 全脚本的诊断信息出口。
+     *
+     * 双写：终端面板 DOM 追加行（带时间戳与类型配色）+ sessionStorage 环形
+     * 持久化（xy_session_logs，JSON 上限截断）。echo 参数控制是否同步打页面
+     * console（默认关键日志才打，避免刷屏）。silent 类型仅入库不上屏。
+     * [DEEP-DOC]
+     */
     function logMsg(msg, type = 'info', isSilent = false) {
         const colors = { success: '#10b981', warning: '#f59e0b', error: '#ef4444', info: '#38bdf8', silent: '#94a3b8' };
         const color = isSilent ? colors.silent : (colors[type] || colors.info);
@@ -3635,23 +5164,32 @@
         
         try { sessionStorage.setItem('xy_session_logs', JSON.stringify(sessionLogs)); } catch (e) {}
         
+        // 追加到终端视图（若已渲染）
         const logBox = document.getElementById('xy-activity-log');
         if (logBox) {
             const el = document.createElement('div'); el.style.color = color; el.style.marginBottom = '4px'; el.style.lineHeight = '1.5'; el.innerText = logStr; logBox.appendChild(el);
             logBox.scrollTop = logBox.scrollHeight;
             if (logBox.children.length > 80) logBox.removeChild(logBox.firstChild);
         }
+
         if (!isSilent && (type === 'success' || type === 'error' || type === 'warning' || type === 'info')) showToast(msg, type);
     }
-
+    /**
+     * 强化点击：优先 element.click()；抛错或元素不可点击时回退构造
+     * MouseEvent('click', {bubbles, cancelable, view}) 手动派发——穿透部分
+     * 前端框架对原生 click 的拦截层。用于自动化流程中的按钮触发。
+     * [DEEP-DOC]
+     */
     function robustClick(el) {
         if (!el) return;
         try { const opts = { bubbles: true, cancelable: true, view: window }; el.dispatchEvent(new MouseEvent('pointerdown', opts)); el.dispatchEvent(new MouseEvent('click', opts)); el.click(); } catch (e) { el.click(); }
     }
-
-    
-    
-    
+    /**
+     * 动态防卡死刷新注册器：先清旧定时器再设新的 setTimeout(ms) 到点 reload。
+     * 附带 reason 写入 sessionStorage（xy_reload_reason）供重载后诊断。
+     * 同一策略键重复注册以最新一次为准。
+     * [DEEP-DOC]
+     */
     function scheduleDynamicRefresh(delayMs, reason) {
         if (dynamicRefreshTimeoutId) clearTimeout(dynamicRefreshTimeoutId);
         if (refreshCountdownTimer) clearInterval(refreshCountdownTimer);
@@ -3680,7 +5218,9 @@
             window.location.reload();
         }, delayMs);
     }
-
+    /** 清除动态刷新定时器、lastRefreshStrategy 复位为 'none'，并移除挂起的 timeout 句柄。
+     * [DEEP-DOC]
+     */
     function clearDynamicRefresh() {
         let cleared = false;
         if (dynamicRefreshTimeoutId) {
@@ -3705,20 +5245,28 @@
             logMsg(`🛑 动态重载已在当前区域彻底挂起并强停`, 'silent', true);
         }
     }
-
+    /**
+     * 刷新策略决策器（每扫描周期调用）：
+     *   loop 模式：>1h 长视频按时长×1.2 注册一次性刷新；普通视频/文档按
+     *     15min 周期防卡死；达标后切 sequence_completed 策略。
+     *   sequence 模式：已达标或休眠中 → 10min 探测刷新；doc 引擎挂机中 →
+     *     15min 防卡死；其余清除刷新。
+     * manual 模式整体跳过。所有周期常量内联于分支中，改动需同步 BACKOFF 注释。
+     * [DEEP-DOC]
+     */
     function checkDynamicRefresh() {
         
-        if (appState.activeZone !== 'course' || appState.mode === 'manual') {
+        if (playState.activeZone !== ZONE.COURSE || playState.mode === PLAY_MODE.MANUAL) {
             if (lastRefreshStrategy !== 'none' || dynamicRefreshTimeoutId) { 
                 clearDynamicRefresh(); 
             }
             return;
         }
 
-        const currentTaskType = appState.currentEngine;
+        const currentTaskType = playState.currentEngine;
 
-        if (appState.mode === 'loop') {
-            if (currentTaskType === 'doc') {
+        if (playState.mode === PLAY_MODE.LOOP) {
+            if (currentTaskType === TASK_TYPE.DOC) {
                 if (lastRefreshStrategy !== 'loop_doc') {
                     lastRefreshStrategy = 'loop_doc';
                     scheduleDynamicRefresh(15 * 60 * 1000, `文档挂机防卡死`);
@@ -3746,13 +5294,13 @@
                     }
                 }
             }
-        } else if (appState.mode === 'sequence') {
-            if (appState.isTaskCompleted || Date.now() < appState.jumpSleepUntil) {
+        } else if (playState.mode === PLAY_MODE.SEQUENCE) {
+            if (playState.isTaskCompleted || Date.now() < playState.jumpSleepUntil) {
                 if (lastRefreshStrategy !== 'sequence_completed') {
                     lastRefreshStrategy = 'sequence_completed';
                     scheduleDynamicRefresh(10 * 60 * 1000, `连播状态休眠探测`);
                 }
-            } else if (currentTaskType === 'doc') {
+            } else if (currentTaskType === TASK_TYPE.DOC) {
                 if (lastRefreshStrategy !== 'sequence_doc') {
                     lastRefreshStrategy = 'sequence_doc';
                     scheduleDynamicRefresh(15 * 60 * 1000, `文档挂机防卡死`);
@@ -3764,10 +5312,13 @@
             }
         }
     }
-
-    
-    
-    
+    /**
+     * DOM 启发式扫人：querySelectorAll 匹配 class 含 name/author/nick 及
+     * .reply-user 的元素；文本过滤规则——长度 2-15、无换行无等号、命中黑名单
+     * 词表（回复/评论/作者等功能词）或含课程作业类关键词的剔除；幸存文本经
+     * cleanName 净化去重后返回数组。作为网络抓包名单的补充来源。
+     * [DEEP-DOC]
+     */
     function scanDomForUserNames() {
         let names = [];
         try {
@@ -3790,32 +5341,42 @@
         } catch(e) {}
         return names;
     }
-
+    /**
+     * 讨论区身份捕获事件派发：did/gid 双非空且与现值不同才派发
+     * 'xy-disc-captured'（detail 携带双 ID）并更新 discState。幂等设计：
+     * 同一讨论区的重复捕获不重复广播，避免下游名单库被误清空。
+     * [DEEP-DOC]
+     */
     function dispatchCaptureEvent(did, gid) {
-        if (did && gid && (appState.discussionId !== did || appState.discGroupId !== gid)) {
-            appState.discussionId = did; appState.discGroupId = gid;
+        if (did && gid && (discState.discussionId !== did || discState.discGroupId !== gid)) {
+            discState.discussionId = did; discState.discGroupId = gid;
             window.dispatchEvent(new CustomEvent('xy-disc-captured', { detail: { did, gid } }));
         }
     }
-
+    /**
+     * 截包评论列表处理：逐条 decodeNickname 解码真实姓名（排除「匿名」与含
+     * '=' 的坏解码），增量并入 targetNames（includes 去重）；有新增时持久化
+     * GM + 重渲名单列表 + 讨论区激活态下打「捕获 N 位新用户」日志。
+     * [DEEP-DOC]
+     */
     function processDiscussionList(list) {
         if (!Array.isArray(list) || list.length === 0) return;
         const newNames = [];
         list.forEach(item => { const realName = decodeNickname(item.nickname); if (realName && realName !== "匿名" && !realName.includes("=")) newNames.push(realName); });
         
         if (newNames.length > 0) {
-            const beforeCount = appState.targetNames.length;
+            const beforeCount = discState.targetNames.length;
             let added = false;
             newNames.forEach(n => {
-                if(!appState.targetNames.includes(n)) {
-                    appState.targetNames.push(n);
+                if(!discState.targetNames.includes(n)) {
+                    discState.targetNames.push(n);
                     added = true;
                 }
             });
             if (added) {
-                GM_setValue('xy_target_names', JSON.stringify(appState.targetNames));
+                GM_setValue('xy_target_names', JSON.stringify(discState.targetNames));
                 renderTargetList(document.getElementById('xy-name-search')?.value || '');
-                if(appState.activeZone === 'disc') logMsg(`📄 网络包捕获 ${appState.targetNames.length - beforeCount} 位新用户`, 'info', true);
+                if(playState.activeZone === ZONE.DISC) logMsg(`📄 网络包捕获 ${discState.targetNames.length - beforeCount} 位新用户`, 'info', true);
             }
         }
     }
@@ -3841,7 +5402,7 @@
                     if (Array.isArray(data.data.list)) list = data.data.list; else if (Array.isArray(data.data.records)) list = data.data.records; else if (Array.isArray(data.data.points)) list = data.data.points; else if (Array.isArray(data.data)) list = data.data;
                     if (list) processDiscussionList(list);
                 }
-            } catch(e) {}
+            } catch(e) { console.warn('[小雅] 讨论列表响应解析失败(fetch):', e); }
         }
         return response;
     };
@@ -3871,14 +5432,15 @@
                     if (Array.isArray(data.data.list)) list = data.data.list; else if (Array.isArray(data.data.records)) list = data.data.records; else if (Array.isArray(data.data.points)) list = data.data.points; else if (Array.isArray(data.data)) list = data.data;
                     if (list) processDiscussionList(list);
                 }
-            } catch(e) {}
+            } catch(e) { console.warn('[小雅] 讨论列表响应解析失败(xhr):', e); }
         });
         return originalXhrSend.apply(this, arguments);
     };
-
-    
-    
-    
+    /**
+     * 作业请求参数抽取：URL 对象的 group_id/node_id/paper_id 查询参数逐一
+     * 回填 hw 模块三参状态（空值保留原值）。fetch 与 XHR 两条劫持链都汇入此处。
+     * [DEEP-DOC]
+     */
     function hwCaptureParams(rawUrl) {
         try {
             const urlObj = new URL(rawUrl, window.location.origin);
@@ -3894,9 +5456,12 @@
         window.fetch = async function(input, init) {
             const rawUrl = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
             if (rawUrl && rawUrl.includes('/queryStuPaper/v2')) {
-                console.log('[小雅辅助·作业区] 已捕获 fetch 题目数据包');
-                hwCaptureParams(rawUrl);
                 const response = await _hw_nativeFetch.apply(this, arguments);
+                // 参数学习后置 + 仅采信成功响应：防止主动拉取的 404 探测自我污染参数缓存
+                if (response.ok) {
+                    console.log('[小雅辅助·作业区] 已捕获 fetch 题目数据包(200)');
+                    hwCaptureParams(rawUrl);
+                }
                 try {
                     const cloned = response.clone();
                     let data;
@@ -3920,8 +5485,13 @@
         XMLHttpRequest.prototype.send = function(...rest) {
             const self = this;
             if (self._hw_url && self._hw_url.includes('/queryStuPaper/v2')) {
-                console.log('[小雅辅助·作业区] 已捕获 XHR 题目数据包');
-                hwCaptureParams(self._hw_url);
+                self.addEventListener('load', function() {
+                    // 参数学习后置 + 仅采信成功响应（与 fetch 劫持器同策略）
+                    if (self.status === 200) {
+                        console.log('[小雅辅助·作业区] 已捕获 XHR 题目数据包(200)');
+                        hwCaptureParams(self._hw_url);
+                    }
+                });
                 self.addEventListener('load', function() {
                     try {
                         let data;
@@ -3945,15 +5515,15 @@
 
     window.addEventListener('xy-disc-captured', (e) => {
         if (xyShouldKeepDashboardOverview(getCourseGroupId())) return;
-        appState.discLockedUrl = window.location.href; 
-        if (appState.activeZone !== 'disc') { 
+        discState.discLockedUrl = window.location.href; 
+        if (playState.activeZone !== ZONE.DISC) { 
             logMsg(`🎯 抓包拦截：零延迟识别讨论区网络流！`, 'success', false); 
             switchToZone('disc'); 
         }
         
         logMsg('🔄 检测到新讨论区，自动清空旧名单并开启全量采集...', 'info');
-        appState.targetNames = [];
-        appState.selectedNames.clear();
+        discState.targetNames = [];
+        discState.selectedNames.clear();
         GM_setValue('xy_target_names', JSON.stringify([]));
         renderTargetList(document.getElementById('xy-name-search')?.value || '');
         
@@ -3963,20 +5533,32 @@
 
         updateDiscUI(); 
     });
-
-    
-    
-    
+    /**
+     * 当前页任务类型精确判定（async 因需探测 iframe）。
+     *
+     * 判定顺序：主文档 video/.prism-player/.aliplayer → video；遍历 iframe：
+     * src 含 player/video/aliplayer → video；contentDocument 可访问且内部有
+     * video → video（跨域 iframe 抛错被 catch 吞掉继续下一个）；兜底 doc。
+     * @returns {Promise<'video'|'doc'>}
+     * [DEEP-DOC]
+     */
     async function getTaskTypeAccurate() {
-        if (document.querySelector('video') || document.querySelector('.prism-player') || document.querySelector('.aliplayer')) return 'video';
+        if (document.querySelector('video') || document.querySelector('.prism-player') || document.querySelector('.aliplayer')) return TASK_TYPE.VIDEO;
         const iframes = document.querySelectorAll('iframe');
         for (let i = 0; i < iframes.length; i++) {
-            const src = iframes[i].src || ''; if (src.includes('player') || src.includes('video') || src.includes('aliplayer')) return 'video';
-            try { if (iframes[i].contentDocument && iframes[i].contentDocument.querySelector('video')) return 'video'; } catch(e) {}
+            const src = iframes[i].src || ''; if (src.includes('player') || src.includes('video') || src.includes('aliplayer')) return TASK_TYPE.VIDEO;
+            try { if (iframes[i].contentDocument && iframes[i].contentDocument.querySelector('video')) return TASK_TYPE.VIDEO; } catch(e) {}
         }
-        return 'doc';
+        return TASK_TYPE.DOC;
     }
-
+    /**
+     * 任务完成验证提交器（挂机引擎的核心出口）。
+     *
+     * 组装当前课程/节点的完成上报请求发往平台接口，解析响应判定 success。
+     * 调用方分布：循环模式播完即交、sequence 定时器达标强交、快速击破手动触发。
+     * @returns {Promise<boolean>} 平台确认成功与否
+     * [DEEP-DOC]
+     */
     async function autoSubmitCurrentTask(silent = false) {
         if (isSubmittingLock) return false;
         isSubmittingLock = true;
@@ -4027,10 +5609,19 @@
         }
         return false;
     }
-
+    /**
+     * 连播跳转下一任务编排（指数退避宿主）。
+     *
+     * 成功路径：雷达锁定未完成任务 → getTaskResourceId 补全三元组 →
+     * jumpFailCount 归零 → 500ms 后整页跳转 resource/{res}/{node}，5s 后解除
+     * isJumpingLock 兜底。失败路径：failCount++ 按 SUCCESS_DELAYS_MS 梯度延迟
+     * 解锁重试；连续 6 次进入深度休眠（jumpSleepUntil = now+10min）并复位计数。
+     * 异常路径独立退避表 ERROR_DELAYS_MS，5 次休眠。两套阈值均在 BACKOFF 常量。
+     * [DEEP-DOC]
+     */
     async function tryJumpToNext() {
         if (isJumpingLock) return; 
-        if (Date.now() < appState.jumpSleepUntil) return; 
+        if (Date.now() < playState.jumpSleepUntil) return; 
         if (xyScheduleState.isRunning) return; 
 
         isJumpingLock = true;
@@ -4078,7 +5669,7 @@
 
                 const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
 
-                appState.jumpFailCount = 0; 
+                playState.jumpFailCount = 0; 
                 setTimeout(() => { 
                     window.location.href = `/app/jx-web/${pathPrefix}/${targetTask.group_id}/resource/${resId}/${targetTask.node_id}`; 
                 }, 500);
@@ -4087,16 +5678,16 @@
                 return;
             }
             
-            appState.jumpFailCount++;
-            const failCount = appState.jumpFailCount;
+            playState.jumpFailCount++;
+            const failCount = playState.jumpFailCount;
             
-            const delays = [5000, 10000, 20000, 40000, 80000, 600000];
+            const delays = BACKOFF.SUCCESS_DELAYS_MS;
             const delay = delays[Math.min(failCount - 1, delays.length - 1)];
 
-            if (failCount >= 6) {
+            if (failCount >= BACKOFF.MAX_SUCCESS_FAILS) {
                  logMsg('⏳ 连续6次探测无新任务，引擎进入休眠模式，10分钟后重载...', 'warning', false);
-                 appState.jumpSleepUntil = Date.now() + 10 * 60 * 1000;
-                 appState.jumpFailCount = 0;
+                 playState.jumpSleepUntil = Date.now() + BACKOFF.SLEEP_MS;
+                 playState.jumpFailCount = 0;
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
@@ -4106,15 +5697,15 @@
             }
 
         } catch(e) {
-            appState.jumpFailCount++;
-            const failCount = appState.jumpFailCount;
-            const delays = [10000, 30000, 60000, 300000, 600000];
+            playState.jumpFailCount++;
+            const failCount = playState.jumpFailCount;
+            const delays = BACKOFF.ERROR_DELAYS_MS;
             const delay = delays[Math.min(failCount - 1, delays.length - 1)];
 
-            if (failCount >= 5) {
+            if (failCount >= BACKOFF.MAX_ERROR_FAILS) {
                  logMsg('⏳ 网络探测连续5次异常，进入深度休眠，10分钟后重新探测...', 'warning', false);
-                 appState.jumpSleepUntil = Date.now() + 10 * 60 * 1000;
-                 appState.jumpFailCount = 0;
+                 playState.jumpSleepUntil = Date.now() + BACKOFF.SLEEP_MS;
+                 playState.jumpFailCount = 0;
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
@@ -4125,8 +5716,14 @@
     }
 
     let lastTaskCheck = 0;
+    /**
+     * 全局达成秒判器（6s 节流 + force 穿透）：拉雷达缓存查当前 node 是否仍在
+     * 未完成清单——不在说明别处已完成（多端同步场景），立即置 isTaskCompleted
+     * 放行并尝试跳转，省去本地重复挂机。
+     * [DEEP-DOC]
+     */
     async function globalTaskStatusChecker(forceCheck = false) {
-        if (appState.mode === 'manual' && !forceCheck) return;
+        if (playState.mode === PLAY_MODE.MANUAL && !forceCheck) return;
         const groupId = getCourseGroupId(); const nodeId = getNodeId();
         if (!groupId || !nodeId || (Date.now() - lastTaskCheck < 6000 && !forceCheck)) return;
         lastTaskCheck = Date.now();
@@ -4136,21 +5733,25 @@
             if (data && data.success && data.data) {
                 const isStillUnfinished = data.data.filter(t => t.task_type === 1).some(t => t.node_id == nodeId);
                 if (!isStillUnfinished) {
-                    if (!appState.isTaskCompleted) {
-                        appState.isTaskCompleted = true; updateCourseUI(); await autoSubmitCurrentTask(true);
+                    if (!playState.isTaskCompleted) {
+                        playState.isTaskCompleted = true; updateCourseUI(); await autoSubmitCurrentTask(true);
                         logMsg('✅ [雷达] 当前任务已在全局雷达达成！', 'success', false);
                     }
                 } else { 
-                    if (appState.isTaskCompleted || (document.getElementById('xy-status-banner') && document.getElementById('xy-status-banner').innerText.includes('初始化'))) { 
-                        appState.isTaskCompleted = false; updateCourseUI(); 
+                    if (playState.isTaskCompleted || (document.getElementById('xy-status-banner') && document.getElementById('xy-status-banner').innerText.includes('初始化'))) { 
+                        playState.isTaskCompleted = false; updateCourseUI(); 
                     } 
                 }
             }
         } catch(e) {}
     }
-
+    /**
+     * 平台弹窗清扫：探测常见弹窗容器/遮罩选择器并逐个 remove/dismiss。
+     * 在下载执行与挂机跳转前调用——任何残留弹窗都可能吞掉后续自动化点击。
+     * [DEEP-DOC]
+     */
     function forceDismissPopups(doc = document) {
-        if (!appState.guardActive) return false;
+        if (!guardState.guardActive) return false;
         try {
             const dialogs = doc.querySelectorAll('.el-message-box:not([style*="none"]), .el-dialog:not([style*="none"]), .dialog-wrapper:not([style*="none"]), .v-modal');
             for (let box of dialogs) {
@@ -4162,7 +5763,7 @@
                             const btns = Array.from(box.querySelectorAll('button, .el-button, [role="button"]'));
                             targetBtn = btns.find(b => /确定|继续|是|我知道了|恢复|确认/.test((b.innerText || "").replace(/\s+/g, '')));
                         }
-                        if (targetBtn && Date.now() - appState.lastPopupClickTime > 2000) { appState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统弹窗...`, 'success', false); }, 300); return true; } 
+                        if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统弹窗...`, 'success', false); }, 300); return true; } 
                     }
                 }
             }
@@ -4170,7 +5771,7 @@
             if (/长时间.*操作|无操作|没有操作|任务暂停|休息一下|确认打开/.test(bodyText)) {
                 const allButtons = Array.from(doc.querySelectorAll('button, [role="button"], .btn, span[class*="btn"]'));
                 const targetBtn = allButtons.find(b => b.offsetParent !== null && /确定|继续|恢复|是|我知道了|确认/.test((b.innerText || "").replace(/\s+/g, '')));
-                if (targetBtn && Date.now() - appState.lastPopupClickTime > 2000) { appState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统弹窗...`, 'success', false); }, 500); return true; }
+                if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统弹窗...`, 'success', false); }, 500); return true; }
             }
         } catch(e) {} return false;
     }
@@ -4181,14 +5782,24 @@
     let mouseSimTimer = null;
     let simMouseX = Math.random() * window.innerWidth;
     let simMouseY = Math.random() * window.innerHeight;
-
+    /**
+     * 三次贝塞尔缓动函数工厂：输入控制点 x1,y1,x2,y2 返回 t∈[0,1] → 进度值
+     * 的采样函数（牛顿迭代解 x 方程）。鼠标轨迹模拟用它生成加减速曲线，
+     * 规避匀速移动的机器人特征。
+     * [DEEP-DOC]
+     */
     function cubicBezier(t, p0, p1, p2, p3) {
         const u = 1 - t;
         return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
     }
-
+    /**
+     * 拟人鼠标移动单步：起止两点间按 cubicBezier 时间轴插值 N 个采样点，
+     * 每点叠加随机抖动后依次派发 pointermove/mousemove（bubbles 冒泡）。
+     * 目标坐标限制在视口内。深度伪装的行为熵来源之一。
+     * [DEEP-DOC]
+     */
     function simulateMouseMove() {
-        if (!appState.mouseSimActive) return;
+        if (!guardState.mouseSimActive) return;
 
         const targetX = Math.random() * window.innerWidth * 0.8 + window.innerWidth * 0.1;
         const targetY = Math.random() * window.innerHeight * 0.7 + window.innerHeight * 0.1;
@@ -4201,7 +5812,7 @@
         let step = 0;
 
         function animateStep() {
-            if (!appState.mouseSimActive) return;
+            if (!guardState.mouseSimActive) return;
             if (step >= steps) {
                 simMouseX = targetX;
                 simMouseY = targetY;
@@ -4223,9 +5834,13 @@
         }
         animateStep();
     }
-
+    /**
+     * 鼠标模拟总开关：翻转 mouseSimActive 持久化 → 开启时 scheduleMouseSim
+     * 启动调度环，关闭时清理定时器。按钮文案 ON/OFF 同步。
+     * [DEEP-DOC]
+     */
     function toggleMouseSim(active) {
-        appState.mouseSimActive = active;
+        guardState.mouseSimActive = active;
         GM_setValue('xy_mouse_sim', active);
         if (active) {
             simMouseX = Math.random() * window.innerWidth;
@@ -4238,9 +5853,14 @@
             logMsg('⏸️ 鼠标轨迹模拟已关闭', 'warning', true);
         }
     }
-
+    /**
+     * 鼠标模拟调度环：随机 8-25s 间隔触发 simulateMouseMove（随机起止点）+
+     * 低概率 simulateRandomClick。递归 setTimeout 实现可中断的无限循环；
+     * guardState.mouseSimActive 为 false 时自终止。
+     * [DEEP-DOC]
+     */
     function scheduleMouseSim() {
-        if (!appState.mouseSimActive) return;
+        if (!guardState.mouseSimActive) return;
         const delay = 30000 + Math.random() * 60000;
         mouseSimTimer = setTimeout(() => {
             simulateMouseMove();
@@ -4252,9 +5872,13 @@
     
     
     let deepCamoTimers = { scroll: null, keyboard: null, click: null };
-
+    /**
+     * 拟人滚动序列：3-8 步随机 delta 的 WheelEvent 派发（deltaMode 像素制），
+     * 步间随机微延迟模拟手指滚轮的不均匀性。触发条件由 scheduleDeepCamo 编排。
+     * [DEEP-DOC]
+     */
     function simulateNaturalScroll() {
-        if (!appState.deepCamouflage || !appState.camoScrollActive) return;
+        if (!guardState.deepCamouflage || !guardState.camoScrollActive) return;
         const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
         if (maxScroll <= 0) { scheduleDeepCamo('scroll'); return; }
 
@@ -4283,9 +5907,13 @@
         }
         requestAnimationFrame(scrollStep);
     }
-
+    /**
+     * 键盘活跃模拟：派发无害按键（Shift 等修饰键）的 keydown/keyup 序列。
+     * 平台若监听键盘活跃度作为在线依据，此信号可维持会话活性而不产生输入副作用。
+     * [DEEP-DOC]
+     */
     function simulateKeyboardActivity() {
-        if (!appState.deepCamouflage || !appState.camoKeyboardActive) return;
+        if (!guardState.deepCamouflage || !guardState.camoKeyboardActive) return;
         const keys = ['Tab', 'ArrowDown', 'ArrowUp', 'PageDown', ' '];
         const key = keys[Math.floor(Math.random() * keys.length)];
         const target = document.activeElement || document.body;
@@ -4300,9 +5928,14 @@
         });
         scheduleDeepCamo('keyboard');
     }
-
+    /**
+     * 安全区域随机点击：坐标在视口中央 60% 区域内随机取点（避开边缘工具栏），
+     * 先 document.elementFromPoint 检查落点不是可交互元素（a/button/input）
+     * 才派发完整 pointer 序列，防止误触业务操作。
+     * [DEEP-DOC]
+     */
     function simulateRandomClick() {
-        if (!appState.deepCamouflage || !appState.camoClickActive) return;
+        if (!guardState.deepCamouflage || !guardState.camoClickActive) return;
         
         const x = Math.random() * window.innerWidth * 0.7 + window.innerWidth * 0.15;
         const y = Math.random() * window.innerHeight * 0.5 + window.innerHeight * 0.2;
@@ -4314,31 +5947,40 @@
         }
         scheduleDeepCamo('click');
     }
-
+    /**
+     * 深度伪装编排中枢：deepCamouflage 开启时启动三个独立调度环
+     * （滚动 / 键盘 / 点击+移动组合），各自随机相位互不同步——行为特征更接近
+     * 真人多任务。关闭时全部清理。
+     * [DEEP-DOC]
+     */
     function scheduleDeepCamo(type) {
-        if (!appState.deepCamouflage) return;
+        if (!guardState.deepCamouflage) return;
         const ranges = { scroll: [15000, 60000], keyboard: [20000, 90000], click: [30000, 120000] };
         const [min, max] = ranges[type];
         const delay = min + Math.random() * (max - min);
         const fn = type === 'scroll' ? simulateNaturalScroll : type === 'keyboard' ? simulateKeyboardActivity : simulateRandomClick;
         deepCamoTimers[type] = setTimeout(fn, delay);
     }
-
+    /** 深度伪装开启：置位持久化 → scheduleDeepCamo 启动全部模拟环 → 日志确认。
+     * [DEEP-DOC]
+     */
     function startDeepCamouflage() {
-        appState.deepCamouflage = true;
-        appState.camoScrollActive = true;
-        appState.camoKeyboardActive = true;
-        appState.camoClickActive = true;
+        guardState.deepCamouflage = true;
+        guardState.camoScrollActive = true;
+        guardState.camoKeyboardActive = true;
+        guardState.camoClickActive = true;
         GM_setValue('xy_deep_camo', true);
         ['scroll','keyboard','click'].forEach(t => scheduleDeepCamo(t));
         logMsg('🕵️ 深度伪装2.0 已启动：滚动+键盘+点击全维模拟', 'success', true);
     }
-
+    /** 深度伪装关闭：清位持久化 → 清理全部模拟定时器 → 日志确认。
+     * [DEEP-DOC]
+     */
     function stopDeepCamouflage() {
-        appState.deepCamouflage = false;
-        appState.camoScrollActive = false;
-        appState.camoKeyboardActive = false;
-        appState.camoClickActive = false;
+        guardState.deepCamouflage = false;
+        guardState.camoScrollActive = false;
+        guardState.camoKeyboardActive = false;
+        guardState.camoClickActive = false;
         GM_setValue('xy_deep_camo', false);
         Object.values(deepCamoTimers).forEach(t => clearTimeout(t));
         deepCamoTimers = { scroll: null, keyboard: null, click: null };
@@ -4346,17 +5988,22 @@
     }
 
     
-    if (appState.deepCamouflage) {
+    if (guardState.deepCamouflage) {
         setTimeout(() => {
-            appState.camoScrollActive = true;
-            appState.camoKeyboardActive = true;
-            appState.camoClickActive = true;
+            guardState.camoScrollActive = true;
+            guardState.camoKeyboardActive = true;
+            guardState.camoClickActive = true;
             ['scroll','keyboard','click'].forEach(t => scheduleDeepCamo(t));
         }, 3000);
     }
-
+    /**
+     * 文档批量狙击：当前文档验证通过后调用。从雷达缓存定位同课程下一批
+     * 未达标的 doc 任务，逐个预取直链后依序整页跳转——比通用连播更激进，
+     * 专攻「一批文档集中通关」场景。batchDocSubmitting 防重入门。
+     * [DEEP-DOC]
+     */
     async function triggerDocBatchSniper() {
-        appState.batchDocSubmitting = true; logMsg('🔄 启动【全局文档清理】，静默完成阅读...', 'warning', false);
+        playState.batchDocSubmitting = true; logMsg('🔄 启动【全局文档清理】，静默完成阅读...', 'warning', false);
         try {
             const token = await getAuthToken();
             const data = await fetchRadarCached();
@@ -4372,16 +6019,23 @@
                     logMsg('🎉 文档自动清理完成，全网未读文档已提交！', 'success', false);
                 }
             }
-        } catch (e) { console.warn('[小雅] triggerDocBatchSniper 失败', e); } finally { appState.batchDocSubmitting = false; }
+        } catch (e) { console.warn('[小雅] triggerDocBatchSniper 失败', e); } finally { playState.batchDocSubmitting = false; }
     }
-
+    /**
+     * 文档预览自动开启：探测预览占位元素存在且未展开时 robustClick 触发。
+     * 部分文档（PPT/PDF 预览）必须点开才开始被平台计入学时，此函数保证
+     * 挂机计时有效。
+     * [DEEP-DOC]
+     */
     function checkAndClickDocPreview() {
         const nodeId = getNodeId();
-        if (!nodeId || appState.docPreviewDoneNodeId === nodeId) return;
-        appState.docPreviewDoneNodeId = nodeId; 
+        if (!nodeId || discState.docPreviewDoneNodeId === nodeId) return;
+        discState.docPreviewDoneNodeId = nodeId; 
     }
-
-    
+    /** 学习记录上报的原生实现体：组装平台 learnRecord 接口请求并发送。
+     * 被 sendRecordRequest 包装（增强失败告警），二者构成装饰器结构。
+     * [DEEP-DOC]
+     */
     async function _origSendRecordRequest() {
         const groupId = getCourseGroupId(); const resourceId = getNodeId();
         if (!groupId || !resourceId) throw new Error('no resource');
@@ -4407,9 +6061,9 @@
                 const response = await fetch(`https://${domain}/api/jx-iresource/learnLength/learnRecord`, { method: 'POST', headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ message, signature, timestamp, nonce }) });
                 const result = await response.json();
                 if (result.code === 0 || result.success) {
-                    appState.recordCount++; appState.lastRecordDate = new Date();
-                    appState.totalTime += 30;
-                    sessionStorage.setItem('xy_recordCount', appState.recordCount); sessionStorage.setItem('xy_totalTime', appState.totalTime); updateCourseUI();
+                    recState.recordCount++; recState.lastRecordDate = new Date();
+                    recState.totalTime += 30;
+                    sessionStorage.setItem('xy_recordCount', recState.recordCount); sessionStorage.setItem('xy_totalTime', recState.totalTime); updateCourseUI();
                     recordFailCount = 0;
                     keepaliveLastBeatTime = Date.now();
                     return; 
@@ -4426,9 +6080,14 @@
         }
         throw lastError || new Error('sendRecord failed');
     }
-
+    /**
+     * 计时上报包装器：透传调用 _origSendRecordRequest，异常时 warn 记录
+     * 「sendRecord 失败」并累加 recordFailCount 供看门狗判断上报通道健康度。
+     * 不向上抛错——计时失败不应打断挂机主流程。
+     * [DEEP-DOC]
+     */
     async function sendRecordRequest() {
-        if (appState.activeZone !== 'course') return;
+        if (playState.activeZone !== ZONE.COURSE) return;
         if (isRecordSending) return;
         const groupId = getCourseGroupId(); const resourceId = getNodeId(); if (!groupId || !resourceId) return;
         isRecordSending = true;
@@ -4438,6 +6097,18 @@
 
     
     const _persistentIntervals = new Set();
+    /**
+     * 抗节流定时器工厂 —— 解决后台标签页 setInterval 被浏览器降频的问题。
+     *
+     * 实现：递归 setTimeout 链 + 漂移补偿（每 tick 记录期望时刻与实际时刻差，
+     * 下次延迟扣减差值）；配合隐身引擎的可见性固化（document.hidden 恒 false），
+     * 后台标签页也能维持接近真实的触发频率。返回带 stop() 的句柄对象。
+     *
+     * @param {Function} fn - 周期回调
+     * @param {number} ms - 名义间隔
+     * @param {number} [maxDriftMs] - 单次补偿上限
+     * [DEEP-DOC]
+     */
     function createPersistentInterval(fn, ms, maxCatchUp = 20) {
         if (typeof fn !== 'function') throw new TypeError('fn 必须是函数');
         const intervalMs = Number(ms);
@@ -4513,26 +6184,35 @@
             if (typeof updateCourseUI === 'function') updateCourseUI();
         }
     });
-
+    /**
+     * 学习记录开关：recordActive 翻转 + 持久化；开启时创建计时 interval
+     * （recordIntervalTimer）周期累加 totalTime 并落 sessionStorage；关闭时
+     * 清理定时器。UI 按钮 ON/OFF 同步。
+     * [DEEP-DOC]
+     */
     function toggleRecord(start) {
-        if (appState.recordActive === start) return;
-        appState.recordActive = start;
+        if (recState.recordActive === start) return;
+        recState.recordActive = start;
         if (start) {
             sendRecordRequest();
             recordIntervalTimer = createPersistentInterval(sendRecordRequest, 30000, 20);
-            realTimeTimer = createPersistentInterval(() => { appState.realTime++; sessionStorage.setItem('xy_realTime', appState.realTime); updateCourseUI(); }, 1000, 30);
-            if (!appState.guardActive) { appState.guardActive = true; GM_setValue('xy_guard_active', true); }
+            realTimeTimer = createPersistentInterval(() => { recState.realTime++; sessionStorage.setItem('xy_realTime', recState.realTime); updateCourseUI(); }, 1000, 30);
+            if (!guardState.guardActive) { guardState.guardActive = true; GM_setValue('xy_guard_active', true); }
         } else {
             if (recordIntervalTimer) { recordIntervalTimer.clear(); recordIntervalTimer = null; }
             if (realTimeTimer) { realTimeTimer.clear(); realTimeTimer = null; }
         }
         updateCourseUI();
     }
-
+    /**
+     * 自动记录保障：进入 course 区且未手动关闭记录时自动 toggleRecord(true)。
+     * 只补开不强制关——用户显式停止的意图必须尊重。
+     * [DEEP-DOC]
+     */
     function ensureAutoRecord() {
-        if (appState.activeZone !== 'course') return;
+        if (playState.activeZone !== ZONE.COURSE) return;
         const nodeId = getNodeId();
-        if (nodeId && !appState.recordActive) toggleRecord(true); else if (!nodeId && appState.recordActive) toggleRecord(false);
+        if (nodeId && !recState.recordActive) toggleRecord(true); else if (!nodeId && recState.recordActive) toggleRecord(false);
     }
 
     
@@ -4540,12 +6220,17 @@
     
     let keepaliveWatchdogTimer = null;
     let keepaliveLastBeatTime = 0;
-
+    /**
+     * 保活看门狗：10s 巡检周期检查挂机活性——watchdogLastActiveTime 距今超过
+     * 阈值（各引擎正常运转都会持续刷新它）判定失速，先尝试恢复引擎动作，
+     * 连续失速升级为页面重载自救。keepaliveEnabled 关闭时不启动。
+     * [DEEP-DOC]
+     */
     function startKeepaliveWatchdog() {
         if (keepaliveWatchdogTimer) return;
         keepaliveLastBeatTime = Date.now();
         keepaliveWatchdogTimer = setInterval(() => {
-            if (!appState.keepaliveEnabled || appState.activeZone !== 'course') return;
+            if (!guardState.keepaliveEnabled || playState.activeZone !== ZONE.COURSE) return;
             
             const gap = Date.now() - keepaliveLastBeatTime;
             if (gap > 75000) {
@@ -4553,7 +6238,7 @@
                 sendRecordRequest().then(() => { keepaliveLastBeatTime = Date.now(); });
             }
             
-            if (!recordIntervalTimer && appState.recordActive) {
+            if (!recordIntervalTimer && recState.recordActive) {
                 logMsg('💓 [保活] 心跳定时器丢失，自动重建', 'warning', true);
                 if (recordIntervalTimer) recordIntervalTimer.clear();
                 recordIntervalTimer = createPersistentInterval(sendRecordRequest, 30000, 20);
@@ -4561,7 +6246,9 @@
         }, 10000);
         logMsg('💓 后台保活看门狗已启动（10s巡检）', 'silent', true);
     }
-
+    /** 清理看门狗定时器并置空句柄（keepaliveWatchdogTimer），允许下次重新 start。
+     * [DEEP-DOC]
+     */
     function stopKeepaliveWatchdog() {
         if (keepaliveWatchdogTimer) { clearInterval(keepaliveWatchdogTimer); keepaliveWatchdogTimer = null; }
     }
@@ -4579,14 +6266,14 @@
 
         checkDynamicRefresh();
 
-        if (appState.activeZone !== 'course') {
-            if (appState.activeZone === 'download' && appState.guardActive) forceDismissPopups(document);
+        if (playState.activeZone !== ZONE.COURSE) {
+            if (playState.activeZone === ZONE.DOWNLOAD && guardState.guardActive) forceDismissPopups(document);
             watchdogLastActiveTime = Date.now();
             return;
         }
-        if (appState.guardActive) forceDismissPopups(document);
+        if (guardState.guardActive) forceDismissPopups(document);
 
-        appState.currentEngine = await getTaskTypeAccurate();
+        playState.currentEngine = await getTaskTypeAccurate();
 
         
         const timeoutLimit = xyScheduleState.isRunning ? 1800000 : 180000; 
@@ -4597,74 +6284,74 @@
             return;
         }
 
-        if (appState.mode === 'sequence' && Date.now() < appState.jumpSleepUntil) {
+        if (playState.mode === PLAY_MODE.SEQUENCE && Date.now() < playState.jumpSleepUntil) {
             updateCourseUI();
             watchdogLastActiveTime = Date.now(); 
             return; 
         }
 
         const groupId = getCourseGroupId();
-        if (groupId && appState.mode !== 'manual') {
-            const taskType = appState.currentEngine; 
+        if (groupId && playState.mode !== PLAY_MODE.MANUAL) {
+            const taskType = playState.currentEngine; 
 
             const vEngine = document.getElementById('xy-engine-video'), dEngine = document.getElementById('xy-engine-doc');
-            if(vEngine) vEngine.style.opacity = taskType === 'video' ? '1' : '0.4';
-            if(dEngine) dEngine.style.opacity = taskType === 'doc' ? '1' : '0.4';
+            if(vEngine) vEngine.style.opacity = taskType === TASK_TYPE.VIDEO ? '1' : '0.4';
+            if(dEngine) dEngine.style.opacity = taskType === TASK_TYPE.DOC ? '1' : '0.4';
 
             let isMakingProgress = false;
 
-            if (taskType === 'video') {
+            if (taskType === TASK_TYPE.VIDEO) {
                 let video = document.querySelector('video');
                 if (!video) { const iframes = document.querySelectorAll('iframe'); for (let i = 0; i < iframes.length; i++) { try { if (iframes[i].contentDocument) video = iframes[i].contentDocument.querySelector('video'); } catch(e){} if (video) break; } }
                 
                 if (video) {
-                    if (video.paused && !video.ended) video.play().catch(() => { if(!appState.hardwareMute) video.muted = true; video.play().catch(()=>{}); });
+                    if (video.paused && !video.ended) video.play().catch(() => { if(!guardState.hardwareMute) video.muted = true; video.play().catch(()=>{}); });
                     
-                    if (appState.hardwareMute && !video.muted) video.muted = true;
+                    if (guardState.hardwareMute && !video.muted) video.muted = true;
 
-                    if (appState.mode === 'sequence') {
-                        if (appState.videoScriptProgress === undefined) {
-                            appState.videoScriptProgress = Math.round(video.currentTime);
-                            appState.videoLastTime = video.currentTime;
+                    if (playState.mode === PLAY_MODE.SEQUENCE) {
+                        if (playState.videoScriptProgress === undefined) {
+                            playState.videoScriptProgress = Math.round(video.currentTime);
+                            playState.videoLastTime = video.currentTime;
                         }
 
-                        if (video.currentTime - appState.videoLastTime > 3) {
+                        if (video.currentTime - playState.videoLastTime > 3) {
                             logMsg('⚠️ 检测到拖动进度条，已弹回原位', 'warning', true);
-                            video.currentTime = appState.videoLastTime;
+                            video.currentTime = playState.videoLastTime;
                             return;
                         }
 
                         if (!video.paused && !video.ended) {
-                            appState.videoScriptProgress += 1;
+                            playState.videoScriptProgress += 1;
                         }
-                        appState.videoLastTime = video.currentTime;
+                        playState.videoLastTime = video.currentTime;
 
                         let duration = video.duration || 1;
-                        let scriptProgressPct = Math.min((appState.videoScriptProgress / duration) * 100, 100);
+                        let scriptProgressPct = Math.min((playState.videoScriptProgress / duration) * 100, 100);
                         
                         const statusEl = document.getElementById('xy-video-status');
                         if (statusEl) {
-                            statusEl.innerText = (video.ended || appState.videoScriptProgress >= duration) ? '已播完, 验证中...' : `脚本进度 ${scriptProgressPct.toFixed(1)}%`;
+                            statusEl.innerText = (video.ended || playState.videoScriptProgress >= duration) ? '已播完, 验证中...' : `脚本进度 ${scriptProgressPct.toFixed(1)}%`;
                         }
                         
                         if (video.currentTime > 0 && !video.paused) isMakingProgress = true;
-                        if (video.ended || appState.videoScriptProgress >= duration) isMakingProgress = true;
+                        if (video.ended || playState.videoScriptProgress >= duration) isMakingProgress = true;
                     } 
                     else {
                         let progress = (video.currentTime / video.duration) * 100 || 0;
                         const statusEl = document.getElementById('xy-video-status');
                         if (statusEl) {
-                             if (appState.mode === 'loop' && appState.isTaskCompleted) {
+                             if (playState.mode === PLAY_MODE.LOOP && playState.isTaskCompleted) {
                                   statusEl.innerText = `[循环] 进度 ${progress.toFixed(1)}%`;
                              } else {
                                   statusEl.innerText = video.ended ? '已播完, 验证中...' : `进度 ${progress.toFixed(1)}%`;
                              }
                         }
                         
-                        if (video.ended && appState.mode === 'loop' && !appState.isProcessingJump) {
-                             appState.isProcessingJump = true;
+                        if (video.ended && playState.mode === PLAY_MODE.LOOP && !playState.isProcessingJump) {
+                             playState.isProcessingJump = true;
                              autoSubmitCurrentTask(true).then(success => {
-                                 if (success || appState.isTaskCompleted) {
+                                 if (success || playState.isTaskCompleted) {
                                       logMsg('✅ 安全循环：当前任务已达标，即将刷新页面重载继续挂机...', 'success', false);
                                  } else {
                                       logMsg('⚠️ 安全循环：时长暂未达标，即将刷新页面重置播放...', 'warning', true);
@@ -4681,46 +6368,46 @@
                         if (video.ended) isMakingProgress = true;
                     }
                 }
-            } else if (taskType === 'doc') {
+            } else if (taskType === TASK_TYPE.DOC) {
                 checkAndClickDocPreview(); 
 
-                if (!appState.isTaskCompleted) {
-                    appState.docReadTime += 1; 
+                if (!playState.isTaskCompleted) {
+                    playState.docReadTime += 1; 
                     
-                    if (appState.mode === 'sequence') {
-                        let progress = Math.min((appState.docReadTime / 130) * 100, 100);
+                    if (playState.mode === PLAY_MODE.SEQUENCE) {
+                        let progress = Math.min((playState.docReadTime / DOC_READ.SUBMIT_SECONDS) * 100, 100);
                         const statusEl = document.getElementById('xy-doc-status'), progressEl = document.getElementById('xy-doc-progress');
                         if(statusEl) {
-                            if (appState.docReadTime < 130) {
+                            if (playState.docReadTime < DOC_READ.SUBMIT_SECONDS) {
                                 statusEl.innerText = `阅读倒数: ${progress.toFixed(1)}%`;
-                            } else if (appState.docReadTime < 300) {
-                                statusEl.innerText = `验证重试中: ${appState.docReadTime}s`;
+                            } else if (playState.docReadTime < DOC_READ.FORCE_SECONDS) {
+                                statusEl.innerText = `验证重试中: ${playState.docReadTime}s`;
                             } else {
-                                statusEl.innerText = `强制提交阶段: ${appState.docReadTime}s`;
+                                statusEl.innerText = `强制提交阶段: ${playState.docReadTime}s`;
                             }
                         }
                         if(progressEl) progressEl.style.width = `${progress}%`;
                     } 
                     else {
-                        let progress = Math.min((appState.docReadTime / 120) * 100, 100);
+                        let progress = Math.min((playState.docReadTime / DOC_READ.LOOP_SECONDS) * 100, 100);
                         const statusEl = document.getElementById('xy-doc-status'), progressEl = document.getElementById('xy-doc-progress');
                         if(statusEl) {
-                            if (appState.mode === 'loop' && appState.docReadTime >= 120) {
-                                statusEl.innerText = `[循环] 挂机中: ${appState.docReadTime}s`;
+                            if (playState.mode === PLAY_MODE.LOOP && playState.docReadTime >= DOC_READ.LOOP_SECONDS) {
+                                statusEl.innerText = `[循环] 挂机中: ${playState.docReadTime}s`;
                             } else {
                                 statusEl.innerText = progress < 100 ? `等待 ${progress.toFixed(1)}%` : `请求验证中...`;
                             }
                         }
                         if(progressEl) progressEl.style.width = `${progress}%`;
                         
-                        if (appState.mode === 'loop' && appState.docReadTime >= 120 && !appState.isProcessingJump) {
-                             appState.isProcessingJump = true;
+                        if (playState.mode === PLAY_MODE.LOOP && playState.docReadTime >= DOC_READ.LOOP_SECONDS && !playState.isProcessingJump) {
+                             playState.isProcessingJump = true;
                              autoSubmitCurrentTask(true).then(success => {
                                  if (success) {
-                                     appState.isTaskCompleted = true;
+                                     playState.isTaskCompleted = true;
                                      logMsg('✅ 安全循环：文档已达标，继续静默挂机...', 'success', false);
                                  }
-                                 appState.isProcessingJump = false;
+                                 playState.isProcessingJump = false;
                              });
                         }
                     }
@@ -4732,7 +6419,7 @@
                 }
             }
 
-            if (isMakingProgress || appState.isProcessingJump || appState.recordActive) {
+            if (isMakingProgress || playState.isProcessingJump || recState.recordActive) {
                 watchdogLastActiveTime = Date.now();
             }
         } else {
@@ -4755,14 +6442,14 @@
         }
 
         updateTitleBar();
-        if (appState.theme === 'auto') applyTheme();
+        if (settingsState.theme === 'auto') applyTheme();
     }, 1000, 30);
 
     
     createPersistentInterval(async () => {
-        if (!appState.aiMode || appState.activeZone !== 'course' || appState.mode !== 'sequence') return;
+        if (!settingsState.aiMode || playState.activeZone !== ZONE.COURSE || playState.mode !== PLAY_MODE.SEQUENCE) return;
 
-        if (Date.now() < appState.jumpSleepUntil) return;
+        if (Date.now() < playState.jumpSleepUntil) return;
 
         const groupId = getCourseGroupId();
         const nodeId = getNodeId();
@@ -4772,23 +6459,23 @@
             return;
         }
 
-        if (appState.isTaskCompleted) {
+        if (playState.isTaskCompleted) {
             await tryJumpToNext();
             return;
         }
 
         const taskType = await getTaskTypeAccurate();
 
-        if (taskType === 'video') {
+        if (taskType === TASK_TYPE.VIDEO) {
             let video = document.querySelector('video');
             if (!video) { const iframes = document.querySelectorAll('iframe'); for (let i = 0; i < iframes.length; i++) { try { if (iframes[i].contentDocument) video = iframes[i].contentDocument.querySelector('video'); } catch(e){} if (video) break; } }
             
-            if (video && (video.ended || (video.duration > 0 && appState.videoScriptProgress >= video.duration))) {
+            if (video && (video.ended || (video.duration > 0 && playState.videoScriptProgress >= video.duration))) {
                 logMsg('⏳ 满足连播脚本进度，发起视频验证请求...', 'info', true);
                 const success = await autoSubmitCurrentTask();
                 
                 if (success) {
-                    appState.isTaskCompleted = true;
+                    playState.isTaskCompleted = true;
                     logMsg('✅ [API] 视频任务已获服务器成功确认！', 'success');
                     updateCourseUI();
                     await tryJumpToNext();
@@ -4796,32 +6483,32 @@
                     logMsg('⚠️ 后台仍判未达标，5秒后继续强交！', 'warning', true);
                 }
             }
-        } else if (taskType === 'doc') {
-            if (appState.docReadTime >= 130) {
-                if (appState.lastDocSubmitTime === 0 || (appState.docReadTime - appState.lastDocSubmitTime >= 30)) {
-                    let isDocRetry = appState.lastDocSubmitTime > 0;
-                    logMsg(isDocRetry ? `⏳ 文档未达标，周期性重试提交 (${appState.docReadTime}s)...` : '⏳ 2分10秒已到，发起首次文档验证请求...', 'info', true);
+        } else if (taskType === TASK_TYPE.DOC) {
+            if (playState.docReadTime >= DOC_READ.SUBMIT_SECONDS) {
+                if (playState.lastDocSubmitTime === 0 || (playState.docReadTime - playState.lastDocSubmitTime >= DOC_READ.RETRY_GAP_SECONDS)) {
+                    let isDocRetry = playState.lastDocSubmitTime > 0;
+                    logMsg(isDocRetry ? `⏳ 文档未达标，周期性重试提交 (${playState.docReadTime}s)...` : '⏳ 2分10秒已到，发起首次文档验证请求...', 'info', true);
                     
                     const success = await autoSubmitCurrentTask();
-                    appState.lastDocSubmitTime = appState.docReadTime;
+                    playState.lastDocSubmitTime = playState.docReadTime;
 
                     if (success) {
-                        appState.isTaskCompleted = true;
+                        playState.isTaskCompleted = true;
                         logMsg('✅ [API] 文档任务已获服务器成功确认！', 'success');
                         updateCourseUI();
 
-                        if (appState.docBatchSubmit && !appState.batchDocSubmitting) triggerDocBatchSniper();
+                        if (settingsState.docBatchSubmit && !playState.batchDocSubmitting) triggerDocBatchSniper();
                         await tryJumpToNext();
                     } else {
-                        if (appState.docReadTime >= 300) {
+                        if (playState.docReadTime >= DOC_READ.FORCE_SECONDS) {
                             logMsg('⚡ 超过5分钟仍未达标，触发【强制提交放行】保护机制！', 'warning', false);
-                            appState.isTaskCompleted = true;
+                            playState.isTaskCompleted = true;
                             updateCourseUI();
                             
-                            if (appState.docBatchSubmit && !appState.batchDocSubmitting) triggerDocBatchSniper();
+                            if (settingsState.docBatchSubmit && !playState.batchDocSubmitting) triggerDocBatchSniper();
                             await tryJumpToNext();
                         } else {
-                            logMsg(`⚠️ 文档验证未通过，将在30秒后利用API重试 (当前${appState.docReadTime}s/300s强行线)`, 'warning', false);
+                            logMsg(`⚠️ 文档验证未通过，将在30秒后利用API重试 (当前${playState.docReadTime}s/300s强行线)`, 'warning', false);
                         }
                     }
                 }
@@ -4831,40 +6518,49 @@
 
     
     createPersistentInterval(() => {
-        if (appState.activeZone === 'disc' && appState.enableDomScan) {
+        if (playState.activeZone === ZONE.DISC && playState.enableDomScan) {
             const domNames = scanDomForUserNames();
             let added = false;
             domNames.forEach(name => {
-                if (!appState.targetNames.includes(name)) {
-                    appState.targetNames.push(name);
+                if (!discState.targetNames.includes(name)) {
+                    discState.targetNames.push(name);
                     added = true;
                 }
             });
             if (added) {
-                GM_setValue('xy_target_names', JSON.stringify(appState.targetNames));
+                GM_setValue('xy_target_names', JSON.stringify(discState.targetNames));
                 renderTargetList(document.getElementById('xy-name-search')?.value || '');
             }
         }
     }, 3000, 10);
-
-    
-    
-    
+    /**
+     * 讨论区评论分页拉取：discussionId/discGroupId 缺失时 toast 提示重刷并返
+     * 回 null。GET queryDiscussion 接口（desc 排序），响应兼容 list/records/
+     * points/data 四种数组字段形态；success=false 或数据缺失返回 []。
+     * 网络异常 warn 后返回 null（与空列表区分：null 让上层中止翻页，[] 继续）。
+     * [DEEP-DOC]
+     */
     async function fetchDiscussions(pageSize = 20, pageIndex = 1) {
-        if (!appState.discussionId || !appState.discGroupId) { showToast('未捕获到ID，请重刷页面获取截包！', 'warning'); return null; }
+        if (!discState.discussionId || !discState.discGroupId) { showToast('未捕获到ID，请重刷页面获取截包！', 'warning'); return null; }
         try {
             const token = await getAuthToken(); 
-            const res = await fetch(`https://${domain}/api/jx-iresource/discussion/queryDiscussion?discussion_id=${appState.discussionId}&group_id=${appState.discGroupId}&sort_type=1&sort_way=desc&page_index=${pageIndex}&page_size=${pageSize}&channel=`, { headers: { "authorization": `Bearer ${token}` } });
+            const res = await fetch(`https://${domain}/api/jx-iresource/discussion/queryDiscussion?discussion_id=${discState.discussionId}&group_id=${discState.discGroupId}&sort_type=1&sort_way=desc&page_index=${pageIndex}&page_size=${pageSize}&channel=`, { headers: { "authorization": `Bearer ${token}` } });
             const data = await res.json();
             if (data.success && data.data) {
                 if (Array.isArray(data.data.list)) return data.data.list; if (Array.isArray(data.data.records)) return data.data.records; if (Array.isArray(data.data.points)) return data.data.points; if (Array.isArray(data.data)) return data.data;
             } return [];
-        } catch(e) { return null; }
+        } catch(e) { console.warn('[小雅] 讨论列表接口请求失败:', e); return null; }
     }
-
+    /**
+     * 全量名单深潜抓取：while 循环翻页 fetchDiscussions(20, page)，seenIds 去
+     * 重判新增（newInPage=0 即到底），decodeNickname 入库；上限 300 页保险丝。
+     * discScrapeAbort 标记支持中途停止；DOM 扫描补充收尾；结束后持久化 + 渲染
+     * + 汇总日志。按钮状态管理贯穿始终（禁用/进度文案/停止钮显隐）。
+     * [DEEP-DOC]
+     */
     async function fetchCurrentUsers() {
-        if (appState.activeZone !== 'disc') return;
-        if(!appState.discussionId) { logMsg('未拦截到讨论区ID，请随便点击一下任意评论！', 'warning'); return; }
+        if (playState.activeZone !== ZONE.DISC) return;
+        if(!discState.discussionId) { logMsg('未拦截到讨论区ID，请随便点击一下任意评论！', 'warning'); return; }
         const btn = document.getElementById('xy-btn-fetch-users'); const originalText = btn ? btn.innerText : '';
         const stopBtn = document.getElementById('xy-btn-stop-scrape');
         if(btn) { btn.disabled = true; btn.innerText = "深潜抓取中..."; }
@@ -4872,12 +6568,12 @@
         logMsg('🧹 正在深度扫描全部评论页，自动去重收录...', 'info');
 
         try {
-            appState.discScrapeAbort = false;
+            playState.discScrapeAbort = false;
             if (stopBtn) { stopBtn.style.display = 'inline-block'; stopBtn.disabled = false; }
             let pageIndex = 1;
             const seenIds = new Set();
             while (true) {
-                if (appState.discScrapeAbort) { logMsg('⏹ 已手动停止深度抓取', 'warning'); break; }
+                if (playState.discScrapeAbort) { logMsg('⏹ 已手动停止深度抓取', 'warning'); break; }
                 if(btn) btn.innerText = `深潜抓取中 (第${pageIndex}页)...`;
                 const list = await fetchDiscussions(20, pageIndex);
                 if (!list || list.length === 0) break;
@@ -4887,8 +6583,8 @@
                     if (item && item.id && !seenIds.has(item.id)) { seenIds.add(item.id); newInPage++; }
                     const realName = decodeNickname(item.nickname);
                     if (realName && realName !== "匿名" && !realName.includes("=")) {
-                        if (!appState.targetNames.includes(realName)) {
-                            appState.targetNames.push(realName);
+                        if (!discState.targetNames.includes(realName)) {
+                            discState.targetNames.push(realName);
                         }
                     }
                 });
@@ -4901,22 +6597,31 @@
 
             const domNames = scanDomForUserNames();
             domNames.forEach(name => {
-                if (!appState.targetNames.includes(name)) {
-                    appState.targetNames.push(name);
+                if (!discState.targetNames.includes(name)) {
+                    discState.targetNames.push(name);
                 }
             });
 
-            GM_setValue('xy_target_names', JSON.stringify(appState.targetNames));
+            GM_setValue('xy_target_names', JSON.stringify(discState.targetNames));
             renderTargetList(document.getElementById('xy-name-search')?.value || '');
-            logMsg(appState.discScrapeAbort ? `⏸ 已停止，总库现存 ${appState.targetNames.length} 人。` : `✅ 扫描到底！总库现存 ${appState.targetNames.length} 人。`, 'success');
+            logMsg(playState.discScrapeAbort ? `⏸ 已停止，总库现存 ${discState.targetNames.length} 人。` : `✅ 扫描到底！总库现存 ${discState.targetNames.length} 人。`, 'success');
         } catch (error) { logMsg('抓取失败，请检查网络或刷新重试', 'error'); } finally { if(stopBtn) stopBtn.style.display = 'none'; if(btn) { btn.disabled = false; btn.innerText = originalText || "🔄 手动刷新名单"; } }
     }
-
-    function getCheckedTargetNames() { return Array.from(appState.selectedNames); }
-
+    /** 勾选名单导出：Set → Array。定向点赞/回复的目标集合唯一来源。
+     * [DEEP-DOC]
+     */
+    function getCheckedTargetNames() { return Array.from(discState.selectedNames); }
+    /**
+     * 自动点赞执行器。
+     *
+     * 目标收集：isTargeted 时按勾选名单过滤评论，否则全员模式取前 MAX_LIKES(15)
+     * 条；翻页累积直到凑够目标数或到底。逐条调点赞接口（成功/失败均 warn 不
+     * 中断），条间 sleep(800-1500ms) 随机化拟人。按钮全程禁用 + 进度文案。
+     * [DEEP-DOC]
+     */
     async function autoLikeAction(isTargeted = false) {
-        if (appState.activeZone !== 'disc') return;
-        if(!appState.discussionId) { logMsg('网络流未就绪，请随便点击一个评论触发抓包', 'warning'); return; }
+        if (playState.activeZone !== ZONE.DISC) return;
+        if(!discState.discussionId) { logMsg('网络流未就绪，请随便点击一个评论触发抓包', 'warning'); return; }
         const checkedNames = isTargeted ? getCheckedTargetNames() : [];
         if (isTargeted && checkedNames.length === 0) { logMsg('请先勾选目标人物', 'warning'); return; }
 
@@ -4958,7 +6663,7 @@
             
             btn.innerText = `点赞发射中...`;
             for (let i = 0; i < uniqueTargets.length; i++) {
-                const item = uniqueTargets[i]; const payload = { discussion_id: appState.discussionId, group_id: appState.discGroupId, point_id: item.id, like: 1 };
+                const item = uniqueTargets[i]; const payload = { discussion_id: discState.discussionId, group_id: discState.discGroupId, point_id: item.id, like: 1 };
                 try {
                     const likeRes = await fetch(`https://${domain}/api/jx-iresource/discussion/like`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify(payload) });
                     const likeData = await likeRes.json(); if (likeData.success || likeData.code === 200 || likeData.code === 0) { successCount++; }
@@ -4967,7 +6672,11 @@
             logMsg(`🎉 点赞任务结束！成功点赞 ${successCount} 次！即将刷新页面...`, 'success'); setTimeout(() => { window.location.reload(); }, 1500);
         } catch (e) { logMsg('点赞异常', 'error'); } finally { btn.disabled = false; btn.innerText = originalText; }
     }
-
+    /**
+     * 回复文案选取：useCustomReply 开启且 customReplies 非空 → 随机取用户自定义
+     * 语料；否则回退内置默认语料库随机一条。两库都空返回固定兜底文案。
+     * [DEEP-DOC]
+     */
     function getRandomReplyText() {
         const templates = [
             "非常赞同你的观点，这种思路确实能给我们带来很多新的启发和思考！",
@@ -4982,8 +6691,8 @@
             "说得非常有见地，而且语言表达也很清晰易懂，把复杂的问题简单化了，佩服！"
         ];
         
-        if (appState.useCustomReply && appState.customReplies && appState.customReplies.length > 0) {
-            const validCustoms = appState.customReplies.filter(text => (text.match(/[\u4e00-\u9fa5]/g) || []).length >= 16);
+        if (discState.useCustomReply && discState.customReplies && discState.customReplies.length > 0) {
+            const validCustoms = discState.customReplies.filter(text => (text.match(/[\u4e00-\u9fa5]/g) || []).length >= 16);
             if (validCustoms.length > 0) {
                 return validCustoms[Math.floor(Math.random() * validCustoms.length)];
             } else {
@@ -4992,7 +6701,12 @@
         }
         return templates[Math.floor(Math.random() * templates.length)];
     }
-
+    /**
+     * DraftJS 富文本评论体构造：平台评论框的内容模型是 ContentState JSON。
+     * 输入纯文本输出 {blocks:[{text,...}], entityMap:{}} 结构的单段 block——
+     * 提交接口要求该格式而非纯字符串。
+     * [DEEP-DOC]
+     */
     function buildDraftJsComment(text) {
         const randomKey = Math.random().toString(36).substring(2, 7);
         const obj = {
@@ -5011,10 +6725,15 @@
         };
         return JSON.stringify(obj);
     }
-
+    /**
+     * 自动回复执行器：与 autoLikeAction 同构的目标收集逻辑（复用勾选过滤），
+     * 但动作改为对每条目标评论调回复接口——载荷由 buildDraftJsComment 构造
+     * getRandomReplyText 选中的文案。条间随机间隔拟人化，成败逐条 warn。
+     * [DEEP-DOC]
+     */
     async function autoReplyAction(isTargeted = false) {
-        if (appState.activeZone !== 'disc') return;
-        if(!appState.discussionId) { logMsg('网络流未就绪，请随便点击一个评论触发抓包', 'warning'); return; }
+        if (playState.activeZone !== ZONE.DISC) return;
+        if(!discState.discussionId) { logMsg('网络流未就绪，请随便点击一个评论触发抓包', 'warning'); return; }
         const checkedNames = isTargeted ? getCheckedTargetNames() : [];
         if (isTargeted && checkedNames.length === 0) { logMsg('请先勾选目标人物', 'warning'); return; }
 
@@ -5059,8 +6778,8 @@
                 const item = uniqueTargets[i]; 
                 const replyText = getRandomReplyText();
                 const payload = { 
-                    discussion_id: appState.discussionId, 
-                    group_id: appState.discGroupId, 
+                    discussion_id: discState.discussionId, 
+                    group_id: discState.discGroupId, 
                     point_id: item.id, 
                     comment: buildDraftJsComment(replyText),
                     open_anonymous_mode: false 
@@ -5126,7 +6845,10 @@
             "💬 有 bug 随时提 Issue！"
         ]
     };
-
+    /** 一键互动组合拳：串行执行 autoLikeAction + autoReplyAction（点赞完再回
+     * 复），共用一套目标名单减少翻页次数。任一环节失败不影响另一环节执行。
+     * [DEEP-DOC]
+     */
     function autoLink(text) {
         
         const urlRe = /(https?:\/\/[^\s<>"']+)/gi;
@@ -5141,7 +6863,9 @@
         parts.push(escapeHtml(text.slice(lastIdx)));
         return parts.join('');
     }
-
+    /** 公告渲染：markdown 子集解析（标题/列表/链接/粗体）写入公告面板 innerHTML；动态链接统一 rel=noopener + target=_blank 安全属性。
+     * [DEEP-DOC]
+     */
     function renderNotice(data) {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
@@ -5158,7 +6882,13 @@
         const arrow = document.getElementById('xy-bc-arrow');
         if (arrow) arrow.style.transform = 'rotate(180deg)';
     }
-
+    /**
+     * 远程公告三级管线：1) GM 缓存 xy_notice_cache 命中立即渲染（hasCache=true）；
+     * 2) 无缓存用内置 EMBEDDED_NOTICE 兜底渲染并存缓存；3) 无论缓存与否后台
+     * GM_xHR 拉 Gitee 最新 notice_new.json（8s 超时），成功则覆盖缓存与视图。
+     * 三级容错保证任意一层失败都有内容可显示。
+     * [DEEP-DOC]
+     */
     function fetchCloudIntelligence() {
         const contentBox = document.getElementById('xy-bc-content');
         if (!contentBox) return;
@@ -5168,7 +6898,7 @@
         try {
             const cached = GM_getValue('xy_notice_cache', '');
             if (cached) { renderNotice(JSON.parse(cached)); hasCache = true; }
-        } catch (e) {  }
+        } catch (e) { console.warn('[小雅] 公告缓存解析失败，忽略缓存:', e); }
 
         
         if (!hasCache) {
@@ -5190,21 +6920,25 @@
                         const data = JSON.parse(resp.responseText);
                         GM_setValue('xy_notice_cache', JSON.stringify(data));
                         renderNotice(data);
-                    } catch (e) {  }
+                    } catch (e) { console.warn('[小雅] 远程公告解析失败:', e); }
                 },
-                onerror: function() {  },
-                ontimeout: function() {  }
+                onerror: function() { console.warn('[小雅] 远程公告拉取失败(网络错误)'); },
+                ontimeout: function() { console.warn('[小雅] 远程公告拉取超时'); }
             });
-        } catch (e) {  }
+        } catch (e) { console.warn('[小雅] 公告请求发起失败:', e); }
     }
-
-    
-    
-    
+    /** 秒 → 人读时长：h>0 出「Xh YYm ZZs」否则「YYm ZZs」，分秒两位补零。
+     * [DEEP-DOC]
+     */
     function formatTime(s) { const h = Math.floor(s/3600), m = Math.floor((s%3600)/60).toString().padStart(2,'0'), sec = (s%60).toString().padStart(2,'0'); return h > 0 ? `${h}h ${m}m ${sec}s` : `${m}m ${sec}s`; }
-
+    /**
+     * 刷课区 UI 状态机总渲染：横幅六态（调度暂停/调度中/手动休眠/深度休眠倒计时/
+     * 循环挂机/连播进行）决定 banner 文案与配色；联动引擎指示灯透明度、
+     * 文档进度条宽度、实时学习时长显示。activeZone 非 course 直接短路。
+     * [DEEP-DOC]
+     */
     function updateCourseUI() {
-        if (appState.activeZone !== 'course') return;
+        if (playState.activeZone !== ZONE.COURSE) return;
         const statusBanner = document.getElementById('xy-status-banner');
         if (statusBanner) {
             if (xyScheduleState.isRunning) {
@@ -5218,14 +6952,14 @@
                     statusBanner.style.borderColor = T('rgba(245,158,11,0.25)','#fde68a');
                 }
             }
-            else if (appState.mode === 'manual') {
+            else if (playState.mode === PLAY_MODE.MANUAL) {
                 statusBanner.innerHTML = `<span style="color:${T('#94a3b8','#64748b')};">⏸️ 挂机休眠中</span>`;
                 statusBanner.style.background = T('rgba(71,85,105,0.15)','#f8fafc');
                 statusBanner.style.borderColor = T('rgba(71,85,105,0.2)','#e2e8f0');
             }
             else if (!getCourseGroupId()) {
-                if (appState.mode === 'sequence' && Date.now() < appState.jumpSleepUntil) {
-                    let leftMin = Math.ceil((appState.jumpSleepUntil - Date.now()) / 60000);
+                if (playState.mode === PLAY_MODE.SEQUENCE && Date.now() < playState.jumpSleepUntil) {
+                    let leftMin = Math.ceil((playState.jumpSleepUntil - Date.now()) / 60000);
                     statusBanner.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">💤 寻路深度休眠 (约 ${leftMin} 分钟后重载探测)</span>`;
                     statusBanner.style.background = T('rgba(251,191,36,0.1)','#fffbeb');
                     statusBanner.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a');
@@ -5235,8 +6969,8 @@
                     statusBanner.style.borderColor = T('rgba(99,102,241,0.2)','#c7d2fe');
                 }
             }
-            else if (appState.isTaskCompleted) {
-                statusBanner.innerHTML = appState.mode === 'loop'
+            else if (playState.isTaskCompleted) {
+                statusBanner.innerHTML = playState.mode === PLAY_MODE.LOOP
                     ? `<span style="color:${T('#34d399','#065f46')};">✅ 已达标 (持续安全循环中)</span>`
                     : `<span style="color:${T('#34d399','#065f46')};">✅ 已达标 (即将自动跳转)</span>`;
                 statusBanner.style.background = T('rgba(52,211,153,0.1)','#ecfdf5');
@@ -5248,30 +6982,34 @@
                 statusBanner.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a');
             }
         }
-        ['man', 'loop', 'seq'].forEach(m => { const btn = document.getElementById(`btn-mode-${m}`); if(btn) btn.className = `xy-mode-btn ${appState.mode === (m==='man'?'manual':m==='loop'?'loop':'sequence') ? 'active' : ''}`; });
+        ['man', PLAY_MODE.LOOP, 'seq'].forEach(m => { const btn = document.getElementById(`btn-mode-${m}`); if(btn) btn.className = `xy-mode-btn ${playState.mode === (m==='man'?PLAY_MODE.MANUAL:m===PLAY_MODE.LOOP?PLAY_MODE.LOOP:PLAY_MODE.SEQUENCE) ? 'active' : ''}`; });
         
         const cRealTime = document.getElementById('xy-real-time');
-        if (cRealTime) cRealTime.innerText = formatTime(appState.realTime);
+        if (cRealTime) cRealTime.innerText = formatTime(recState.realTime);
         
         const btnGuard = document.getElementById('xy-btn-guard');
         if(btnGuard) {
-            btnGuard.textContent = appState.guardActive ? 'ON' : 'OFF';
-            btnGuard.style.background = appState.guardActive ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
-            btnGuard.style.color = appState.guardActive ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
+            btnGuard.textContent = guardState.guardActive ? 'ON' : 'OFF';
+            btnGuard.style.background = guardState.guardActive ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
+            btnGuard.style.color = guardState.guardActive ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
         }
 
         const btnKeepalive = document.getElementById('xy-btn-keepalive');
         if(btnKeepalive) {
-            btnKeepalive.textContent = appState.keepaliveEnabled ? 'ON' : 'OFF';
-            btnKeepalive.style.background = appState.keepaliveEnabled ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
-            btnKeepalive.style.color = appState.keepaliveEnabled ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
+            btnKeepalive.textContent = guardState.keepaliveEnabled ? 'ON' : 'OFF';
+            btnKeepalive.style.background = guardState.keepaliveEnabled ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
+            btnKeepalive.style.color = guardState.keepaliveEnabled ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
         }
     }
-
+    /**
+     * 自定义回复库编辑弹窗：textarea 预填现有语料（每行一条），保存时按行拆分
+     * 过滤空行写回 customReplies 并持久化。取消直接关闭不落盘。回复计数徽章联动。
+     * [DEEP-DOC]
+     */
     function openReplySettingsModal() {
         if (!document.body) return;
-        const phrases = (appState.customReplies && appState.customReplies.length > 0)
-            ? appState.customReplies.join('\n')
+        const phrases = (discState.customReplies && discState.customReplies.length > 0)
+            ? discState.customReplies.join('\n')
             : '';
         const modal = document.createElement('div');
         modal.style.cssText = `position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2147483647; opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); backdrop-filter: blur(10px); padding: 20px;`;
@@ -5288,7 +7026,7 @@
                 <div style="display:flex; justify-content:space-between; align-items:center;">
                     <button id="xy-reply-reset-btn" style="background:${T('rgba(248,113,113,0.1)','#fee2e2')}; color:#f87171; border:1px solid ${T('rgba(248,113,113,0.2)','#fecaca')}; padding:8px 16px; border-radius:8px; font-size:12px; cursor:pointer; font-weight:600;">🔄 恢复默认语料库</button>
                     <div style="display:flex; align-items:center; gap:12px;">
-                        <span style="font-size:11px; color:${T('#64748b','#94a3b8')};" id="xy-reply-count">${appState.customReplies.length} 条</span>
+                        <span style="font-size:11px; color:${T('#64748b','#94a3b8')};" id="xy-reply-count">${discState.customReplies.length} 条</span>
                         <button id="xy-reply-save-btn" style="padding:10px 24px; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; background:linear-gradient(135deg, #818cf8, #6366f1); color:white; box-shadow:0 4px 12px rgba(99,102,241,0.25); transition:all 0.2s;">💾 保存语料库</button>
                     </div>
                 </div>
@@ -5324,40 +7062,49 @@
         const saveBtn = document.getElementById('xy-reply-save-btn');
         if (saveBtn) saveBtn.onclick = () => {
             const lines = ta.value.split(/[\n\r]+/).map(s => s.trim()).filter(s => s.length > 0);
-            appState.customReplies = lines;
+            discState.customReplies = lines;
             GM_setValue('xy_custom_replies', JSON.stringify(lines));
             closeModal();
             showToast(`语料库已保存 (${lines.length} 条)`, 'success');
         };
     }
-
+    /**
+     * 讨论区 UI 总刷新：状态条（ID 捕获情况/名单规模）、点赞与回复按钮可用性
+     * （依赖 discussionId 已捕获）、名单计数徽章同步。非 disc 区短路返回。
+     * [DEEP-DOC]
+     */
     function updateDiscUI() {
-        if (appState.activeZone !== 'disc') return;
+        if (playState.activeZone !== ZONE.DISC) return;
         const statusEl = document.getElementById('xy-disc-status');
         if (statusEl) {
-            if (appState.discussionId) { statusEl.innerHTML = `<span style="color:${T('#34d399','#065f46')};">✅ 已锁定讨论区：${appState.discussionId.substring(0,8)}...</span>`; statusEl.style.background = T('rgba(52,211,153,0.1)','#ecfdf5'); statusEl.style.borderColor = T('rgba(52,211,153,0.2)','#a7f3d0'); document.querySelectorAll('.xy-action-btn.disc-btn').forEach(b => b.style.opacity = '1'); }
+            if (discState.discussionId) { statusEl.innerHTML = `<span style="color:${T('#34d399','#065f46')};">✅ 已锁定讨论区：${discState.discussionId.substring(0,8)}...</span>`; statusEl.style.background = T('rgba(52,211,153,0.1)','#ecfdf5'); statusEl.style.borderColor = T('rgba(52,211,153,0.2)','#a7f3d0'); document.querySelectorAll('.xy-action-btn.disc-btn').forEach(b => b.style.opacity = '1'); }
             else { statusEl.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">⚠️ 请在讨论区内刷新页面 (或随意点击评论) 触发网络包获取ID</span>`; statusEl.style.background = T('rgba(251,191,36,0.1)','#fffbeb'); statusEl.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a'); }
         }
     }
 
     const updateCheckedCount = () => { 
         const span = document.getElementById('xy-checked-count'); 
-        if(span) span.textContent = appState.selectedNames.size; 
+        if(span) span.textContent = discState.selectedNames.size; 
         const totalSpan = document.getElementById('xy-total-count');
-        if(totalSpan) totalSpan.textContent = appState.targetNames.length;
+        if(totalSpan) totalSpan.textContent = discState.targetNames.length;
     };
-
+    /**
+     * 名单列表渲染：搜索词过滤（escapeRegex 安全嵌入正则做包含匹配）→
+     * 勾选态从 selectedNames 读回 → 行 HTML（checkbox + 姓名 + 序号）→
+     * change 事件委托维护 selectedNames。空结果展示占位文案。
+     * [DEEP-DOC]
+     */
     function renderTargetList(filterText = '') {
         const listDiv = document.getElementById('xy-target-list'); if (!listDiv) return;
         
-        if (appState.targetNames.length === 0) { 
+        if (discState.targetNames.length === 0) { 
             listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; font-size:13px; text-align:center; padding:24px 0; grid-column: 1 / -1; letter-spacing: 0.5px;">✨ 正在等待或自动全量扫描中...</div>`;
             updateCheckedCount();
             return; 
         }
         
         const terms = filterText.split(/[\s,，;；]+/).map(t => t.trim()).filter(t => t);
-        let displayNames = appState.targetNames;
+        let displayNames = discState.targetNames;
         
         if (terms.length > 0) {
             displayNames = displayNames.filter(name => terms.some(term => name.toLowerCase().includes(term.toLowerCase())));
@@ -5378,7 +7125,7 @@
                     displayNameHtml = displayNameHtml.replace(regex, `<span style="background-color: #fde047; color: #854d0e; font-weight: bold; border-radius: 4px; padding: 0 4px;">$1</span>`);
                 });
             }
-            const isChecked = appState.selectedNames.has(name);
+            const isChecked = discState.selectedNames.has(name);
             html += `
                 <label class="xy-target-item" title="${safeName}" style="background: ${T('rgba(30,41,59,0.35)','#ffffff')}; box-shadow: ${T('0 2px 4px rgba(0,0,0,0.1)','none')}; padding: 10px 12px; border-radius: 10px; display: flex; min-width: 0; align-items: center; gap: 10px; cursor: pointer; border: 1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; transition: all 0.2s;">
                     <input type="checkbox" class="xy-target-checkbox" value="${safeName}" ${isChecked ? 'checked' : ''} style="accent-color: #818cf8; flex-shrink: 0; width: 16px; height: 16px; cursor: pointer;">
@@ -5390,10 +7137,15 @@
         listDiv.innerHTML = html; 
         updateCheckedCount();
     }
-
-    
-    
-    
+    /**
+     * 全网任务聚合（雷达/调度/批量提交的共用数据源）。
+     *
+     * 流程：un_finish 接口取未完成任务骨架 → 学生课程列表补齐 courseMap
+     * （GM 持久化 xy_course_map 跨会话缓存）→ 逐课程并发 queryCourseResources
+     * 补全资源型任务（node_id 去重合并，computed_task_type 回填，group_name 兜底）。
+     * 单课失败 warn 不中断整体。
+     * [DEEP-DOC]
+     */
     async function fetchGlobalTasks() {
         let allTasks = [];
         try { 
@@ -5410,7 +7162,7 @@
 
             
             let courseMap = {};
-            try { courseMap = JSON.parse(GM_getValue('xy_course_map', '{}')); } catch(e) {}
+            try { courseMap = JSON.parse(GM_getValue('xy_course_map', '{}')); } catch(e) { console.warn('[小雅] 课程名映射缓存解析失败:', e); }
 
             unfinishedTasks.forEach(t => {
                 if (t.group_id && t.group_name) courseMap[t.group_id] = t.group_name;
@@ -5455,7 +7207,7 @@
                         const r = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${gId}`, { headers: { "authorization": `Bearer ${token}` } });
                         const d = await r.json();
                         return { gId, gName: courseMap[gId], data: d };
-                    } catch (e) { return null; }
+                    } catch (e) { console.warn('[小雅] 课程资源批量探测失败:', gId, e); return null; }
                 });
 
                 const results = await Promise.all(fetchPromises);
@@ -5492,7 +7244,12 @@
         } catch (error) { console.warn('[小雅] fetchGlobalTasks 失败', error); }
         return allTasks;
     }
-
+    /**
+     * 批量任务提交：逐任务 autoSubmitCurrentTask 式验证上报，间隔随机化拟人；
+     * 实时更新按钮进度文案「i/n」；汇总成功/失败计数 toast 收尾。AbortController
+     * 未接入——批量一旦启动只能等自然结束或关页。
+     * [DEEP-DOC]
+     */
     async function batchSubmitGlobalTasks(taskObjs) {
         try {
             const token = await getAuthToken(); let successCount = 0;
@@ -5578,7 +7335,9 @@
 
         } catch(e) { console.warn('[小雅] 全局任务执行失败', e); }
     }
-
+    /** 打开全局任务雷达面板：置 overlay 可见 → fetchGlobalTasks 拉数据 → renderGlobalDashboardContent 全量渲染。关闭按钮在面板内绑定。
+     * [DEEP-DOC]
+     */
     async function openGlobalTaskDashboard() {
         let overlay = document.getElementById('xy-dashboard-overlay');
         if (!overlay) { overlay = document.createElement('div'); overlay.id = 'xy-dashboard-overlay'; overlay.style.cssText = `position:fixed; top:0; left:0; width:100vw; height:100vh; background:${T('rgba(15,23,42,0.7)','rgba(0,0,0,0.3)')}; z-index:2147483645; display:flex; justify-content:center; align-items:center; backdrop-filter:${T('blur(12px)','blur(4px)')}; opacity:0; transition:opacity 0.3s;`; document.body.appendChild(overlay); }
@@ -5600,17 +7359,24 @@
         document.getElementById('xy-close-dashboard').onclick = () => { overlay.style.opacity = '0'; overlay.firstElementChild.style.transform = 'scale(0.95)'; setTimeout(() => overlay.remove(), 300); };
         const tasks = await fetchGlobalTasks(); renderGlobalDashboardContent(tasks);
     }
-
+    /** 雷达专用的轻量资源拉取：getAuthToken + queryCourseResources，success 即返回 data.data；异常静默 null（雷达容忍部分课程缺树）。
+     * [DEEP-DOC]
+     */
     async function fetchCourseResourcesForRadar(gid) {
         try {
             const token = await getAuthToken();
             const res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${gid}`, { headers: { "authorization": `Bearer ${token}` } });
             const data = await res.json();
             if (data.success && data.data) return data.data;
-        } catch(e) {}
+        } catch(e) { console.warn('[小雅] 雷达课程资源请求失败:', gid, e); }
         return null;
     }
-
+    /**
+     * 单元名映射递归构建：dirIsUnit 判定的单元节点写入 map（_id/node_id 双键
+     * 都映射到单元名）并推入 orderedOut 保序数组；叶子文件继承最近父单元名。
+     * 供雷达任务按单元分组展示。
+     * [DEEP-DOC]
+     */
     function buildUnitNameMap(nodes, parentName, map, orderedOut) {
         if (!map) map = new Map();
         (Array.isArray(nodes) ? nodes : []).forEach(n => {
@@ -5628,7 +7394,9 @@
         });
         return map;
     }
-
+    /** 任务按 unitMap 查得的单元名分组（双键查询兜底），无映射归入「未分组」桶。
+     * [DEEP-DOC]
+     */
     function groupTasksByUnit(tasks, unitMap) {
         const m = new Map();
         (Array.isArray(tasks) ? tasks : []).forEach(t => {
@@ -5639,7 +7407,11 @@
         });
         return m;
     }
-
+    /**
+     * 雷达任务卡 HTML：名称截断悬浮提示、课程名、状态徽标（已完成可刷/待完成）、
+     * 操作按钮（挂机/提交）。data-tid 关联全局任务 Map 供事件委托取回完整对象。
+     * [DEEP-DOC]
+     */
     function buildRadarTaskCard(task) {
         window.xyGlobalTaskMap.set(task.task_id || task.id, task);
         const now = new Date();
@@ -5647,7 +7419,7 @@
         const startTime = new Date(task.start_time);
         const isCompleted = task.finish === 2;
         const isAutoable = task.task_type === 1;
-        const enableCheck = (!isCompleted) && (isAutoable || appState.isFreedomMode);
+        const enableCheck = (!isCompleted) && (isAutoable || playState.isFreedomMode);
         let statusTag = '', statusColorBg = '', statusColorText = '';
         if (isCompleted) { statusTag = '✓ 已完成'; statusColorBg = 'rgba(52,211,153,0.12)'; statusColorText = '#34d399'; }
         else if (endTime < now) { statusTag = '⚠️ 已截止'; statusColorBg = 'rgba(248,113,113,0.12)'; statusColorText = '#f87171'; }
@@ -5675,7 +7447,12 @@
                 </div>
             </div>`;
     }
-
+    /**
+     * 全局雷达面板主渲染：空态早退；按 groupTasksByUnit 分组后逐组渲染任务卡；
+     * 头部统计（总任务/未完成）与批量操作栏（勾选提交）一并装配；事件委托统一
+     * 在容器上处理点击。
+     * [DEEP-DOC]
+     */
     async function renderGlobalDashboardContent(tasks) {
         const contentBox = document.getElementById('xy-dashboard-content'), footerBox = document.getElementById('xy-dashboard-footer');
         if (!contentBox) return;
@@ -5689,9 +7466,9 @@
                     <div style="color:${T('#fbbf24','#92400e')}; font-size:13px; line-height: 1.6; opacity:0.8;">允许跨课程批量强交【非视频类】作业（有查水表风险，切忌交空卷）</div>
                 </div>
                 <label style="position:relative; display:inline-block; width:56px; height:30px;">
-                    <input type="checkbox" id="xy-freedom-switch" style="opacity:0; width:0; height:0;" ${appState.isFreedomMode ? 'checked' : ''}>
-                    <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${appState.isFreedomMode?'#f59e0b':'#475569'}; border-radius:34px; transition:.4s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);">
-                        <span style="position:absolute; height:22px; width:22px; left:4px; bottom:4px; background:#e2e8f0; border-radius:50%; transition:.4s; transform:${appState.isFreedomMode?'translateX(26px)':'translateX(0)'}; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></span>
+                    <input type="checkbox" id="xy-freedom-switch" style="opacity:0; width:0; height:0;" ${playState.isFreedomMode ? 'checked' : ''}>
+                    <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${playState.isFreedomMode?'#f59e0b':'#475569'}; border-radius:34px; transition:.4s; box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);">
+                        <span style="position:absolute; height:22px; width:22px; left:4px; bottom:4px; background:#e2e8f0; border-radius:50%; transition:.4s; transform:${playState.isFreedomMode?'translateX(26px)':'translateX(0)'}; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></span>
                     </span>
                 </label>
             </div>
@@ -5811,8 +7588,8 @@
         taskCheckboxes.forEach(cb => { cb.onchange = () => { if (!cb.checked && selectAllCb) selectAllCb.checked = false; else if (selectAllCb) selectAllCb.checked = Array.from(taskCheckboxes).every(c => c.checked); }; });
         const fSwitch = document.getElementById('xy-freedom-switch');
         if (fSwitch) fSwitch.onchange = (e) => {
-            if (e.target.checked) { xyShowModal("⚠️ 越级警告", "强行解除非视频节点的锁极易导致数据异常，请确保你清楚后果！", () => { appState.isFreedomMode = true; renderGlobalDashboardContent(tasks); }); e.target.checked = false; } 
-            else { appState.isFreedomMode = false; renderGlobalDashboardContent(tasks); }
+            if (e.target.checked) { xyShowModal("⚠️ 越级警告", "强行解除非视频节点的锁极易导致数据异常，请确保你清楚后果！", () => { playState.isFreedomMode = true; renderGlobalDashboardContent(tasks); }); e.target.checked = false; } 
+            else { playState.isFreedomMode = false; renderGlobalDashboardContent(tasks); }
         };
         const submitBtn = document.getElementById('xy-batch-submit-btn');
         if (submitBtn) submitBtn.onclick = () => {
@@ -5822,10 +7599,20 @@
             batchSubmitGlobalTasks(checkedNodes.map(id => window.xyGlobalTaskMap.get(id)).filter(Boolean));
         };
     }
-
-    
-    
-    
+    /**
+     * 智能排课排序 —— 启发式贪心调度算法（权重见 SCHEDULE_WEIGHTS 常量）。
+     *
+     * 打分模型：ddlScore 按 DDL 分档（<1天:100 / <3天:80 / <7天:60 / <14天:40 /
+     * <30天:20 : 其余5）× completionPenalty（已完成0.3 抑制重复刷）；
+     * 迭代选取：每轮对 remaining 全量重算 score = ddlScore + typeBonus +
+     * courseSwitchBonus——typeBonus 奖励与上一选中任务类型交错（视频文档交替
+     * +25，首任务+10）；courseSwitchBonus 奖励跨课程切换(+15)。每轮取最高分
+     * 移入 sorted 并更新 lastWasVideo。
+     *
+     * 学术注记：权值为经验启发值而非建模最优解，属贪心近似；实测排序质量稳定，
+     * 但理论上不保证全局最优（NP-hard 排序问题的可接受工程折衷）。
+     * [DEEP-DOC]
+     */
     function optimizeScheduleOrder(tasks) {
         if (!tasks || tasks.length === 0) return [];
         const now = Date.now();
@@ -5833,15 +7620,20 @@
             const endTime = new Date(task.end_time).getTime();
             const daysLeft = Math.max(0, (endTime - now) / (1000 * 60 * 60 * 24));
             const name = (task.name || '').toLowerCase();
-            const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
-            const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+            const isVideo = SHARED_PATTERNS.MEDIA.test(name);
+            const isDoc = SHARED_PATTERNS.DOC.test(name);
 
             
-            const ddlScore = daysLeft < 1 ? 100 : daysLeft < 3 ? 80 : daysLeft < 7 ? 60 : daysLeft < 14 ? 40 : daysLeft < 30 ? 20 : 5;
+            const ddlScore = daysLeft < SCHEDULE_WEIGHTS.DDL_DAY_1 ? SCHEDULE_WEIGHTS.DDL_SCORE[0]
+                : daysLeft < SCHEDULE_WEIGHTS.DDL_DAY_3 ? SCHEDULE_WEIGHTS.DDL_SCORE[1]
+                : daysLeft < SCHEDULE_WEIGHTS.DDL_DAY_7 ? SCHEDULE_WEIGHTS.DDL_SCORE[2]
+                : daysLeft < SCHEDULE_WEIGHTS.DDL_DAY_14 ? SCHEDULE_WEIGHTS.DDL_SCORE[3]
+                : daysLeft < SCHEDULE_WEIGHTS.DDL_DAY_30 ? SCHEDULE_WEIGHTS.DDL_SCORE[4]
+                : SCHEDULE_WEIGHTS.DDL_SCORE[5];
             
-            const completionPenalty = task.finish === 2 ? 0.3 : 1.0;
+            const completionPenalty = task.finish === 2 ? SCHEDULE_WEIGHTS.COMPLETION_PENALTY : 1.0;
             
-            const typeWeight = isVideo ? 0.5 : isDoc ? 0.5 : 0.3;
+            const typeWeight = isVideo ? SCHEDULE_WEIGHTS.TYPE_MEDIA : isDoc ? SCHEDULE_WEIGHTS.TYPE_MEDIA : SCHEDULE_WEIGHTS.TYPE_OTHER;
 
             return {
                 task,
@@ -5863,13 +7655,13 @@
             
             remaining.forEach(item => {
                 let typeBonus = 0;
-                if (lastWasVideo === true && item.isDoc) typeBonus = 25; 
-                if (lastWasVideo === false && item.isVideo) typeBonus = 25; 
-                if (lastWasVideo === null) typeBonus = 10; 
+                if (lastWasVideo === true && item.isDoc) typeBonus = SCHEDULE_WEIGHTS.ALTERNATE_BONUS; 
+                if (lastWasVideo === false && item.isVideo) typeBonus = SCHEDULE_WEIGHTS.ALTERNATE_BONUS; 
+                if (lastWasVideo === null) typeBonus = SCHEDULE_WEIGHTS.FIRST_PICK_BONUS; 
 
                 
                 const hasOtherCourse = remaining.some(r => r.groupId !== item.groupId);
-                const courseSwitchBonus = (hasOtherCourse && sorted.length > 0 && item.groupId !== sorted[sorted.length-1].groupId) ? 15 : 0;
+                const courseSwitchBonus = (hasOtherCourse && sorted.length > 0 && item.groupId !== sorted[sorted.length-1].groupId) ? SCHEDULE_WEIGHTS.COURSE_SWITCH_BONUS : 0;
 
                 item.score = item.ddlScore + typeBonus + courseSwitchBonus;
             });
@@ -5883,13 +7675,19 @@
 
         return sorted.map(s => s.task);
     }
-
+    /**
+     * 智能排课入口编排：fetchGlobalTasks 全网任务 → 过滤出视频/文档且 task_type=1
+     * 的可刷集合 → optimizeScheduleOrder 排序 → 逐个 getTaskResourceId 补全三元组
+     * 后入队（已完成的用 duration 策略重刷，未完成 until_done）→ saveScheduleState
+     * + 渲染队列 + 成功日志/toast。零任务时警告返回。
+     * [DEEP-DOC]
+     */
     async function smartOptimizeAndImport() {
         const tasks = await fetchGlobalTasks();
         const watchTasks = tasks.filter(t => {
             const name = (t.name || '').toLowerCase();
-            const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
-            const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+            const isVideo = SHARED_PATTERNS.MEDIA.test(name);
+            const isDoc = SHARED_PATTERNS.DOC.test(name);
             return (isVideo || isDoc) && t.task_type === 1;
         });
 
@@ -5910,7 +7708,7 @@
                 resourceId: resId,
                 name: task.name,
                 type: 1,
-                strategy: task.finish === 2 ? 'duration' : 'until_done',
+                strategy: task.finish === 2 ? STRATEGY.FIXED_DURATION : STRATEGY.UNTIL_DONE,
                 duration: 30,
                 elapsedSec: 0,
                 actionDone: false,
@@ -5922,10 +7720,12 @@
         logMsg(`🧠 智能排课完成：${xyScheduleState.queue.length} 个任务已按 DDL紧迫度×类型交错 优化排序`, 'success', false);
         showToast(`已优化导入 ${xyScheduleState.queue.length} 个任务`, 'success');
     }
-
-    
-    
-    
+    /**
+     * 一键雷达连播：全网扫描 → 过滤未完成且已开始的视频/文档 → DDL 升序排序
+     * （同 DDL 先看完成态再比课程号节点号）→ 整体入队 until_done 策略 →
+     * currentIdx 归零立即开跑。运行中禁止重复触发（先停调度）。
+     * [DEEP-DOC]
+     */
     async function oneClickRadarPlay() {
         if (xyScheduleState.isRunning) {
             showToast('计划调度正在运行中，请先停止后再一键连播', 'warning');
@@ -5941,8 +7741,8 @@
         
         const pendingTasks = allTasks.filter(t => {
             const name = (t.name || '').toLowerCase();
-            const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
-            const isDoc = /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+            const isVideo = SHARED_PATTERNS.MEDIA.test(name);
+            const isDoc = SHARED_PATTERNS.DOC.test(name);
             if (!(isVideo || isDoc)) return false;
             if (t.finish === 2) return false; 
             if (t.start_time && new Date(t.start_time) > now) return false; 
@@ -5982,7 +7782,7 @@
                 resourceId: resId,
                 name: task.name,
                 type: 1,
-                strategy: 'until_done', 
+                strategy: STRATEGY.UNTIL_DONE, 
                 duration: 30,
                 elapsedSec: 0,
                 actionDone: false,
@@ -5997,9 +7797,9 @@
         showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动连播`, 'success');
 
         
-        xyScheduleState.lastMode = appState.mode;
-        appState.mode = 'manual';
-        GM_setValue('xy_play_mode', 'manual');
+        xyScheduleState.lastMode = playState.mode;
+        playState.mode = PLAY_MODE.MANUAL;
+        GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
 
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
@@ -6025,7 +7825,10 @@
     
     
     let quickKillRunning = false;
-
+    /** 快速击破当前任务：跳过自然挂机等待，直接对当前 node 发起一次完成验证并
+     * 根据结果反馈日志。适用于「就差这一个」的场景。
+     * [DEEP-DOC]
+     */
     async function quickKillCurrentTask() {
         if (quickKillRunning) { showToast('极速秒交正在执行中', 'warning'); return; }
         const groupId = getCourseGroupId();
@@ -6045,7 +7848,7 @@
             if (success) {
                 logMsg('✅ 极速秒交成功！当前任务已提交', 'success', false);
                 showToast('秒交成功！', 'success');
-                appState.isTaskCompleted = true;
+                playState.isTaskCompleted = true;
                 updateCourseUI();
         
             } else {
@@ -6059,10 +7862,12 @@
             if (btn) { btn.innerText = origText; btn.disabled = false; }
         }
     }
-
-    
-    
-    
+    /**
+     * 计划调度面板打开编排：overlay 显示 → 任务库渲染（fetchGlobalTasks 全集按
+     * 课程折叠分组，卡片带添加按钮写 xyGlobalTaskMap）→ 当前队列渲染（策略下拉/
+     * 时长输入/删除/上下移控件绑定）→ 自动启停时间输入框回填。
+     * [DEEP-DOC]
+     */
     async function openScheduleDashboard() {
         let overlay = document.getElementById('xy-schedule-overlay');
         if (!overlay) {
@@ -6092,19 +7897,19 @@
                 let indicator = isCompleted ? '✅ 已完成' : (isActive ? '▶️ 执行中' : '⏳ 等待中');
                 let indicatorColor = isCompleted ? T('#34d399','#065f46') : (isActive ? T('#a5b4fc','#3730a3') : T('#94a3b8','#64748b'));
 
-                let minStr = item.strategy === 'infinite' ? '∞' : (item.strategy === 'until_done' ? '达标' : item.duration);
-                let unit = (item.strategy === 'until_done' || item.strategy === 'infinite') ? '' : '分';
+                let minStr = item.strategy === STRATEGY.INFINITE ? '∞' : (item.strategy === STRATEGY.UNTIL_DONE ? '达标' : item.duration);
+                let unit = (item.strategy === STRATEGY.UNTIL_DONE || item.strategy === STRATEGY.INFINITE) ? '' : '分';
                 let elapMin = Math.floor((item.elapsedSec || 0) / 60);
                 
                 let contentHtml = `
                     <div style="display:flex; align-items:center; gap:8px;">
                         <select class="xy-sch-strategy" data-uuid="${item.uuid}" style="padding:4px 8px; border-radius:6px; border:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; font-size:13px; outline:none; background:${T('rgba(15,23,42,0.5)','#ffffff')}; color:${T('#e2e8f0','#0f172a')};" ${isActive||isCompleted ? 'disabled' : ''}>
-                            <option value="until_done" ${item.strategy==='until_done'?'selected':''}>🎯 达标即跳(连播)</option>
-                            <option value="duration" ${item.strategy==='duration'?'selected':''}>🕒 刷固定时长</option>
-                            <option value="infinite" ${item.strategy==='infinite'?'selected':''}>♾️ 无限挂机</option>
+                            <option value="until_done" ${item.strategy===STRATEGY.UNTIL_DONE?'selected':''}>🎯 达标即跳(连播)</option>
+                            <option value="duration" ${item.strategy===STRATEGY.FIXED_DURATION?'selected':''}>🕒 刷固定时长</option>
+                            <option value="infinite" ${item.strategy===STRATEGY.INFINITE?'selected':''}>♾️ 无限挂机</option>
                         </select>
-                        <input type="number" class="xy-sch-min-input" data-uuid="${item.uuid}" value="${item.duration || 30}" style="width:50px; padding:4px; text-align:center; border:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; border-radius:6px; font-size:13px; background:${T('rgba(15,23,42,0.5)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; display:${item.strategy==='duration'?'block':'none'};" ${isActive||isCompleted ? 'disabled' : ''}>
-                        <span class="xy-sch-min-unit" data-uuid="${item.uuid}" style="font-size:13px; color:${T('#94a3b8','#64748b')}; display:${item.strategy==='duration'?'block':'none'};">分</span>
+                        <input type="number" class="xy-sch-min-input" data-uuid="${item.uuid}" value="${item.duration || 30}" style="width:50px; padding:4px; text-align:center; border:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; border-radius:6px; font-size:13px; background:${T('rgba(15,23,42,0.5)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; display:${item.strategy===STRATEGY.FIXED_DURATION?'block':'none'};" ${isActive||isCompleted ? 'disabled' : ''}>
+                        <span class="xy-sch-min-unit" data-uuid="${item.uuid}" style="font-size:13px; color:${T('#94a3b8','#64748b')}; display:${item.strategy===STRATEGY.FIXED_DURATION?'block':'none'};">分</span>
                     </div>
                 `;
                 indicator += ` <span style="font-weight:normal; opacity:0.8;">(驻留: ${elapMin}/${minStr}${unit})</span>`;
@@ -6249,8 +8054,8 @@
             if (strategyEl) {
                 const infoSpan = strategyEl.closest('.xy-sch-item-row').querySelector('.xy-sch-indicator-text');
                 if (infoSpan) {
-                    let minStr = currentTask.strategy === 'infinite' ? '∞' : (currentTask.strategy === 'until_done' ? '达标' : currentTask.duration);
-                    let unit = (currentTask.strategy === 'until_done' || currentTask.strategy === 'infinite') ? '' : '分';
+                    let minStr = currentTask.strategy === STRATEGY.INFINITE ? '∞' : (currentTask.strategy === STRATEGY.UNTIL_DONE ? '达标' : currentTask.duration);
+                    let unit = (currentTask.strategy === STRATEGY.UNTIL_DONE || currentTask.strategy === STRATEGY.INFINITE) ? '' : '分';
                     let elapMin = Math.floor((currentTask.elapsedSec || 0) / 60);
                     infoSpan.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">▶️ 执行中</span> <span style="font-weight:normal; opacity:0.8;">(驻留: ${elapMin}/${minStr}${unit})</span>`;
                 }
@@ -6266,14 +8071,14 @@
 
             const isValidSchTask = (task) => {
                 const name = (task.name || '').toLowerCase();
-                return /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name) || /\.(pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i.test(name);
+                return SHARED_PATTERNS.WATCH.test(name);
             };
 
             const buildSchLibCard = (task) => {
                 window.xyGlobalTaskMap.set(task.task_id || task.id, task);
                 const isCompleted = task.finish === 2;
                 const name = (task.name || '').toLowerCase();
-                const isVideo = /\.(mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i.test(name);
+                const isVideo = SHARED_PATTERNS.MEDIA.test(name);
                 const typeStr = isVideo ? '📺 视频' : '📄 文档';
                 const statusUI = isCompleted
                     ? `<span style="color:${T('#34d399','#065f46')}; font-weight:bold; background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; padding:2px 6px; border-radius:6px;">✅ 已完成(可刷)</span>`
@@ -6414,7 +8219,7 @@
                             resourceId: resId,
                             name: task.name,
                             type: 1,
-                            strategy: task.finish === 2 ? 'duration' : 'until_done',
+                            strategy: task.finish === 2 ? STRATEGY.FIXED_DURATION : STRATEGY.UNTIL_DONE,
                             duration: 30,
                             elapsedSec: 0,
                             actionDone: false,
@@ -6548,9 +8353,9 @@
                 xyScheduleState.currentIdx = 0;
             }
 
-            xyScheduleState.lastMode = appState.mode;
-            appState.mode = 'manual';
-            GM_setValue('xy_play_mode', 'manual');
+            xyScheduleState.lastMode = playState.mode;
+            playState.mode = PLAY_MODE.MANUAL;
+            GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
 
             xyScheduleState.isRunning = true;
             xyScheduleState.isPaused = false;
@@ -6579,8 +8384,8 @@
             xyScheduleState.isPaused = false;
             try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
-            appState.mode = xyScheduleState.lastMode || 'sequence';
-            GM_setValue('xy_play_mode', appState.mode);
+            playState.mode = xyScheduleState.lastMode || PLAY_MODE.SEQUENCE;
+            GM_setValue('xy_play_mode', playState.mode);
             updateCourseUI();
 
             GM_setValue('xy_schedule_paused', false);
@@ -6605,10 +8410,12 @@
             showToast(autoStopInput.value ? `定时停止已设为 ${autoStopInput.value}` : '定时停止已关闭', 'success');
         };
     }
-
-    
-    
-    
+    /**
+     * 调度卡片控件事件绑定：策略 select onchange 更新 strategy + 持久化 + 重渲；
+     * 时长 input 校验数值范围后写 duration；删除/上移/下移按 uuid 定位队列元素
+     * 操作后 saveScheduleState 保持一致。
+     * [DEEP-DOC]
+     */
     function _bindSchCardButtons(card) {
         if (!card) return;
         const btns = card.querySelectorAll('button');
@@ -6624,7 +8431,10 @@
             });
         });
     }
-
+    /** 单卡片运行态刷新：驻留时长计时显示（elapsedSec/duration 或 ∞）、状态徽标
+     * （执行中/等待/已完成）、暂停态视觉。由调度 tick 高频调用需保持轻量。
+     * [DEEP-DOC]
+     */
     function updateSchCard() {
         const card = document.getElementById('xy-sch-card');
         if (!card) return;
@@ -6644,7 +8454,7 @@
             html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;"><b style="color:${T('#34d399','#059669')};">✅ 全部完成 · ${total}/${total} 项已达标</b><button data-action="restart" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🔄 重新开始</button></div>`;
         }
         
-        else if (appState.isJumping) {
+        else if (playState.isJumping) {
             card.style.borderLeftColor = T('#f59e0b','#d97706');
             card.style.background = T('rgba(251,191,36,0.06)','#fffbeb');
             html = `<b style="color:${T('#fcd34d','#b45309')};">🚀 正在跳转至「${escapeHtml((task.name||'未知').substring(0,14))}」...</b>`;
@@ -6654,7 +8464,7 @@
             const name = escapeHtml((task.name || '未知').substring(0, 16));
             const elapsed = task.elapsedSec || 0;
             const elapStr = elapsed >= 3600 ? `${Math.floor(elapsed/3600)}h${Math.floor((elapsed%3600)/60)}m` : `${Math.floor(elapsed/60)}m${elapsed%60}s`;
-            const durStr = task.strategy === 'infinite' ? '∞' : task.strategy === 'until_done' ? '达标连播' : `刷${task.duration||30}min`;
+            const durStr = task.strategy === STRATEGY.INFINITE ? '∞' : task.strategy === STRATEGY.UNTIL_DONE ? '达标连播' : `刷${task.duration||30}min`;
             const paused = xyScheduleState.isPaused;
 
             if (paused) {
@@ -6681,9 +8491,9 @@
             xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; q.actionDone = false; });
             xyScheduleState.currentIdx = 0;
         }
-        xyScheduleState.lastMode = appState.mode;
-        appState.mode = 'manual';
-        GM_setValue('xy_play_mode', 'manual');
+        xyScheduleState.lastMode = playState.mode;
+        playState.mode = PLAY_MODE.MANUAL;
+        GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
         saveScheduleState();
@@ -6712,8 +8522,8 @@
         xyScheduleState.isRunning = false;
         xyScheduleState.isPaused = false;
         try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
-        appState.mode = xyScheduleState.lastMode || 'sequence';
-        GM_setValue('xy_play_mode', appState.mode);
+        playState.mode = xyScheduleState.lastMode || PLAY_MODE.SEQUENCE;
+        GM_setValue('xy_play_mode', playState.mode);
         GM_setValue('xy_schedule_paused', false);
         saveScheduleState();
         updateCourseUI();
@@ -6727,7 +8537,7 @@
         const t = xyScheduleState.queue[xyScheduleState.currentIdx];
         if (t) { t.status = 'completed'; t.elapsedSec = t.elapsedSec || 0; }
         xyScheduleState.currentIdx++;
-        appState.isJumping = false;
+        playState.isJumping = false;
         saveScheduleState();
         updateCourseUI();
         updateSchCard();
@@ -6741,9 +8551,9 @@
         xyScheduleState.currentIdx = 0;
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
-        xyScheduleState.lastMode = appState.mode;
-        appState.mode = 'manual';
-        GM_setValue('xy_play_mode', 'manual');
+        xyScheduleState.lastMode = playState.mode;
+        playState.mode = PLAY_MODE.MANUAL;
+        GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
         saveScheduleState();
         updateCourseUI();
         updateSchCard();
@@ -6768,8 +8578,8 @@
             try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
             
-            appState.mode = 'manual'; 
-            GM_setValue('xy_play_mode', 'manual');
+            playState.mode = PLAY_MODE.MANUAL; 
+            GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
             updateCourseUI();
             
             saveScheduleState();
@@ -6800,8 +8610,8 @@
 
         
         if (currentGroupId != currentTask.groupId || currentNodeId != currentTask.nodeId) {
-            if (!appState.isJumping) {
-                appState.isJumping = true;
+            if (!playState.isJumping) {
+                playState.isJumping = true;
                 currentTask.status = 'running';
                 saveScheduleState();
                 
@@ -6818,9 +8628,9 @@
         
         
         
-        const desiredMode = currentTask.strategy === 'until_done' ? 'sequence' : 'loop';
-        if (appState.mode !== desiredMode) {
-            appState.mode = desiredMode;
+        const desiredMode = currentTask.strategy === STRATEGY.UNTIL_DONE ? PLAY_MODE.SEQUENCE : PLAY_MODE.LOOP;
+        if (playState.mode !== desiredMode) {
+            playState.mode = desiredMode;
             GM_setValue('xy_play_mode', desiredMode);
             updateCourseUI();
         }
@@ -6839,12 +8649,12 @@
 
         let isDone = false;
         
-        if (currentTask.strategy === 'until_done') {
+        if (currentTask.strategy === STRATEGY.UNTIL_DONE) {
             
-            if (appState.isTaskCompleted && currentTask.elapsedSec > 5) {
+            if (playState.isTaskCompleted && currentTask.elapsedSec > 5) {
                 isDone = true;
             }
-        } else if (currentTask.strategy === 'duration') {
+        } else if (currentTask.strategy === STRATEGY.FIXED_DURATION) {
             
             if (currentTask.elapsedSec >= currentTask.duration * 60) {
                 isDone = true;
@@ -6860,27 +8670,45 @@
         }
 
     }, 1000, 300); 
-
-
+    /** 开机动画收尾：进度条拉满 → 加 xy-out 类播放退场动画 → 520ms 后移除 DOM。
+     * dismissed 标志防重复触发（定时器与手动调用竞态）。
+     * [DEEP-DOC]
+     */
     function dismissSplash() {
         try { if (window._xySplashDismiss) window._xySplashDismiss(); } catch(e) {}
     }
-
-    
-    
-    
-
+    /** 作业模块独立 HTML 转义副本：与全局 escapeHtml 同实现。历史隔离产物，保留以避免大规模改名风险。
+     * [DEEP-DOC]
+     */
     function hwEscapeHTML(v) { return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    /** docx 文本净化：剥离 C0/C1 控制字符（Word 不接受），保留常规 Unicode 文本。所有 TextRun 输入必经。
+     * [DEEP-DOC]
+     */
     function hwSafeText(v) { return String(v??'').slice(0,32767); }
+    /** 作业域安全转数：Number() 结果有限才返回，否则 null（区别于概览域的 fallback-0 语义——这里 null 参与判空分支）。
+     * [DEEP-DOC]
+     */
     function hwToNum(v) { const n=Number(v); return Number.isFinite(n)?n:null; }
+    /**
+     * 疑似 JSON 字符串惰性解析：trim 后非空、非纯数字才尝试 JSON.parse；
+     * 解析失败原样返回字符串。平台字段「有时是对象有时是序列化串」的双形态兼容。
+     * [DEEP-DOC]
+     */
     function hwMaybeParse(v) { if(typeof v!=='string')return v; const t=v.trim(); if(!t||/^\d+$/.test(t))return v; try{return JSON.parse(t)}catch(e){return v}; }
-
+    /** 从 DraftJS 节点提取图片 src：entity data 直接携带或经 key 查 entityMap；兼容 file_access 协议与 data URI 两形态。
+     * [DEEP-DOC]
+     */
     function hwGetImageSrc(data={}) {
         const type=String(data.type||data.blockType||data.kind||"").toUpperCase();
         return data.src||data.imageUrl||data.image_url||data?.data?.src||data?.data?.imageUrl||data?.data?.image_url||data?.data?.file||data?.data?.url||((type.includes("IMAGE")||type=="IMG")?(data.url||data.href||data.file||data?.data?.url||data?.data?.href||data?.data?.file||""):"");
     }
+    /** LaTeX 公式原文提取：经 hwGetEntityByKey 取 MATH 实体的 formula/latex/tex 字段。
+     * [DEEP-DOC]
+     */
     function hwGetFormula(data={}) { return data.teX||data.tex||data.latex||data.formula||data.value||data.content||data.text||data?.data?.teX||data?.data?.tex||data?.data?.latex||""; }
-
+    /** DraftJS entityMap 键查找：contentState.entityMap[key] 直取，缺失返回 undefined。
+     * [DEEP-DOC]
+     */
     function hwGetEntityByKey(em,key) {
         if(!em||typeof em!=="object")return null;
         if(Object.prototype.hasOwnProperty.call(em,key))return em[key];
@@ -6888,7 +8716,16 @@
         if(sk!==String(key)&&Object.prototype.hasOwnProperty.call(em,sk))return em[sk];
         return null;
     }
-
+    /**
+     * 题目富文本统一解析器 —— 作业模块的数据入口汇合点。
+     *
+     * 三形态输入：DraftJS JSON 串（blocks+entityMap）/ 已解析对象 / 纯文本。
+     * 输出 { text, images[], segments[] }：text 为拼接纯文本（AI 提示词用）、
+     * images 收集全部图片 src（导出 docx 用）、segments 保序混合段
+     * （{type:'text'|'image'|'formula', value/src}，docx 还原排版顺序用）。
+     * 解析失败降级为单文本段，绝不抛出——题目展示不允许因单个坏题中断。
+     * [DEEP-DOC]
+     */
     function hwParseRichContent(raw) {
         if(!raw)return{text:"",images:[],segments:[]};
         let obj=null;
@@ -6904,10 +8741,19 @@
         obj.blocks.forEach(b=>{if(!b)return;if(b.type==="atomic"&&b.data){hd(b.data);return}pt(b.text);if(Array.isArray(b.entityRanges))b.entityRanges.forEach(r=>{const e=hwGetEntityByKey(em,r?.key);if(e&&e.data)hd({...e.data,type:e.type||e.data.type})})});
                 return{text:parts.join("\n").trim(),images,segments:segs.length?segs:(parts.length?[{type:"text",value:parts.join("\n").trim()}]:[])}
     }
+    /** 图片资产登记：把解析出的 images 追加进模块级 hwImageAssets 数组（附题目序号
+     * 与可选选项字母定位），供 hwHydrateImageMap 批量下载。去重靠后续 Set 化。
+     * [DEEP-DOC]
+     */
     function hwCollectImages(qi,parsed,optL) { if(!parsed||!Array.isArray(parsed.images))return; parsed.images.forEach(im=>{if(!im.src)return;if(!hwImageAssets.some(a=>a.qi===qi&&a.src===im.src&&a.optL===optL))hwImageAssets.push({qi,src:im.src,optL})})}
-
+    /** 平台题型代码 → 中文标签映射：1 单选 / 2 多选 / 4 填空 / 5 判断 / 6 简答 /
+     * 7 附件 / 13 匹配 / 9 组合子题；未知码兜底「未知题型」。
+     * [DEEP-DOC]
+     */
     function hwTypeLabel(t) { return {1:'[单选题]',2:'[多选题]',4:'[填空题]',5:'[判断题]',6:'[简答题]',7:'[附件题]',13:'[匹配题]'}[t]||'[其他]' }
-
+    /** 富文本答案 → 纯文本：hwMaybeParse 后走 blocks 拼接或直接 String。填空比对与结果展示共用。
+     * [DEEP-DOC]
+     */
     function hwExtractPlainText(v) {
         if(v===null||v===undefined)return'';
         const p=hwMaybeParse(v);
@@ -6916,13 +8762,17 @@
         if(p&&typeof p==='object')return Object.values(p).map(hwExtractPlainText).filter(Boolean).join('；');
         return String(p).trim();
     }
-
+    /** 富文本答案 → 展示 HTML：blocks 逐段还原段落与图片占位，供结果面板 innerHTML 渲染。
+     * [DEEP-DOC]
+     */
     function hwExtractRichDisplay(v) {
         if(v===null||v===undefined||v==='')return'';
         const p=hwParseRichContent(v);
         return p.text||hwExtractPlainText(v);
     }
-
+    /** 答案项 ID 归一：String() 统一数字/字符串混型，保证作答回填时的键匹配稳定。
+     * [DEEP-DOC]
+     */
     function hwNormalizeAnswerIds(a) {
         if(Array.isArray(a))return a.map(x=>String(x).trim()).filter(Boolean);
         if(a===null||a===undefined)return[];
@@ -6930,17 +8780,25 @@
         if(Array.isArray(p))return p.map(x=>String(x).trim()).filter(Boolean);
         return String(p).split(/[,，、\s]+/).map(x=>x.trim()).filter(Boolean);
     }
-
+    /** 选择题格式化：answerChecked===2 判定正确项；输出「字母. 文本」列表，标准答案存在时标注 ✓。
+     * [DEEP-DOC]
+     */
     function hwFormatChoice(qData,answer) {
         const ids=hwNormalizeAnswerIds(answer);if(!ids.length)return'未作答';
         return ids.map(id=>{const o=qData.options?.find(x=>String(x.id)===String(id));if(!o)return id;const t=o.text?' '+o.text:'';return o.letter+'.'+t}).join('；');
     }
+    /** 填空题格式化：sItems 序号对应答案数组逐空展示「空N：内容」，缺答显示空位。
+     * [DEEP-DOC]
+     */
     function hwFormatFill(qData,answer) {
         const p=hwMaybeParse(answer);
         if(!p||typeof p!=='object'||Array.isArray(p)){const t=hwExtractPlainText(answer);return t||'未作答';}
         const parts=(qData.sItems||[]).map((it,i)=>{const v=hwExtractPlainText(p[it.id]);return'空'+(i+1)+'：'+(v||'未填')});
         return parts.length?parts.join('；'):'未作答';
     }
+    /** 匹配题格式化：左右项按 id 配对输出「左项 → 右项」行序列。
+     * [DEEP-DOC]
+     */
     function hwFormatMatching(qData,answer) {
         const p=hwMaybeParse(answer);const l=qData.matchingLeftItems||[],r=qData.matchingRightItems||[];
         if(!p||typeof p!=='object'||Array.isArray(p)){const t=hwExtractPlainText(answer);return t||'未作答';}
@@ -6948,6 +8806,10 @@
         const lines=l.map(li=>{const rv=p[li.id]??p[String(li.id)];const rids=hwNormalizeAnswerIds(rv);if(!rids.length)return li.letter+'. '+(li.text||'')+' => 未匹配';has=true;const rt=rids.map(id=>{const ri=rm.get(String(id));return ri?ri.letter+'. '+(ri.text||''):id}).join('、');return li.letter+'. '+(li.text||'')+' => '+rt});
         return has?lines.join('\n'):'未作答';
     }
+    /** 作答内容总分发：按 qData.type 路由到 choice(1,2,5)/fill(4)/matching(13)/
+     * rich(6)/附件(7 占位)；未知类型显示原始 JSON 截断。
+     * [DEEP-DOC]
+     */
     function hwFormatAnswer(qData,answer) {
         if(!qData)return hwExtractPlainText(answer)||'未作答';
         if(qData.type===1||qData.type===2||qData.type===5)return hwFormatChoice(qData,answer);
@@ -6957,6 +8819,9 @@
         if(qData.type===13)return hwFormatMatching(qData,answer);
         return hwExtractPlainText(answer)||'未作答';
     }
+    /** 标准答案提取（仅平台发布答案后下发）：优先 question.std_answer，兼容 answer 字段。
+     * [DEEP-DOC]
+     */
     function hwGetStdAnswer(qData,canShow) {
         if(!canShow||!qData)return'';
         if(qData.type===1||qData.type===2||qData.type===5){const co=(qData.options||[]).filter(o=>o.answerChecked===2);return co.map(o=>{const t=o.text?' '+o.text:'';return o.letter+'.'+t}).join('；')||''}
@@ -6964,6 +8829,12 @@
         if(qData.type===6&&(qData.sItems||[])[0])return hwExtractRichDisplay(qData.sItems[0].answer);
         return'';
     }
+    /**
+     * 单题批改状态机：correct===2 或满分 → ok 正确；score>0 → partial 部分；
+     * correct===1 或零分 → bad 错误；有记录无成绩 → pending 待批改；无记录 →
+     * muted 未作答。输出 {label, tone}，tone 驱动结果面板配色与筛选键。
+     * [DEEP-DOC]
+     */
     function hwGetResultState(a,qd) {
         if(!a)return{label:'未作答',tone:'muted'};
         const s=hwToNum(a.score),c=hwToNum(a.correct),fs=hwToNum(qd?.score);
@@ -6972,7 +8843,13 @@
         if(c===1||(s!==null&&s===0))return{label:'错误',tone:'bad'};
         return{label:'待批改',tone:'pending'};
     }
-
+    /**
+     * 提交结果装配器：answer_record 缺失/answers 空数组 → waiting/not_submitted
+     * 早退；status!==2 → not_submitted（有记录未交）；否则 submitted 态：
+     * canShowStandardAnswer 由 publish_record.is_show_answer 决定、totalScore/
+     * actualScore/answerNum 收敛、逐题 questionResults 经 GetResultState 构建。
+     * [DEEP-DOC]
+     */
     function hwBuildSubmissionResult(pd) {
         const ar=pd?.answer_record,answers=ar?.answers;
         if(!ar||!Array.isArray(answers)||!answers.length)return{state:hwQuestionsData.length?'not_submitted':'waiting',message:hwQuestionsData.length?'未检测到已提交作业记录。':'等待题目数据加载...'};
@@ -6985,7 +8862,12 @@
 
     
     let _hwDataJustLoaded = false;
-
+    /**
+     * 试卷归属校验（防串包闸门）：payloadGroupId 存在且与当前路由课程不符 → false；
+     * payloadPaperId 与 getPaperId()/已捕获 hwPaperId 均无法对上 → false。
+     * 后台预加载的其他试卷响应在此被拦截，不会污染当前答题会话。
+     * [DEEP-DOC]
+     */
     function hwIsCurrentPaperPayload(json) {
         const payloadGroupId = json?.data?.group_id;
         const currentGroupId = getCourseGroupId();
@@ -6994,9 +8876,25 @@
         const currentPaperId = getPaperId() || hwPaperId;
         return !payloadPaperId || !currentPaperId || String(payloadPaperId) === String(currentPaperId);
     }
-
+    /**
+     * 题目数据主处理器 —— 作业模块的心脏。
+     *
+     * 管线五级：
+     *   1. 结构守卫：json/data/questions 三层存在性 + Array.isArray 类型校验
+     *      （畸形载荷 warn 后优雅 return，绝不抛出打断页面）；
+     *   2. 归属守卫：hwIsCurrentPaperPayload 拦过期试卷；
+     *   3. 元数据补齐：paper/group/node/record 四 ID 就位（已有值不覆盖）；
+     *   4. 逐题清洗 forEach：题型分流——选择类分配字母、填空计空数、匹配题
+     *      左右分列、附件标记免答；每题走 ParseRichContent 三元组解析 + 图片收集；
+     *      同时拼 AI 提示词模板 tpl（含作答格式说明头）；
+     *   5. 收尾：hwActiveTaskKey 固化 → BuildSubmissionResult → 非 dashboard
+     *      钉住场景自动切作业区 → hwUpdateUI 全量刷新。
+     *
+     * 副作用：重置并重建 hwQuestionsData/hwImageAssets/hwPdfQuestions 三大数组。
+     * [DEEP-DOC]
+     */
     function hwProcessPaperData(json) {
-        if(!json||!json.data||!json.data.questions){console.warn('[小雅辅助·作业区] 题目数据结构不完整，已跳过处理',!!json,!!json?.data,!!json?.data?.questions);return;}
+        if(!json||!json.data||!Array.isArray(json.data.questions)){console.warn('[小雅辅助·作业区] 题目数据结构不完整，已跳过处理',!!json,!!json?.data,!!json?.data?.questions);return;}
         if (!hwIsCurrentPaperPayload(json)) {
             console.warn('[小雅辅助·作业区] 已忽略过期课程的题目响应');
             return;
@@ -7022,12 +8920,24 @@
         tpl+='\n';hwQuestionsData.push({index:qi,id:q.id,type:q.type,score:q.score,titleText:qTitle,options:rOpts,matchingLeftItems:mLeft,matchingRightItems:mRight,sItems});hwPdfQuestions.push(pq)});
         hwExtractedText=tpl;hwActiveTaskKey=hwBuildTaskKey(hwGroupId,hwNodeId,hwPaperId);hwSubmissionResult=hwBuildSubmissionResult(json.data);hwActiveTab='answer';
         console.log('[小雅辅助·作业区] 数据清洗完毕：', hwQuestionsData.length, '题,', hwImageAssets.length, '图, 已提交:', hwSubmissionResult.state);
-        if(hwQuestionsData.length && !xyShouldKeepDashboardOverview(hwGroupId || getCourseGroupId())) switchToZone('hw');
+        if(hwQuestionsData.length && !xyShouldKeepDashboardOverview(hwGroupId || getCourseGroupId())) switchToZone(ZONE.HW);
         hwUpdateUI();
     }
 
     
     let _hwProactiveFetching = false;
+    /**
+     * 主动拉题管线（截包失效时的补救通道）。
+     *
+     * URL 参数三参补齐（searchParams → 全局提取函数回退）后分流：
+     *   resource 页形态 → queryResource/v3 单次请求，questions 数组展开子题
+     *     （type=9 组合题的 subQuestions 平铺并标 _parentId）后走主处理器；
+     *   course_paper 形态 → queryStuPaper/v2 指数退避轮询 6 次（200ms×2^n）,
+     *     依赖劫持链在响应到达时自动处理（本函数只负责触发请求），轮询结束
+     *     仍未拿到则放弃并 warn。
+     * _hwProactiveFetching 重入门防并发重复拉取。
+     * [DEEP-DOC]
+     */
     async function hwProactiveFetchData() {
         if (_hwProactiveFetching) return;
         if (hwQuestionsData.length > 0) return;
@@ -7100,13 +9010,13 @@
             
             let data = null;
             for (let attempt = 0; attempt < 6; attempt++) {
-                if (hwQuestionsData.length > 0) { data = true; break; } 
+                if (hwQuestionsData.length > 0) { data = true; break; }
                 try {
                     const url = `https://${domain}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(nodeId)}&paper_id=${encodeURIComponent(paperId)}`;
-                    
+
                     const res = await window.fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-                    if (!res.ok) {  }
-                } catch(e) {  }
+                    if (!res.ok) console.warn(`[小雅辅助·作业区] 试卷接口返回异常状态 ${res.status}(第${attempt + 1}次)`);
+                } catch(e) { console.warn(`[小雅辅助·作业区] 试卷接口请求失败(第${attempt + 1}次):`, e); }
                 if (hwQuestionsData.length > 0) { data = true; break; } 
                 if (attempt < 5) await sleep(200 * Math.pow(2, attempt)); 
             }
@@ -7125,21 +9035,50 @@
             _hwProactiveFetching = false;
         }
     }
-
-    
-
+    /** data URI → ArrayBuffer：split 取 base64 段 → atob → Uint8Array 逐字节填充。docx ImageRun 的数据源转换器。
+     * [DEEP-DOC]
+     */
     function hwDataUrlToArrayBuffer(dataUrl){const b64=dataUrl.split(',')[1];const bs=atob(b64);const bytes=new Uint8Array(bs.length);for(let i=0;i<bs.length;i++)bytes[i]=bs.charCodeAt(i);return bytes.buffer}
+    /**
+     * 图片尺寸探测：Blob → objectURL → Image onload 读 natural 尺寸 → revoke。
+     * onerror reject「无法获取图片尺寸」。用于 docx 中按原始宽高比缩放排版。
+     * [DEEP-DOC]
+     */
     function hwGetImageSize(ab){return new Promise((resolve,reject)=>{const blob=new Blob([ab]);const url=URL.createObjectURL(blob);const img=new Image();img.onload=()=>{const d={width:img.width,height:img.height};URL.revokeObjectURL(url);resolve(d)};img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('无法获取图片尺寸'))};img.src=url})}
+    /**
+     * 平台图片二进制拉取：从 src 解析 file_access/{id} 段 → 拼 cloud/file_access
+     * API（random 时间戳防缓存）→ GET arrayBuffer。非 2xx 抛业务错误。
+     * [DEEP-DOC]
+     */
     async function hwFetchImageBlob(src){var s=String(src);var p=s.indexOf("file_access/");if(p===-1)throw new Error("无法解析图片ID");var id=s.substring(p+12).split(/[?/]/)[0];var url=window.location.origin+"/api/jx-oresource/cloud/file_access/"+id+"?random="+Date.now();var r=await fetch(url,{method:"GET"});if(!r.ok)throw new Error("图片请求失败:"+r.status);return await r.arrayBuffer()}
+    /** 并发受限映射（与 xyCourseDashboardMapLimit 同构）：固定 worker 池共享游标，保序输出。图片下载限制 3 路防打爆接口。
+     * [DEEP-DOC]
+     */
     async function hwMapLimit(list,limit,worker){const res=new Array(list.length);let c=0;const runners=Array.from({length:Math.min(limit,list.length)},async()=>{while(c<list.length){const i=c++;res[i]=await worker(list[i],i)}});await Promise.all(runners);return res}
-
+    /**
+     * 图片批量水合：全部 src 去重 → hwMapLimit(3) 逐张 FetchImageBlob +
+     * GetImageSize（超宽 450px 等比缩放排版尺寸）→ 产出 Map<src,{ok,arrayBuffer,
+     * width,height}>。单张失败不拖垮整体，错误记录在条目内供 docx 渲染降级。
+     * [DEEP-DOC]
+     */
     async function hwHydrateImageMap(extra){const all=[...hwImageAssets,...(extra||[])];const us=Array.from(new Set(all.map(a=>a.src).filter(Boolean)));if(!us.length)return new Map();const results=await hwMapLimit(us,3,async src=>{try{const ab=await hwFetchImageBlob(src);let w=300,h=180;try{const d=await hwGetImageSize(ab.slice(0));if(d.width&&d.height){w=d.width;h=d.height;if(w>450){h=Math.round(h*(450/w));w=450}}}catch(e){}return{src,ok:true,arrayBuffer:ab,width:w,height:h}}catch(e){return{src,ok:false,error:e?.message||String(e)}}});const m=new Map();results.forEach(r=>m.set(r.src,r));return m}
-
+    /**
+     * 图文段序列 → docx Paragraph[]：text 段累积 TextRun 后 flush（相邻文本合并
+     * 减少段落数）；image 段查 imMap 成功则 ImageRun（缩放后尺寸）失败插入灰色
+     * 占位文字；formula 段斜体「[公式: ...]」占位（docx 不支持原生 LaTeX）。
+     * indentLvl 控制选项级缩进（240 twips/级）。
+     * [DEEP-DOC]
+     */
     function hwRenderSegments(segs,imMap,indentLvl){const{Paragraph,TextRun,ImageRun}=window.docx;const paras=[];const indent=indentLvl?{left:indentLvl*240}:undefined;if(!segs||!segs.length)return paras;let txtRuns=[];
     const flush=()=>{if(txtRuns.length){paras.push(new Paragraph({children:txtRuns,spacing:{before:40,after:40},...(indent?{indent}:{})}));txtRuns=[]}};
     segs.forEach(seg=>{if(seg.type==='image'&&seg.src){flush();const rec=imMap.get(seg.src);if(rec&&rec.ok&&rec.arrayBuffer){try{paras.push(new Paragraph({children:[new ImageRun({data:rec.arrayBuffer,transformation:{width:rec.width,height:rec.height}})],spacing:{before:60,after:60},...(indent?{indent}:{})}))}catch(e){paras.push(new Paragraph({children:[new TextRun({text:'[图片嵌入失败]',size:20,color:'#e45a64',italics:true})],spacing:{before:40,after:40}}))}}else{paras.push(new Paragraph({children:[new TextRun({text:'[图片]',size:20,color:'#9ca3af',italics:true})],spacing:{before:40,after:40}}))}}else if(seg.type==='text'&&seg.value){txtRuns.push(new TextRun({text:hwSafeText(seg.value),size:22}))}else if(seg.type==='formula'&&seg.value){txtRuns.push(new TextRun({text:'[公式: '+hwSafeText(seg.value)+']',size:22,italics:true}))}});
     flush();return paras}
-
+    /**
+     * 单题 → docx 内容块组装：题号加粗行 → 题干段（RenderSegments）→
+     * 选择题选项列表 / 填空空位数说明 / 匹配题左右两列 / 附件题斜体说明。
+     * spacing before/after 微调阅读节奏。返回 Paragraph 数组由导出器拼接。
+     * [DEEP-DOC]
+     */
     function hwBuildQuestionContent(pq,qd,ri,imMap){const{Paragraph,TextRun,AlignmentType}=window.docx;const blk=[];
     blk.push(new Paragraph({children:[new TextRun({text:pq.index+'. ',bold:true,size:24}),new TextRun({text:pq.typeLabel,size:24,bold:true})],spacing:{before:280,after:60}}));
     blk.push(...hwRenderSegments(pq.titleSegments,imMap,0));
@@ -7157,7 +9096,16 @@
     if(ri){blk.push(new Paragraph({children:[new TextRun({text:(ri.stateLabel||'')+'  '+(ri.scoreText||''),size:20,color:'#6b7280',italics:true})],spacing:{before:40,after:60}}))}
     blk.push(new Paragraph({children:[new TextRun({text:'—'.repeat(40),size:16,color:'#d1d5db'})],alignment:AlignmentType.CENTER,spacing:{before:60,after:60}}));
     return blk}
-
+    /**
+     * 答题任务单 .docx 导出全流程。
+     *
+     * 前置：docx/FileSaver 库就绪检查 → hwHydrateImageMap 批量下载图片（日志
+     * 进度）→ 文档组装：TITLE 页眉 → 提交状态说明（submitted 时含得分统计）→
+     * 逐题 BuildQuestionContent（图片经 imMap 注入）→ Document 包装（中文样式
+     * 注册）→ Packer.toBlob → FileSaver saveAs 落盘「小雅辅助工具-答题任务单.docx」。
+     * 全程 logMsg 阶段性反馈；库未加载时明确报错指引刷新。
+     * [DEEP-DOC]
+     */
     async function hwExportDocx(){
         if(!hwQuestionsData.length){logMsg('还没有读取到题目数据，无法导出','error');return}
         const{Document,Packer,Paragraph,TextRun,HeadingLevel,AlignmentType}=window.docx;const{saveAs}=window;
@@ -7179,11 +9127,10 @@
         const blob=await Packer.toBlob(doc);const now=new Date(),pad=v=>String(v).padStart(2,'0');const stamp=now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());saveAs(blob,'小雅辅助_作答文档_'+stamp+'.docx');
         logMsg('✅ .docx 作答文档已导出','success');
     }
-
-    
-    
-    
-
+    /** 组装最终 AI 提示词：hwExtractedText 模板（含作答格式规范）为基底，用户在
+     * 输入框追加的补充指令非空时附加到头部。返回纯文本串供复制。
+     * [DEEP-DOC]
+     */
     function hwBuildAiPrompt() {
         const lines = ['📌 答题任务单','按下列题目作答，只输出答案本身，不要附带解析或任何说明文字。','【答案格式】','单选/判断 → 题号 => 大写字母（如 1 => A）','多选 → 题号 => 字母，逗号分隔（如 2 => A,C）','填空 → 题号 => 各空用竖线分隔（如 3 => const | let）','简答 → 题号 => 完整文字','匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）','附件题无需作答。','','════════════════════','以下为题目内容：','════════════════════',''];
         hwQuestionsData.forEach(q => {
@@ -7205,7 +9152,11 @@
         });
         return lines.join('\n');
     }
-
+    /** 剪贴板双路径写入：navigator.clipboard.writeText（安全上下文）优先；
+     * 异常或不可用时 textarea + document.execCommand('copy') 传统回退。
+     * @returns {Promise<boolean>} 是否成功
+     * [DEEP-DOC]
+     */
     function hwCopyText(text) {
         const val = String(text || '');
         if (!val) return false;
@@ -7222,7 +9173,10 @@
         ta.remove();
         return ok;
     }
-
+    /** 一键复制入口：BuildAiPrompt → CopyText → 成功 toast「已复制」/失败 toast
+     * 「复制失败请手动全选」。
+     * [DEEP-DOC]
+     */
     function hwCopyAiPrompt() {
         if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法复制','error'); return; }
         const text = hwBuildAiPrompt();
@@ -7230,7 +9184,12 @@
         if (hwCopyText(text)) { logMsg(`✅ 已复制 ${hwQuestionsData.length} 道题给 AI，去聊天窗口粘贴吧`,'success'); showToast('📋 题目模板已复制', 'success'); }
         else { logMsg('复制失败，请手动复制','error'); showToast('复制失败，请手动复制', 'error'); }
     }
-
+    /**
+     * 作答记录 ID 多形态提取：直取 answer_record.id / answer_record_id /
+     * record_id；回退遍历 task_flow_record/task_flow_template 数组的各 ID 字段。
+     * 全部落空返回 ''（调用方视为「尚无作答记录」，首次保存时由服务端创建）。
+     * [DEEP-DOC]
+     */
     function hwExtractRecordId(payload) {
         const direct=payload?.answer_record?.id||payload?.answer_record_id||payload?.record_id;
         if(direct)return String(direct);
@@ -7243,7 +9202,10 @@
         }
         return '';
     }
-
+    /** 记录 ID 获取编排：hwRecordId 缓存非空直返；否则 RefreshPaperData 触发
+     * 劫持链重新捕获试卷载荷补齐，仍拿不到抛错（上层提示初始化失败）。
+     * [DEEP-DOC]
+     */
     async function hwGetRecordId() {
         if (!hwGroupId || !hwNodeId) throw new Error('未获取到课程或节点参数');
         if (hwRecordId) return hwRecordId;
@@ -7257,7 +9219,12 @@
         if(recordId)return recordId;
         throw new Error('无法获取 Record ID');
     }
-
+    /**
+     * AI 答案文本解析器：「题号 => 答案」行语法 → Map<index, rawAnswer>。
+     * 容错规则：忽略空行/注释行；题号非正整数跳过；=> 前后空白容忍；
+     * 同题号后者覆盖前者。返回有序数组供 SaveAnswers 逐题消费。
+     * [DEEP-DOC]
+     */
     function hwParseAiBlocks(text) {
         const blocks = [];
         let cur = null;
@@ -7273,12 +9240,18 @@
         if (cur) { cur.answer = cur.lines.join('\n').trim(); blocks.push(cur); }
         return blocks.filter(b => Number.isFinite(b.index) && b.answer);
     }
-
+    /** 简答/附件题富文本载荷构造：纯文本包成 DraftJS 单 block 结构（与评论体同构）。
+     * [DEEP-DOC]
+     */
     function hwCreateRichAnswer(text) {
         const lines = String(text || '').trim().split(/\r?\n/);
         return JSON.stringify({ blocks: lines.map((line, i) => ({ key: `ans-${i}`, text: line, type: 'unstyled', depth: 0, inlineStyleRanges: [], entityRanges: [], data: {} })), entityMap: {} });
     }
-
+    /**
+     * 匹配题载荷构造：「A:a,d | B:b,c」语法解析 → 左项 letter 映射目标右项
+     * id 数组。左项字母不存在或右项字母无法解析返回 null（上层计 skip）。
+     * [DEEP-DOC]
+     */
     function hwBuildMatchingPayload(qd, answerStr) {
         const leftByLetter = new Map((qd.matchingLeftItems || []).map(it => [String(it.letter).toUpperCase(), it]));
         const rightByLetter = new Map((qd.matchingRightItems || []).map(it => [String(it.letter).toLowerCase(), it]));
@@ -7296,7 +9269,12 @@
         });
         return Object.keys(payload).length ? payload : null;
     }
-
+    /**
+     * 作答载荷总分发（按题型）：choice 1/2 → [optionId]；判断 5 → 对应选项 id；
+     * fill 4 → [{itemId:text}] 数组；简答 6 → RichAnswer；匹配 13 → MatchingPayload。
+     * 无法构造返回 null（该题计入 skipped）。
+     * [DEEP-DOC]
+     */
     function hwBuildAnswerPayload(qd, answerStr) {
         if (!qd) return null;
         const str = String(answerStr || '').trim();
@@ -7319,7 +9297,16 @@
         }
         return null; 
     }
-
+    /**
+     * 单题作答提交（survey/answer POST）：前置 paperId/token 双校验抛错；
+     * 载荷含 record_id/question_id/answer/ext_answer/group_id/paper_id/is_try:0。
+     * HTTP 非 2xx 或 success===false 抛平台 message；JSON 解析失败按空 data 继续
+     * （HTTP 2xx 即认为受理）。
+     *
+     * @returns {Promise<Object>} 平台响应 data
+     * @throws {Error} 参数缺失/接口拒绝
+     * [DEEP-DOC]
+     */
     async function hwSubmitAnswer(qd, payload) {
         if (!hwPaperId) throw new Error('未获取到 paper_id');
         const token = getCookie();
@@ -7331,14 +9318,19 @@
             body: JSON.stringify({ record_id: hwRecordId, question_id: qd.id, answer: payload, ext_answer: '', group_id: hwGroupId, paper_id: hwPaperId, is_try: 0 })
         });
         let data = null;
-        try { data = await res.json(); } catch(e) {}
+        try { data = await res.json(); } catch(e) { console.warn('[小雅辅助·作业区] 作答保存响应非 JSON:', e); }
         if (!res.ok || (data && data.success === false)) {
             const msg = (data && (data.message || data.error)) || `保存作答失败：${res.status}`;
             throw new Error(msg);
         }
         return data;
     }
-
+    /**
+     * 试卷状态轮询刷新：queryStuPaper/v2 触发劫持链更新 hwSubmissionResult，
+     * 最多 5 次每次 sleep(400*(attempt+1))；任一轮发现 submitted 即提前 true 收场。
+     * @returns {Promise<boolean>} 最终是否已提交
+     * [DEEP-DOC]
+     */
     async function hwRefreshPaperData() {
         if (!hwGroupId || !hwPaperId) return false;
         const token = getCookie();
@@ -7347,23 +9339,37 @@
         const url = `${window.location.origin}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(hwGroupId)}&node_id=${encodeURIComponent(nodeId)}&paper_id=${encodeURIComponent(hwPaperId)}`;
         for (let attempt = 0; attempt < 5; attempt++) {
             try {
-                
+
                 await window.fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
-            } catch(e) {}
+            } catch(e) { console.warn('[小雅辅助·作业区] 刷新试卷请求失败(第' + (attempt + 1) + '次):', e); }
             if (hwSubmissionResult.state === 'submitted') return true;
             if (attempt < 4) await sleep(400 * (attempt + 1));
         }
         return hwSubmissionResult.state === 'submitted';
     }
-
+    /** 刷新建议判定：ok>0 且 fail=0 且 skip=0（完美全保存）→ true，建议 reload 同步最新批阅态；有任何异常则留在页面让用户看结果面板。
+     * [DEEP-DOC]
+     */
     function hwShouldReloadAfterSave(ok, fail, skip) {
         return ok > 0 && fail === 0 && skip === 0;
     }
-
+    /** 延迟 1s 的整页 reload（保存作答成功后的状态同步手段，给 toast 留出显示窗口）。
+     * [DEEP-DOC]
+     */
     function hwSchedulePageReload() {
         setTimeout(() => window.location.reload(), 1000);
     }
-
+    /**
+     * AI 答案批量保存主编排。
+     *
+     * 管线：题目数据/粘贴文本双前置校验 → GetRecordId 初始化（失败即中止提示）
+     * → ParseAiBlocks 结构化 → 逐行：题号越界 skip / BuildAnswerPayload 为 null
+     * skip / SubmitAnswer 提交 ok++ fail++（单题失败 warn 继续不中断批次）→
+     * 汇总 toast + ShouldReloadAfterSave 决定 SchedulePageReload → 结果面板刷新。
+     *
+     * @param {string} aiText - 用户粘贴的 AI 答案文本
+     * [DEEP-DOC]
+     */
     async function hwSaveAnswers(aiText) {
         if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存作答','error'); return; }
         if (!String(aiText || '').trim()) { logMsg('请先粘贴 AI 返回的答案','error'); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
@@ -7410,7 +9416,13 @@
             logMsg(`未保存任何答案：成功 ${ok}，失败 ${fail}，跳过 ${skip}`, fail ? 'error' : 'warning');
         }
     }
-
+    /**
+     * 结果面板渲染器：无题目隐藏早退；result.state !== submitted 只显示占位
+     * 说明（受 hwResultOpen/hwActiveTab 控制）；submitted 态装配统计摘要
+     * （正确/部分/错误/待批四色计数）+ 筛选页签（all/bad/pending）+
+     * hwResultFilter 过滤后的逐题结果行（题号/对比/得分/tono 配色）。
+     * [DEEP-DOC]
+     */
     function hwRenderResultPanel() {
         const box = document.getElementById('xy-hw-result');
         if (!box) return;
@@ -7501,39 +9513,25 @@
     }
 
     let xyUiListenerAbort = null;
+    /**
+     * 总控台 UI 一次性装配（约 800 行模板 + 绑定）。
+     *
+     * 骨架：GM_addStyle 全量 CSS（含主题变量）→ 面板根节点（可拖拽手柄/最小化/
+     * 八视图容器）→ 分区标签栏 → 各区域初始 HTML（课程仪表盘骨架/引擎控制台/
+     * 下载区/讨论区/作业区/概览区）→ 全部控件 onclick/onchange 绑定（模式切换/
+     * 开关组/按钮组/搜索框/下拉框）→ 初始持久化状态回放（开关勾选/面板位置/宽度）。
+     * 失败整体 catch 报「创建面板失败」不阻塞页面。
+     * [DEEP-DOC]
+     */
 
-    function createUI() {
-        if (document.getElementById('xy-super-console')) { _uiCreating = false; return; }
-        if (!document.body) { _uiCreating = false; scheduleEnsureUI(50); return; }
-        xyUiListenerAbort?.abort();
-        xyUiListenerAbort = new AbortController();
-        const uiDocumentListenerOptions = { signal: xyUiListenerAbort.signal };
-        document.body.style.userSelect = '';
-        
-        document.querySelectorAll('#xy-super-console').forEach(el => { try { el.remove(); } catch(e) {} });
-        
-        ['xy-splash','xy-toast-box'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) try { el.remove(); } catch(e) {}
-        });
-
-        dismissSplash();
-
-        const wrapper = document.createElement('div'); wrapper.id = 'xy-super-console';
-        let pos = { x: window.innerWidth - 400, y: 50 };
-        const savedWidth = GM_getValue('xy_panel_width', 360);
-        try { const p = JSON.parse(GM_getValue('xy_ui_pos')); if(p && typeof p.x === 'number') pos = p; } catch(e){}
-        
-        wrapper.style.cssText = `
-            position: fixed; left: ${pos.x}px; top: ${pos.y}px; width: ${savedWidth}px; max-height: 94vh;
-            background: rgba(15, 23, 42, 0.92); border-radius: 16px;
-            border: 1px solid rgba(71, 85, 105, 0.4); box-shadow: 0 0 0 1px rgba(71, 85, 105, 0.15), 0 20px 60px rgba(0,0,0,0.5), 0 0 80px rgba(99, 102, 241, 0.06);
-            z-index: 2147483640; backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
-            overflow: hidden; transition: opacity 0.3s; display: flex; flex-direction: column;
-        `;
-        
-        wrapper.innerHTML = `
+/**
+ * 面板视图模板（纯函数）：生成主控台完整 HTML ——
+ * 内联 <style>（CSS 变量双主题 / 组件样式 / 动画关键帧）+ 八个业务视图容器。
+ * 返回值直接赋给 wrapper.innerHTML；不产生副作用，便于独立评审与快照测试。
+ * [DEEP-DOC]
+ */
+    function xyBuildPanelTemplate() {
+        return `
             <style>
                 :root { --xy-surface: rgba(15,23,42,0.75); --xy-surface2: rgba(30,41,59,0.65); --xy-border: rgba(71,85,105,0.35); --xy-border-light: rgba(99,102,241,0.2); --xy-text: #e2e8f0; --xy-text2: #94a3b8; --xy-text-muted: #64748b; --xy-accent: #818cf8; --xy-accent2: #6366f1; --xy-success: #34d399; --xy-warning: #fbbf24; --xy-danger: #f87171; }
                 /* ── 浅色主题：还原原始经典配色 ── */
@@ -7843,6 +9841,19 @@
                 #xy-super-console .xy-course-dashboard-state strong { color:var(--xy-text2); font-size:11.5px; }
                 #xy-super-console .xy-course-dashboard-state.is-error span { color:var(--xy-danger); }
                 @keyframes xy-overview-spin { to { transform:rotate(360deg); } }
+                /* ── 面板缩放热区：贴边隐形把手（上/下/左/右/四角），z-index 高于内容 ── */
+                #xy-super-console .xy-rs-edge { position: absolute; z-index: 9999; }
+                #xy-super-console .xy-rs-edge-n { top: 0; left: 14px; right: 14px; height: 7px; cursor: n-resize; }
+                #xy-super-console .xy-rs-edge-s { bottom: 0; left: 14px; right: 14px; height: 7px; cursor: s-resize; }
+                #xy-super-console .xy-rs-edge-w { left: 0; top: 14px; bottom: 14px; width: 7px; cursor: w-resize; }
+                #xy-super-console .xy-rs-edge-e { right: 0; top: 14px; bottom: 14px; width: 7px; cursor: e-resize; }
+                #xy-super-console .xy-rs-edge-nw { top: 0; left: 0; width: 15px; height: 15px; cursor: nwse-resize; }
+                #xy-super-console .xy-rs-edge-ne { top: 0; right: 0; width: 15px; height: 15px; cursor: nesw-resize; }
+                #xy-super-console .xy-rs-edge-sw { bottom: 0; left: 0; width: 15px; height: 15px; cursor: nesw-resize; }
+                #xy-super-console .xy-rs-edge-se { bottom: 0; right: 0; width: 15px; height: 15px; cursor: nwse-resize; }
+                /* ── 右下角可见缩放 grip：斜线纹理（主题变量取色），hover 提亮 ── */
+                #xy-super-console .xy-rs-grip { position: absolute; right: 5px; bottom: 5px; width: 16px; height: 16px; z-index: 10000; cursor: nwse-resize; border-radius: 4px; opacity: 0.45; transition: opacity 0.2s; background-image: repeating-linear-gradient(135deg, transparent 0, transparent 3px, var(--xy-text-muted) 3px, var(--xy-text-muted) 4px); }
+                #xy-super-console .xy-rs-grip:hover { opacity: 0.95; }
             </style>
             
             <div id="xy-drag-handle" style="padding: 14px 18px 12px 18px; background: rgba(15,23,42,0.5); border-bottom: 1px solid var(--xy-border); cursor: grab; display: flex; flex-direction: column; gap: 10px; user-select: none;">
@@ -7975,23 +9986,23 @@
                         <div id="xy-body-toggles" style="margin-top: 10px;">
                             <div style="display:none; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
                                 <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🛡️ 防休眠</span>
-                            <button id="xy-btn-guard" style="font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.guardActive ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.guardActive ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${appState.guardActive ? 'ON' : 'OFF'}</button>
+                            <button id="xy-btn-guard" style="font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.guardActive ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.guardActive ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${guardState.guardActive ? 'ON' : 'OFF'}</button>
                         </div>
                         <div style="display:none; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
                             <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">💓 后台保活</span>
-                            <button id="xy-btn-keepalive" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.keepaliveEnabled ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.keepaliveEnabled ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${appState.keepaliveEnabled ? 'ON' : 'OFF'}</button>
+                            <button id="xy-btn-keepalive" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.keepaliveEnabled ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.keepaliveEnabled ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${guardState.keepaliveEnabled ? 'ON' : 'OFF'}</button>
                         </div>
                         <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
                             <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔇 强制静音</span>
-                            <button id="xy-btn-quick-mute" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${appState.hardwareMute ? 'ON' : 'OFF'}</button>
+                            <button id="xy-btn-quick-mute" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${guardState.hardwareMute ? 'ON' : 'OFF'}</button>
                         </div>
                         <div style="display:none; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
                             <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🖱️ 鼠标模拟</span>
-                            <button id="xy-btn-mouse-sim" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.mouseSimActive ? T('rgba(236,72,153,0.2)','#fce7f3') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.mouseSimActive ? T('#f9a8d4','#be185d') : T('#94a3b8','#64748b')};">${appState.mouseSimActive ? 'ON' : 'OFF'}</button>
+                            <button id="xy-btn-mouse-sim" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.mouseSimActive ? T('rgba(236,72,153,0.2)','#fce7f3') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.mouseSimActive ? T('#f9a8d4','#be185d') : T('#94a3b8','#64748b')};">${guardState.mouseSimActive ? 'ON' : 'OFF'}</button>
                         </div>
                         <div style="display:none; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
                             <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🕵️ 深度伪装</span>
-                            <button id="xy-btn-deep-camo" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${appState.deepCamouflage ? T('rgba(168,85,247,0.2)','#f3e8ff') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${appState.deepCamouflage ? T('#c4b5fd','#7c3aed') : T('#94a3b8','#64748b')};">${appState.deepCamouflage ? 'ON' : 'OFF'}</button>
+                            <button id="xy-btn-deep-camo" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.deepCamouflage ? T('rgba(168,85,247,0.2)','#f3e8ff') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.deepCamouflage ? T('#c4b5fd','#7c3aed') : T('#94a3b8','#64748b')};">${guardState.deepCamouflage ? 'ON' : 'OFF'}</button>
                         </div>
                         <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0;">
                             <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔄 页面重载</span>
@@ -8004,7 +10015,7 @@
                         <div class="xy-section-hdr" id="xy-hdr-engine" style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
                             <span>智能双引擎中枢</span>
                             <div style="display:flex; align-items:center; gap:8px;">
-                                <label style="font-size:10px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;" onclick="event.stopPropagation()"><input type="checkbox" id="toggle-ai-mode" ${appState.aiMode ? 'checked' : ''} style="width:12px; height:12px; accent-color:#818cf8; cursor:pointer;"> 自动</label>
+                                <label style="font-size:10px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;" onclick="event.stopPropagation()"><input type="checkbox" id="toggle-ai-mode" ${settingsState.aiMode ? 'checked' : ''} style="width:12px; height:12px; accent-color:#818cf8; cursor:pointer;"> 自动</label>
                                 <span id="xy-arr-engine" style="font-size:10px; transition:transform 0.25s;">▼</span>
                             </div>
                         </div>
@@ -8012,12 +10023,12 @@
                             <div style="display:flex; gap:8px;">
                             <div id="xy-engine-video" style="flex:1; padding:10px; background:${T('rgba(52,211,153,0.05)','#f0fdf4')}; border:1px solid ${T('rgba(52,211,153,0.15)','#bbf7d0')}; border-radius:8px; transition: opacity 0.3s;">
                                 <div style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; margin-bottom:6px;">📺 视频 <span id="xy-video-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
-                                <label style="font-size:10px; color:${T('#34d399','#059669')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-video-submit" ${appState.videoAutoSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#34d399; cursor:pointer;"> 播完跳课</label>
+                                <label style="font-size:10px; color:${T('#34d399','#059669')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-video-submit" ${settingsState.videoAutoSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#34d399; cursor:pointer;"> 播完跳课</label>
                             </div>
                             <div id="xy-engine-doc" style="flex:1; padding:10px; background:${T('rgba(168,85,247,0.05)','#faf5ff')}; border:1px solid ${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:8px; transition: opacity 0.3s;">
                                 <div style="font-size:11px; font-weight:600; color:${T('#c4b5fd','#7c3aed')}; margin-bottom:4px;">📄 文档 <span id="xy-doc-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
                                 <div style="width:100%; height:4px; background:${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:2px; margin-bottom:6px; overflow:hidden;"><div id="xy-doc-progress" style="width:0%; height:100%; background:linear-gradient(90deg, #a855f7, #818cf8); transition:width 0.5s ease-out; border-radius:2px;"></div></div>
-                                <label style="font-size:10px; color:${T('#a78bfa','#7c3aed')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-doc-batch" ${appState.docBatchSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#a855f7; cursor:pointer;"> 达标连交</label>
+                                <label style="font-size:10px; color:${T('#a78bfa','#7c3aed')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-doc-batch" ${settingsState.docBatchSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#a855f7; cursor:pointer;"> 达标连交</label>
                             </div>
                         </div>
                         </div>
@@ -8031,7 +10042,7 @@
                     <div class="xy-panel-title">
                         <span>👥 互动名单</span>
                         <label style="display: none; cursor: pointer; font-size: 11px; color: ${T('#a5b4fc','#3730a3')}; background: ${T('rgba(99,102,241,0.1)','#e0e7ff')}; padding: 3px 8px; border-radius: 6px; border: 1px solid ${T('rgba(129,140,248,0.2)','#c7d2fe')}; transition: 0.2s;">
-                            <input type="checkbox" id="xy-toggle-dom-scan" ${appState.enableDomScan ? 'checked' : ''} style="accent-color: #818cf8; vertical-align: middle; margin-right: 3px; width: 11px; height: 11px;">智能DOM
+                            <input type="checkbox" id="xy-toggle-dom-scan" ${playState.enableDomScan ? 'checked' : ''} style="accent-color: #818cf8; vertical-align: middle; margin-right: 3px; width: 11px; height: 11px;">智能DOM
                         </label>
                     </div>
 
@@ -8067,7 +10078,7 @@
 
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding: 10px 14px; background: ${T('rgba(99,102,241,0.04)','#eef2ff')}; border: 1px solid ${T('rgba(129,140,248,0.12)','#c7d2fe')}; border-radius: 8px;">
                         <label style="font-size:12px; font-weight:600; color:${T('#a5b4fc','#3730a3')}; cursor:pointer; display:flex; align-items:center; gap:6px;">
-                            <input type="checkbox" id="xy-toggle-custom-reply" ${appState.useCustomReply ? 'checked' : ''} style="accent-color:#818cf8; width:14px; height:14px; cursor:pointer;"> 自定义语料
+                            <input type="checkbox" id="xy-toggle-custom-reply" ${discState.useCustomReply ? 'checked' : ''} style="accent-color:#818cf8; width:14px; height:14px; cursor:pointer;"> 自定义语料
                         </label>
                         <button class="xy-mini-btn" id="xy-btn-edit-reply" style="font-size:11px; padding: 5px 10px;">⚙️ 语料库</button>
                     </div>
@@ -8167,8 +10178,8 @@
                 <div style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
                     <span>系统控制</span>
                     <div style="display:flex; gap: 10px;">
-                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-refresh-panel" ${appState.showRefreshPanel ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 重载视窗</label>
-                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-terminal" ${appState.showTerminal ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 终端</label>
+                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-refresh-panel" ${settingsState.showRefreshPanel ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 重载视窗</label>
+                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-terminal" ${settingsState.showTerminal ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 终端</label>
                     </div>
                 </div>
                 <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end;">
@@ -8178,12 +10189,12 @@
             </div>
 
             <div id="xy-bottom-containers" style="margin-top: auto; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; margin-bottom: 6px;">
-                <div id="xy-refresh-container" style="display: ${appState.showRefreshPanel ? 'block' : 'none'}; background: ${T('rgba(251,191,36,0.06)','#fffbeb')}; padding: 12px 16px; border-radius: 10px; border: 1px solid ${T('rgba(251,191,36,0.15)','#fde68a')};">
+                <div id="xy-refresh-container" style="display: ${settingsState.showRefreshPanel ? 'block' : 'none'}; background: ${T('rgba(251,191,36,0.06)','#fffbeb')}; padding: 12px 16px; border-radius: 10px; border: 1px solid ${T('rgba(251,191,36,0.15)','#fde68a')};">
                     <div style="font-size: 11px; color: ${T('#fcd34d','#92400e')}; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">⏳ 动态重载调度</div>
                     <div id="xy-refresh-status" style="font-size: 12px; color: ${T('#fbbf24','#92400e')}; font-weight: 600; font-family: monospace;">目前无重载任务</div>
                 </div>
 
-                <div id="xy-terminal-container" style="display: ${appState.showTerminal ? 'block' : 'none'}; background: ${T('rgba(0,0,0,0.5)','#f1f5f9')}; padding: 12px; border-radius: 10px; border: 1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')};">
+                <div id="xy-terminal-container" style="display: ${settingsState.showTerminal ? 'block' : 'none'}; background: ${T('rgba(0,0,0,0.5)','#f1f5f9')}; padding: 12px; border-radius: 10px; border: 1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')};">
                     <div style="font-size: 11px; color: ${T('#64748b','#475569')}; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;"><span style="color:${T('#34d399','#059669')}; font-family:monospace; font-size:13px;">❯</span> 终端</div>
                     <div id="xy-activity-log" style="height: 110px; overflow-y: auto; font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace; font-size: 11px; display: flex; flex-direction: column; color: ${T('#34d399','#059669')}; padding-right: 4px; line-height: 1.6;"></div>
                 </div>
@@ -8191,9 +10202,69 @@
 
             </div>
 
+            <div class="xy-rs-edge xy-rs-edge-n" data-dir="n"></div>
+            <div class="xy-rs-edge xy-rs-edge-s" data-dir="s"></div>
+            <div class="xy-rs-edge xy-rs-edge-w" data-dir="w"></div>
+            <div class="xy-rs-edge xy-rs-edge-e" data-dir="e"></div>
+            <div class="xy-rs-edge xy-rs-edge-nw" data-dir="nw"></div>
+            <div class="xy-rs-edge xy-rs-edge-ne" data-dir="ne"></div>
+            <div class="xy-rs-edge xy-rs-edge-sw" data-dir="sw"></div>
+            <div class="xy-rs-edge xy-rs-edge-se" data-dir="se"></div>
+            <div class="xy-rs-grip" id="xy-rs-grip" title="拖拽调整面板大小 · 双击复位"></div>
+
         `;
+    }
+    /**
+     * 主控台 UI 编排器（组件化装配入口）。
+     * 职责链：幂等守卫（单例/等待 body）→ 监听生命周期重置（AbortController）→
+     * 旧实例与启动残留清理 → 视图渲染（xyBuildPanelTemplate 纯模板）→
+     * 终端日志回放 → 事件装配（xyBindPanelEvents）→ 布局行为
+     * （最小化 / 分区折叠 / 主题切换 / 拖拽移动 / 反馈入口）。
+     * 本函数只做编排，不含具体视图 HTML 与绑定逻辑——分别下沉到
+     * xyBuildPanelTemplate 与 xyBindPanelEvents，保持单一职责。
+     * [DEEP-DOC]
+     */
+    function createUI() {
+        /* ── §1 幂等守卫：面板已存在或 body 未就绪时退出/延后 ── */
+        if (document.getElementById('xy-super-console')) { _uiCreating = false; return; }
+        if (!document.body) { _uiCreating = false; scheduleEnsureUI(50); return; }
+        xyUiListenerAbort?.abort();
+        xyUiListenerAbort = new AbortController();
+        const uiDocumentListenerOptions = { signal: xyUiListenerAbort.signal };
+        document.body.style.userSelect = '';
+        
+        /* ── §2 残留清理：旧面板实例与启动动画 ── */
+        document.querySelectorAll('#xy-super-console').forEach(el => { try { el.remove(); } catch(e) {} });
+        
+        ['xy-splash','xy-toast-box'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) try { el.remove(); } catch(e) {}
+        });
+
+        dismissSplash();
+
+        const wrapper = document.createElement('div'); wrapper.id = 'xy-super-console';
+        let pos = { x: window.innerWidth - 400, y: 50 };
+        const savedWidth = GM_getValue('xy_panel_width', 360);
+        try { const p = JSON.parse(GM_getValue('xy_ui_pos')); if(p && typeof p.x === 'number') pos = p; } catch(e){}
+        
+        wrapper.style.cssText = `
+            position: fixed; left: ${pos.x}px; top: ${pos.y}px; width: ${savedWidth}px; max-height: 94vh;
+            background: rgba(15, 23, 42, 0.92); border-radius: 16px;
+            border: 1px solid rgba(71, 85, 105, 0.4); box-shadow: 0 0 0 1px rgba(71, 85, 105, 0.15), 0 20px 60px rgba(0,0,0,0.5), 0 0 80px rgba(99, 102, 241, 0.06);
+            z-index: 2147483640; backdrop-filter: blur(24px) saturate(1.2); -webkit-backdrop-filter: blur(24px) saturate(1.2);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+            overflow: hidden; transition: opacity 0.3s; display: flex; flex-direction: column;
+        `;
+        /* 自定义高度：用户拖拽过面板高度则恢复，否则保持内容自适应（auto） */
+        const savedHeight = GM_getValue('xy_panel_height', '');
+        if (savedHeight !== '' && Number(savedHeight) > 0) wrapper.style.height = Number(savedHeight) + 'px';
+        
+        /* ── §3 视图渲染：纯模板函数输出完整面板 HTML/CSS ── */
+        wrapper.innerHTML = xyBuildPanelTemplate();
         document.body.appendChild(wrapper);
 
+        /* ── §4 会话日志回放：恢复历史终端输出 ── */
         const logBox = document.getElementById('xy-activity-log');
         if (logBox && sessionLogs.length > 0) {
             logBox.innerHTML = ''; sessionLogs.forEach(log => { const el = document.createElement('div'); el.style.color = log.color === '#64748b' ? '#94a3b8' : (log.color === '#38bdf8' ? '#10b981' : log.color); el.style.marginBottom = '4px'; el.style.lineHeight = '1.5'; el.innerText = log.text; logBox.appendChild(el); });
@@ -8204,6 +10275,19 @@
             logMsg('📡 全局雷达网持续扫描中...', 'silent', true);
         }
 
+        /* ── §5 事件装配：控件绑定委托给 xyBindPanelEvents ── */
+        xyBindPanelEvents({ listenerOptions: uiDocumentListenerOptions });
+
+/**
+ * 面板事件装配层（纯装配函数）：把主控台内全部控件交互
+ * （分区按钮/更新/学情入口/课程列表委托/防检测开关组/模式切换/
+ *   刷新面板/终端显隐/日志与时长清零）绑定到 DOM。
+ * 通过 AbortController 信号注册 document 级监听，面板销毁时统一解绑。
+ * @param {{listenerOptions: AddEventListenerOptions}} ctx - 装配上文
+ * [DEEP-DOC]
+ */
+    function xyBindPanelEvents(ctx) {
+        const uiDocumentListenerOptions = ctx.listenerOptions;
         const qqBadge = document.getElementById('xy-seg-qq');
         if (qqBadge) {
             qqBadge.onclick = async (e) => {
@@ -8231,7 +10315,7 @@
                     const currentData = xyOverviewState.currentData;
                     const courseId = currentData?.courseId;
                     const routeCourseId = courseGroupKey(getCourseGroupId());
-                    const isActiveOverview = appState.activeZone === 'overview'
+                    const isActiveOverview = playState.activeZone === ZONE.OVERVIEW
                         && xyOverviewState.courseId === courseId;
                     if (!courseId || !isActiveOverview || (routeCourseId && courseId !== routeCourseId)) return;
                     xyOverviewOpenTask(
@@ -8248,7 +10332,7 @@
                 const task = Number.isInteger(taskIndex) ? currentData?.tasks?.data?.[taskIndex] : null;
                 const courseId = currentData?.courseId;
                 const routeCourseId = courseGroupKey(getCourseGroupId());
-                const isActiveOverview = appState.activeZone === 'overview'
+                const isActiveOverview = playState.activeZone === ZONE.OVERVIEW
                     && xyOverviewState.courseId === courseId;
                 if (!task || !isActiveOverview || (routeCourseId && courseId !== routeCourseId)) return;
                 xyOverviewOpenTask(courseId, task.parentId, task.nodeId);
@@ -8372,93 +10456,93 @@
         const btnQuickMute = document.getElementById('xy-btn-quick-mute');
         if(btnQuickMute) {
             btnQuickMute.onclick = () => {
-                appState.hardwareMute = !appState.hardwareMute;
-                GM_setValue('xy_hw_mute', appState.hardwareMute);
+                guardState.hardwareMute = !guardState.hardwareMute;
+                GM_setValue('xy_hw_mute', guardState.hardwareMute);
                 syncHardwareMute();
-                btnQuickMute.textContent = appState.hardwareMute ? 'ON' : 'OFF';
-                btnQuickMute.style.background = appState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
-                btnQuickMute.style.color = appState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
-                document.querySelectorAll('video, audio').forEach(m => { m.muted = appState.hardwareMute; });
-                logMsg(`🔕 底层音轨强制拦截引擎已${appState.hardwareMute ? '启动' : '关闭'}！`, appState.hardwareMute ? 'success' : 'warning', false);
+                btnQuickMute.textContent = guardState.hardwareMute ? 'ON' : 'OFF';
+                btnQuickMute.style.background = guardState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
+                btnQuickMute.style.color = guardState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
+                document.querySelectorAll('video, audio').forEach(m => { m.muted = guardState.hardwareMute; });
+                logMsg(`🔕 底层音轨强制拦截引擎已${guardState.hardwareMute ? '启动' : '关闭'}！`, guardState.hardwareMute ? 'success' : 'warning', false);
             };
         }
 
-        const toggleAi = document.getElementById('toggle-ai-mode'); if(toggleAi) toggleAi.onchange = (e) => { appState.aiMode = e.target.checked; GM_setValue('xy_ai_mode', appState.aiMode); };
-        const toggleVideo = document.getElementById('toggle-video-submit'); if(toggleVideo) toggleVideo.onchange = (e) => { appState.videoAutoSubmit = e.target.checked; GM_setValue('xy_video_submit', appState.videoAutoSubmit); };
-        const toggleDoc = document.getElementById('toggle-doc-batch'); if(toggleDoc) toggleDoc.onchange = (e) => { appState.docBatchSubmit = e.target.checked; GM_setValue('xy_doc_batch', appState.docBatchSubmit); };
+        const toggleAi = document.getElementById('toggle-ai-mode'); if(toggleAi) toggleAi.onchange = (e) => { settingsState.aiMode = e.target.checked; GM_setValue('xy_ai_mode', settingsState.aiMode); };
+        const toggleVideo = document.getElementById('toggle-video-submit'); if(toggleVideo) toggleVideo.onchange = (e) => { settingsState.videoAutoSubmit = e.target.checked; GM_setValue('xy_video_submit', settingsState.videoAutoSubmit); };
+        const toggleDoc = document.getElementById('toggle-doc-batch'); if(toggleDoc) toggleDoc.onchange = (e) => { settingsState.docBatchSubmit = e.target.checked; GM_setValue('xy_doc_batch', settingsState.docBatchSubmit); };
         
         const toggleRefresh = document.getElementById('toggle-refresh-panel');
         if (toggleRefresh) {
             toggleRefresh.onchange = (e) => {
-                appState.showRefreshPanel = e.target.checked;
-                GM_setValue('xy_show_refresh_panel', appState.showRefreshPanel);
+                settingsState.showRefreshPanel = e.target.checked;
+                GM_setValue('xy_show_refresh_panel', settingsState.showRefreshPanel);
                 const refBox = document.getElementById('xy-refresh-container');
-                if (refBox) refBox.style.display = appState.showRefreshPanel ? 'block' : 'none';
+                if (refBox) refBox.style.display = settingsState.showRefreshPanel ? 'block' : 'none';
             };
         }
 
         const toggleTerminal = document.getElementById('toggle-terminal');
         if (toggleTerminal) {
             toggleTerminal.onchange = (e) => {
-                appState.showTerminal = e.target.checked;
-                GM_setValue('xy_show_terminal', appState.showTerminal);
+                settingsState.showTerminal = e.target.checked;
+                GM_setValue('xy_show_terminal', settingsState.showTerminal);
                 const termBox = document.getElementById('xy-terminal-container');
-                if (termBox) termBox.style.display = appState.showTerminal ? 'block' : 'none';
+                if (termBox) termBox.style.display = settingsState.showTerminal ? 'block' : 'none';
             };
         }
 
         document.getElementById('btn-manual-refresh').onclick = () => { logMsg('🔄 手动重载页面...', 'warning', false); setTimeout(() => window.location.reload(), 500); };
         document.getElementById('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
-        document.getElementById('btn-clear-progress').onclick = () => { appState.recordCount = 0; appState.totalTime = 0; appState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
+        document.getElementById('btn-clear-progress').onclick = () => { recState.recordCount = 0; recState.totalTime = 0; recState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
 
         document.getElementById('btn-mode-man').onclick = () => {
             if (xyScheduleState.isRunning) { xySchStop(); }
-            appState.mode = 'manual';
-            GM_setValue('xy_play_mode', 'manual');
+            playState.mode = PLAY_MODE.MANUAL;
+            GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
             clearDynamicRefresh();
             logMsg('已暂停，且已强制停止所有重载任务', 'success');
             updateCourseUI();
         };
-        document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } appState.mode = 'loop'; GM_setValue('xy_play_mode', 'loop'); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
+        document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
         document.getElementById('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
         
-        document.getElementById('xy-btn-guard').onclick = () => { appState.guardActive = !appState.guardActive; GM_setValue('xy_guard_active', appState.guardActive); updateCourseUI(); logMsg(`🛡️ 防休眠${appState.guardActive ? '已开启':'已关闭'}`, 'info', true); };
+        document.getElementById('xy-btn-guard').onclick = () => { guardState.guardActive = !guardState.guardActive; GM_setValue('xy_guard_active', guardState.guardActive); updateCourseUI(); logMsg(`🛡️ 防休眠${guardState.guardActive ? '已开启':'已关闭'}`, 'info', true); };
         document.getElementById('xy-btn-keepalive').onclick = () => {
-            appState.keepaliveEnabled = !appState.keepaliveEnabled;
-            GM_setValue('xy_keepalive', appState.keepaliveEnabled);
-            if (appState.keepaliveEnabled) {
+            guardState.keepaliveEnabled = !guardState.keepaliveEnabled;
+            GM_setValue('xy_keepalive', guardState.keepaliveEnabled);
+            if (guardState.keepaliveEnabled) {
                 startKeepaliveWatchdog();
-                if (appState.activeZone === 'course' && getNodeId() && !appState.recordActive) toggleRecord(true);
+                if (playState.activeZone === ZONE.COURSE && getNodeId() && !recState.recordActive) toggleRecord(true);
             } else {
                 stopKeepaliveWatchdog();
             }
             updateCourseUI();
-            logMsg(`💓 后台保活${appState.keepaliveEnabled ? '已开启':'已关闭'}`, 'info', true);
+            logMsg(`💓 后台保活${guardState.keepaliveEnabled ? '已开启':'已关闭'}`, 'info', true);
         };
         document.getElementById('xy-btn-mouse-sim').onclick = () => {
-            toggleMouseSim(!appState.mouseSimActive);
+            toggleMouseSim(!guardState.mouseSimActive);
             const btn = document.getElementById('xy-btn-mouse-sim');
             if (btn) {
-                btn.textContent = appState.mouseSimActive ? 'ON' : 'OFF';
-                btn.style.background = appState.mouseSimActive ? T('rgba(236,72,153,0.2)','#fce7f3') : T('rgba(71,85,105,0.2)','#e2e8f0');
-                btn.style.color = appState.mouseSimActive ? T('#f9a8d4','#be185d') : T('#94a3b8','#64748b');
+                btn.textContent = guardState.mouseSimActive ? 'ON' : 'OFF';
+                btn.style.background = guardState.mouseSimActive ? T('rgba(236,72,153,0.2)','#fce7f3') : T('rgba(71,85,105,0.2)','#e2e8f0');
+                btn.style.color = guardState.mouseSimActive ? T('#f9a8d4','#be185d') : T('#94a3b8','#64748b');
             }
         };
         document.getElementById('xy-btn-deep-camo').onclick = () => {
-            if (appState.deepCamouflage) {
+            if (guardState.deepCamouflage) {
                 stopDeepCamouflage();
             } else {
                 startDeepCamouflage();
             }
             const btn = document.getElementById('xy-btn-deep-camo');
             if (btn) {
-                btn.textContent = appState.deepCamouflage ? 'ON' : 'OFF';
-                btn.style.background = appState.deepCamouflage ? T('rgba(168,85,247,0.2)','#f3e8ff') : T('rgba(71,85,105,0.2)','#e2e8f0');
-                btn.style.color = appState.deepCamouflage ? T('#c4b5fd','#7c3aed') : T('#94a3b8','#64748b');
+                btn.textContent = guardState.deepCamouflage ? 'ON' : 'OFF';
+                btn.style.background = guardState.deepCamouflage ? T('rgba(168,85,247,0.2)','#f3e8ff') : T('rgba(71,85,105,0.2)','#e2e8f0');
+                btn.style.color = guardState.deepCamouflage ? T('#c4b5fd','#7c3aed') : T('#94a3b8','#64748b');
             }
         };
         
-        if (appState.mouseSimActive) { scheduleMouseSim(); }
+        if (guardState.mouseSimActive) { scheduleMouseSim(); }
         document.getElementById('xy-btn-dashboard').onclick = openGlobalTaskDashboard;
         document.getElementById('xy-btn-schedule').onclick = openScheduleDashboard;
         document.getElementById('xy-btn-download-zone').onclick = () => enterDownloadZone();
@@ -8523,10 +10607,10 @@
 
 
         const toggleDomScan = document.getElementById('xy-toggle-dom-scan');
-        if(toggleDomScan) { toggleDomScan.onchange = (e) => { appState.enableDomScan = e.target.checked; logMsg(e.target.checked ? '✅ 智能DOM提取已开启' : '⏸️ 智能DOM提取已暂停', 'info', true); }; }
+        if(toggleDomScan) { toggleDomScan.onchange = (e) => { playState.enableDomScan = e.target.checked; logMsg(e.target.checked ? '✅ 智能DOM提取已开启' : '⏸️ 智能DOM提取已暂停', 'info', true); }; }
 
         const toggleCustomReply = document.getElementById('xy-toggle-custom-reply');
-        if(toggleCustomReply) { toggleCustomReply.onchange = (e) => { appState.useCustomReply = e.target.checked; GM_setValue('xy_use_custom_reply', appState.useCustomReply); }; }
+        if(toggleCustomReply) { toggleCustomReply.onchange = (e) => { discState.useCustomReply = e.target.checked; GM_setValue('xy_use_custom_reply', discState.useCustomReply); }; }
         const btnEditReply = document.getElementById('xy-btn-edit-reply');
         if (btnEditReply) btnEditReply.onclick = openReplySettingsModal;
 
@@ -8534,7 +10618,7 @@
         const dlSearchInput = document.getElementById('xy-dl-search');
         if (dlSearchInput) {
             dlSearchInput.addEventListener('input', () => {
-                appState.downloadSearchKeyword = dlSearchInput.value;
+                dlState.downloadSearchKeyword = dlSearchInput.value;
                 renderDownloadList();
             });
         }
@@ -8547,12 +10631,12 @@
                 label.style.cssText = `display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')};background:${T('rgba(15,23,42,0.35)','#ffffff')};color:${T('#cbd5e1','#334155')};font-size:10.5px;font-weight:600;cursor:pointer;`;
                 const cb = document.createElement('input');
                 cb.type = 'checkbox';
-                cb.checked = appState.downloadTypeFilter.has(t.key);
+                cb.checked = dlState.downloadTypeFilter.has(t.key);
                 cb.style.cssText = `width:12px;height:12px;accent-color:#22d3ee;cursor:pointer;`;
                 cb.onchange = () => {
-                    if (cb.checked) appState.downloadTypeFilter.add(t.key);
-                    else appState.downloadTypeFilter.delete(t.key);
-                    try { GM_setValue('xy_dl_types', Array.from(appState.downloadTypeFilter).join(',')); } catch(e) {}
+                    if (cb.checked) dlState.downloadTypeFilter.add(t.key);
+                    else dlState.downloadTypeFilter.delete(t.key);
+                    try { GM_setValue('xy_dl_types', Array.from(dlState.downloadTypeFilter).join(',')); } catch(e) {}
                     renderDownloadList();
                 };
                 label.appendChild(cb);
@@ -8563,37 +10647,37 @@
 
         const dlSortSelect = document.getElementById('xy-dl-sort');
         if (dlSortSelect) {
-            dlSortSelect.value = appState.downloadSortMode || 'unit';
+            dlSortSelect.value = dlState.downloadSortMode || 'unit';
             dlSortSelect.onchange = () => {
-                appState.downloadSortMode = dlSortSelect.value;
+                dlState.downloadSortMode = dlSortSelect.value;
                 try { GM_setValue('xy_dl_sort', dlSortSelect.value); } catch(e) {}
                 renderDownloadList();
             };
         }
         document.getElementById('xy-dl-select-all').onclick = () => {
-            const keyword = (appState.downloadSearchKeyword || '').toLowerCase().trim();
+            const keyword = (dlState.downloadSearchKeyword || '').toLowerCase().trim();
             const targets = keyword
-                ? appState.downloadFiles.filter(f => f.name.toLowerCase().includes(keyword))
-                : appState.downloadFiles;
+                ? dlState.downloadFiles.filter(f => f.name.toLowerCase().includes(keyword))
+                : dlState.downloadFiles;
             targets.forEach(f => {
                 const id = normalizeDownloadId(f.id);
-                if (id !== null) appState.downloadSelectedIds.add(id);
+                if (id !== null) dlState.downloadSelectedIds.add(id);
             });
             renderDownloadList();
         };
         document.getElementById('xy-dl-deselect-all').onclick = () => {
-            appState.downloadSelectedIds.clear();
+            dlState.downloadSelectedIds.clear();
             renderDownloadList();
         };
         document.getElementById('xy-dl-batch-download').onclick = () => batchDownloadSelected();
         document.getElementById('xy-dl-stop').onclick = () => stopBatchDownload();
         document.getElementById('xy-dl-pause').onclick = () => {
-            appState.downloadPaused = !appState.downloadPaused;
-            setDownloadButtonsState(true, appState.downloadPaused);
-            logMsg(appState.downloadPaused ? '⏸️ 下载已暂停' : '▶️ 下载已继续', 'info', true);
+            dlState.downloadPaused = !dlState.downloadPaused;
+            setDownloadButtonsState(true, dlState.downloadPaused);
+            logMsg(dlState.downloadPaused ? '⏸️ 下载已暂停' : '▶️ 下载已继续', 'info', true);
         };
         document.getElementById('xy-dl-back').onclick = () => {
-            switchToZone(appState.prevZone || 'course');
+            switchToZone(playState.prevZone || ZONE.COURSE);
         };
         document.getElementById('xy-dl-refresh').onclick = () => {
             const gid = getCourseGroupId();
@@ -8612,8 +10696,8 @@
                 if (!target || !target.classList?.contains('xy-dl-check')) return;
                 const fid = normalizeDownloadId(target.getAttribute('data-fid'));
                 if (fid === null) return;
-                if (target.checked) appState.downloadSelectedIds.add(fid);
-                else appState.downloadSelectedIds.delete(fid);
+                if (target.checked) dlState.downloadSelectedIds.add(fid);
+                else dlState.downloadSelectedIds.delete(fid);
             });
             // 目录标题使用委托，单文件下载按钮改为逐个绑定，和参考脚本保持一致。
             dlFileList.addEventListener('click', (e) => {
@@ -8638,33 +10722,33 @@
         document.getElementById('xy-btn-reply').onclick = () => autoReplyAction(false);
         document.getElementById('xy-btn-target-reply').onclick = () => autoReplyAction(true);
         document.getElementById('xy-btn-select-all').onclick = () => { 
-            appState.selectedNames.clear();
-            for(let i = 0; i < Math.min(appState.targetNames.length, 15); i++) { appState.selectedNames.add(appState.targetNames[i]); }
+            discState.selectedNames.clear();
+            for(let i = 0; i < Math.min(discState.targetNames.length, 15); i++) { discState.selectedNames.add(discState.targetNames[i]); }
             renderTargetList(document.getElementById('xy-name-search')?.value || '');
             showToast('已智能全选前15名 (安全限制上限)', 'success');
             logMsg('已全选（触发点赞安全人数限制：最多15人）', 'silent', true); 
         };
         document.getElementById('xy-btn-deselect-all').onclick = () => { 
-            appState.selectedNames.clear(); renderTargetList(document.getElementById('xy-name-search')?.value || ''); logMsg('已清空勾选', 'silent', true); 
+            discState.selectedNames.clear(); renderTargetList(document.getElementById('xy-name-search')?.value || ''); logMsg('已清空勾选', 'silent', true); 
         };
         document.getElementById('xy-btn-copy-names').onclick = async () => {
-            const names = Array.from(appState.selectedNames).join('\n');
+            const names = Array.from(discState.selectedNames).join('\n');
             if (!names) { showToast('当前未选择任何目标', 'warning'); return; }
             try {
                 await navigator.clipboard.writeText(names);
-                showToast(`成功复制 ${appState.selectedNames.size} 个人名到剪贴板！`, 'success');
+                showToast(`成功复制 ${discState.selectedNames.size} 个人名到剪贴板！`, 'success');
             } catch(e) { showToast('复制失败，可能是浏览器限制', 'error'); }
         };
         document.getElementById('xy-btn-fetch-users').onclick = fetchCurrentUsers;
         const stopScrapeBtn = document.getElementById('xy-btn-stop-scrape');
-        if (stopScrapeBtn) stopScrapeBtn.onclick = () => { appState.discScrapeAbort = true; stopScrapeBtn.disabled = true; };
+        if (stopScrapeBtn) stopScrapeBtn.onclick = () => { playState.discScrapeAbort = true; stopScrapeBtn.disabled = true; };
         document.getElementById('xy-btn-clear-names').onclick = () => { 
-            appState.targetNames = []; appState.selectedNames.clear();
+            discState.targetNames = []; discState.selectedNames.clear();
             GM_setValue('xy_target_names', JSON.stringify([])); 
             renderTargetList(document.getElementById('xy-name-search')?.value || ''); 
             
-            if(appState.enableDomScan) {
-                appState.enableDomScan = false;
+            if(playState.enableDomScan) {
+                playState.enableDomScan = false;
                 const toggle = document.getElementById('xy-toggle-dom-scan');
                 if(toggle) toggle.checked = false;
                 logMsg('已清空全库 (已自动暂停智能DOM提取防回弹)', 'silent', true); 
@@ -8681,17 +10765,20 @@
             listContainer.addEventListener('change', (e) => {
                 if(e.target.classList.contains('xy-target-checkbox')) {
                     if(e.target.checked) {
-                        if (appState.selectedNames.size >= 15) {
+                        if (discState.selectedNames.size >= 15) {
                             e.target.checked = false;
                             showToast('为防风控，最多只允许勾选15个点赞目标！', 'warning');
-                        } else { appState.selectedNames.add(e.target.value); }
-                    } else { appState.selectedNames.delete(e.target.value); }
+                        } else { discState.selectedNames.add(e.target.value); }
+                    } else { discState.selectedNames.delete(e.target.value); }
                     updateCheckedCount();
                 }
             });
             renderTargetList();
         }
 
+    }
+
+        /* ── §6 布局行为：最小化 / 分区折叠 / 主题 / 拖拽移动 / 收尾调度 ── */
         const handle = document.getElementById('xy-drag-handle'), minBtn = document.getElementById('xy-minimize'), body = document.getElementById('xy-main-body'), handleRow2 = document.getElementById('xy-handle-row2');
         let isMin = false;
         minBtn.onclick = () => {
@@ -8720,18 +10807,17 @@
         const themeBtn = document.getElementById('xy-theme-toggle');
         if (themeBtn) themeBtn.onclick = () => {
             
-            if (appState.theme === 'auto') appState.theme = 'light';
-            else if (appState.theme === 'light') appState.theme = 'dark';
-            else appState.theme = 'auto';
-            GM_setValue('xy_theme', appState.theme);
+            if (settingsState.theme === 'auto') settingsState.theme = 'light';
+            else if (settingsState.theme === 'light') settingsState.theme = 'dark';
+            else settingsState.theme = 'auto';
+            GM_setValue('xy_theme', settingsState.theme);
             applyTheme();
-            showToast(appState.theme === 'auto' ? '🌓 主题：跟随系统' : appState.theme === 'light' ? '☀️ 主题：浅色模式' : '🌙 主题：深色模式', 'info');
+            showToast(settingsState.theme === 'auto' ? '🌓 主题：跟随系统' : settingsState.theme === 'light' ? '☀️ 主题：浅色模式' : '🌙 主题：深色模式', 'info');
         };
 
         
         const feedbackLink = document.getElementById('xy-seg-feedback');
         if (feedbackLink) feedbackLink.onclick = () => xyShowFeedbackSurvey();
-
         let isDragging = false, dragStartX = 0, dragStartY = 0, initialLeft = 0, initialTop = 0;
         
         handle.addEventListener('mousedown', (e) => {
@@ -8773,10 +10859,82 @@
             }
         }, uiDocumentListenerOptions);
 
+        /* ── 面板缩放：8 个边缘/角落热区 + 右下角 grip，mousedown 起始记录 →
+           mousemove 按方向计算新尺寸（西/北方向同步平移 left/top 保持对边不动）→
+           mouseup 持久化宽高到 GM 存储。双击 grip 复位默认尺寸。[DEEP-DOC] */
+        const RS_MIN_W = 320, RS_MIN_H = 240;
+        let isResizing = false, rsDir = '', rsStartX = 0, rsStartY = 0,
+            rsStartW = 0, rsStartH = 0, rsStartLeft = 0, rsStartTop = 0,
+            rsHeightTouched = false;
+
+        document.querySelectorAll('#xy-super-console .xy-rs-edge, #xy-super-console .xy-rs-grip').forEach(zone => {
+            zone.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                rsDir = zone.getAttribute('data-dir') || 'se';
+                rsStartX = e.clientX; rsStartY = e.clientY;
+                const rect = wrapper.getBoundingClientRect();
+                rsStartW = rect.width; rsStartH = rect.height;
+                rsStartLeft = rect.left; rsStartTop = rect.top;
+                if (wrapper.style.height && Number(wrapper.style.height.replace('px','')) > 0) rsHeightTouched = true;
+                else { rsHeightTouched = false; rsStartH = Math.max(rsStartH, RS_MIN_H); }
+                document.body.style.userSelect = 'none';
+                e.preventDefault(); e.stopPropagation();
+            });
+        });
+
+        const rsClampW = (w) => Math.max(RS_MIN_W, Math.min(w, window.innerWidth));
+        const rsClampH = (h) => Math.max(RS_MIN_H, Math.min(h, window.innerHeight * 0.94));
+
+        document.addEventListener('mousemove', (e) => {
+            if(!isResizing) return;
+            const dx = e.clientX - rsStartX, dy = e.clientY - rsStartY;
+            let newW = rsStartW, newH = rsStartH;
+            /* 宽度：东缘向右拉大、西缘向左拉大；西/北方向同步平移保持对边不动 */
+            if (rsDir.includes('e')) newW = rsClampW(rsStartW + dx);
+            if (rsDir.includes('w')) {
+                newW = rsClampW(rsStartW - dx);
+                wrapper.style.left = Math.max(0, Math.min(rsStartLeft + (rsStartW - newW), window.innerWidth - 60)) + 'px';
+            }
+            /* 高度：南缘向下拉大、北缘向上拉大；最小化状态下高度不参与调整 */
+            if (!isMin) {
+                if (rsDir.includes('s')) newH = rsClampH(rsStartH + dy);
+                if (rsDir.includes('n')) {
+                    newH = rsClampH(rsStartH - dy);
+                    wrapper.style.top = Math.max(0, Math.min(rsStartTop + (rsStartH - newH), window.innerHeight - 50)) + 'px';
+                }
+            }
+            wrapper.style.width = Math.round(newW) + 'px';
+            if (!isMin && (rsDir.includes('n') || rsDir.includes('s'))) {
+                wrapper.style.height = Math.round(newH) + 'px';
+                rsHeightTouched = true;
+            }
+            e.preventDefault();
+        }, uiDocumentListenerOptions);
+
+        document.addEventListener('mouseup', () => {
+            if(isResizing) {
+                isResizing = false;
+                document.body.style.userSelect = '';
+                GM_setValue('xy_panel_width', Math.round(parseFloat(wrapper.style.width) || rsStartW));
+                if (rsHeightTouched) {
+                    GM_setValue('xy_panel_height', Math.round(parseFloat(wrapper.style.height) || rsStartH));
+                }
+            }
+        }, uiDocumentListenerOptions);
+
+        const gripBtn = document.getElementById('xy-rs-grip');
+        if (gripBtn) gripBtn.ondblclick = () => {
+            GM_setValue('xy_panel_width', 360);
+            GM_setValue('xy_panel_height', '');
+            wrapper.style.width = '360px';
+            wrapper.style.height = '';
+            showToast('面板尺寸已复位为默认 (宽360 · 高度自适应)', 'info');
+        };
+
         setTimeout(() => syncHardwareMute(), 100);
         fetchCloudIntelligence();
         setTimeout(() => xyUpdateAutoCheck(), 2500);
-        appState.isTaskCompleted = false;
+        playState.isTaskCompleted = false;
         applyThemeClasses();
         _uiCreating = false;
     }
@@ -8785,6 +10943,13 @@
     
     
     let _uiCreating = false;
+    /**
+     * UI 存活保障心跳：清理由页面框架重建产生的重复面板（querySelectorAll 多实例
+     * 只留第一个）→ 面板缺失时 _uiCreating 互斥锁内 createUI → 存活则依次驱动
+     * OverviewSyncRoute / KeepaliveWatchdog 启停 / runLowLevelScanner 扫描链 /
+     * 作业路由 watcher 安装 / 反馈问卷注入。installUIObserver 在面板被移除时回调它。
+     * [DEEP-DOC]
+     */
     function ensureUI() {
         if (_uiCreating) return;
         
@@ -8810,7 +10975,7 @@
         xyOverviewSyncRoute();
 
         
-        if (appState.keepaliveEnabled && !keepaliveWatchdogTimer) {
+        if (guardState.keepaliveEnabled && !keepaliveWatchdogTimer) {
             startKeepaliveWatchdog();
         }
 
@@ -8827,6 +10992,10 @@
     }
 
     let _ensureUIScheduled = false;
+    /** ensureUI 的延时重试封装：document.body 未就绪（document-start）时按 delay
+     * 毫秒后再尝试一次，避免启动期空指针。
+     * [DEEP-DOC]
+     */
     function scheduleEnsureUI(delay = 0) {
         if (_ensureUIScheduled) return;
         _ensureUIScheduled = true;
@@ -8837,6 +11006,12 @@
     }
 
     let _uiObserver = null;
+    /**
+     * 面板存活观察器：MutationObserver 监听 body 子树，仅在检测到 #xy-super-console
+     * 从 DOM 消失时回调 ensureUI 补建；普通 SPA 更新通过「面板存在」短路快速返回，
+     * 避免高频回调开销。observer 自身幂等安装。
+     * [DEEP-DOC]
+     */
     function installUIObserver() {
         if (_uiObserver || !document) return;
         _uiObserver = new MutationObserver(() => {
@@ -8847,8 +11022,11 @@
     }
 
     installUIObserver();
-
-    
+    /**
+     * 作业路由变化处理：URL 的 paper/group 参数变化时比对 hwActiveTaskKey，
+     * 不同试卷则 hwResetState 清场等待新题目捕获；同卷微调（如锚点变化）不动状态。
+     * [DEEP-DOC]
+     */
     function hwHandleRouteChange() {
         setTimeout(() => {
             
@@ -8870,6 +11048,11 @@
             }
         }, 80);
     }
+    /**
+     * 路由监听安装（一次性）：包装 history.pushState/replaceState + popstate 事件，
+     * 三路统一派发给 hwHandleRouteChange。使 SPA 无刷新跳转也能感知试卷切换。
+     * [DEEP-DOC]
+     */
     function hwInstallRouteWatcher() {
         if (hwInstallRouteWatcher._done) return;
         hwInstallRouteWatcher._done = true;
@@ -8896,7 +11079,7 @@
 
     
     window.xyKeepaliveStatus = () => {
-        console.log('[小雅] 后台保活:', appState.keepaliveEnabled ? 'ON' : 'OFF');
+        console.log('[小雅] 后台保活:', guardState.keepaliveEnabled ? 'ON' : 'OFF');
         console.log('[小雅] 看门狗:', keepaliveWatchdogTimer ? '运行中' : '未启动');
     };
     window.xyExportFeedbacks = () => {
@@ -8973,12 +11156,10 @@
                 console.log('   4. 执行：GM_setValue("xy_feedback_entry_id", "entry.XXXXXXXXX");');
             });
     };
-
-    
-    
-    
-
-    
+    /** 反馈问卷浮层样式注入：一次性 style 标签（幂等：已存在跳过），内含遮罩/
+     * 卡片/iframe 容器的全套 CSS。
+     * [DEEP-DOC]
+     */
     function xyInjectFeedbackStyle() {
         GM_addStyle(`
             /* ── 反馈问卷遮罩 ── */
@@ -9041,12 +11222,20 @@
             body.xy-theme-light #xy-feedback-modal .xy-check:hover { border-color: #c7d2fe; background: #eef2ff; }
         `);
     }
-
-
+    /**
+     * 用户反馈问卷浮层：Google Forms iframe 内嵌（表单 ID 由 GM 存储读取，
+     * 未配置时 console 打印配置指引而非弹空窗）。遮罩点击关闭；提交成功依赖
+     * Forms 自身跳转，脚本侧不做回执校验。
+     * [DEEP-DOC]
+     */
     function xyShowFeedbackSurvey() {
         window.open('https://scriptcat.org/zh-CN/script-show-page/5881/issue/create', '_blank');
     }
-
+    /**
+     * 反馈上云通道：Gitee Issue 创建 API（token 鉴权）。成功返回 issue url；
+     * 401/网络失败自动降级调 SaveFeedbackLocal 落本地并提示稍后重试。
+     * [DEEP-DOC]
+     */
     function xySaveFeedbackToGitee(surveyData) {
         const payload = {
             timestamp: new Date().toISOString(),
@@ -9088,7 +11277,10 @@
             }
         });
     }
-
+    /** 反馈本地降级存储：追加进 GM 数组 xy_local_feedbacks（带上时间戳与页面
+     * URL 上下文），下次打开反馈面板时可一键重试上传。
+     * [DEEP-DOC]
+     */
     function xySaveFeedbackLocal(payload) {
         try {
             const localFeedbacks = JSON.parse(GM_getValue('xy_local_feedbacks', '[]'));
