@@ -1,10 +1,9 @@
 {
-  "version": "3.7.2.4",
+  "version": "3.7.2.5",
   "notes": [
-    "🎬 新增视频直链下载：VOD 课程视频自动换流出公网 mp4 直链，可直接保存",
-    "📐 主控台浮窗自由缩放：八方向边缘/角落拖拽调整宽高，双击右下角 grip 复位",
-    "🧩 面板视图组件化重构：模板/编排/事件绑定三段式分离，结构更清晰",
-    "🛠️ 多处细节打磨与稳定性提升"
+    "🛠️ 修复：面板收起后残留空白大框，现在收起只留标题栏、展开恢复原尺寸",
+    "🛠️ 修复：学情概览在小尺寸面板下被压扁，现保底高度且内部滚动",
+    "📐 浮窗缩放手感优化：最小化状态下不再受高度拖拽影响"
   ],
   "downloadURL": "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js",
   "changelogURL": "https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"

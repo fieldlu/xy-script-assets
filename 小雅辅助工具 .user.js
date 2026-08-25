@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.2.4
+// @version      3.7.2.5
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -9674,7 +9674,7 @@
                 .xy-badge-warning { background: rgba(251,191,36,0.12); color: #fcd34d; border: 1px solid rgba(251,191,36,0.2); }
                 #xy-super-console .xy-overview-icon { display:none; align-items:center; justify-content:center; cursor:pointer; padding:4px 6px; border:0; border-radius:6px; background:transparent; color:var(--xy-text-muted); font:inherit; font-size:14px; line-height:1; transition:all 0.2s; }
                 #xy-super-console .xy-overview-icon:hover { background:rgba(71,85,105,0.28); color:var(--xy-text); }
-                #xy-super-console .xy-overview-view { flex:1 1 auto !important; min-height:0; overflow:hidden; border:1px solid var(--xy-border); border-radius:12px; color:var(--xy-text); background:var(--xy-surface); }
+                #xy-super-console .xy-overview-view { flex:1 1 auto !important; flex-shrink:0 !important; min-height:220px; overflow:hidden; border:1px solid var(--xy-border); border-radius:12px; color:var(--xy-text); background:var(--xy-surface); }
                 #xy-super-console .xy-overview-head { display:flex; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--xy-border); background:linear-gradient(135deg, color-mix(in srgb, var(--xy-accent) 9%, var(--xy-surface2)), var(--xy-surface2)); flex-shrink:0; }
                 #xy-super-console .xy-overview-heading { flex:1; min-width:0; }
                 #xy-super-console .xy-overview-heading strong { display:block; overflow:hidden; color:var(--xy-text); font-size:13px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
@@ -10785,6 +10785,15 @@
             isMin = !isMin;
             body.style.display = isMin ? 'none' : 'flex';
             if (handleRow2) handleRow2.style.display = isMin ? 'none' : 'flex';
+            /* 最小化时挂起自定义高度，避免隐藏内容后外壳仍被拖大的 height 撑成空白大框；展开时恢复 */
+            if (isMin && wrapper.style.height && Number(wrapper.style.height.replace('px', '')) > 0) {
+                wrapper.dataset.rsH = wrapper.style.height;
+                wrapper.style.height = '';
+                rsHeightTouched = false;
+            } else if (!isMin && wrapper.dataset.rsH) {
+                wrapper.style.height = wrapper.dataset.rsH;
+                rsHeightTouched = true;
+            }
             handle.style.padding = isMin ? '8px 18px' : '14px 18px 12px 18px';
             handle.style.cursor = isMin ? 'default' : 'grab';
             minBtn.innerText = isMin ? '⊞' : '⊟';
