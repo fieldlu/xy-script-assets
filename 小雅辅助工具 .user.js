@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.2.5
+// @version      3.7.2.6
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -3398,7 +3398,9 @@
             xyOverviewState.dashboardCourseId = '';
         }
         const mainBody = document.getElementById('xy-main-body');
-        if (mainBody) mainBody.style.overflowY = newZone === ZONE.OVERVIEW ? 'hidden' : 'auto';
+        /* 面板支持自由缩放后，任何分区都保持主内容区可滚动——
+           否则小尺寸面板下（尤其学情概览分区原会强制 hidden）下方内容被裁切且无滚动条 */
+        if (mainBody) mainBody.style.overflowY = 'auto';
         if (playState.activeZone === newZone) {
             if (newZone === ZONE.COURSES) {
                 const viewCourses = document.getElementById('xy-view-courses');
