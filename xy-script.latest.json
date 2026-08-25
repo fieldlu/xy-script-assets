@@ -1,8 +1,10 @@
 {
-  "version": "3.7.2.8",
+  "version": "3.7.2.5",
   "notes": [
-    "🖱️ 滚轮手感优化：悬停在面板任意位置滚动都顺畅，内部区域滚到头自动接力整体滚动",
-    "🛡️ 面板滚动不再穿透到背后网页"
+    "🎬 新增视频直链下载：VOD 课程视频自动换流出公网 mp4，可直接保存",
+    "📐 主控台浮窗自由缩放：八方向拖拽调整宽高，双击右下角 grip 复位",
+    "🛠️ 修复收起后残留空白大框、概览卡片被压扁、缩小后无法滚动等问题",
+    "🖱️ 滚轮优化：面板任意位置可滚，内层到头自动接力；系统控制条瘦身省空间"
   ],
   "downloadURL": "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js",
   "changelogURL": "https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
