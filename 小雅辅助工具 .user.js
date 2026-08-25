@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.2.6
+// @version      3.7.2.7
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -10176,17 +10176,13 @@
                 </div>
             </div>
 
-            <div id="xy-sys-ctrl" class="xy-panel" style="background:${T('rgba(30,41,59,0.3)','#f8fafc')}; border-style:dashed;">
-                <div style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px;">
-                    <span>系统控制</span>
-                    <div style="display:flex; gap: 10px;">
-                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-refresh-panel" ${settingsState.showRefreshPanel ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 重载视窗</label>
-                        <label style="font-size:11px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-terminal" ${settingsState.showTerminal ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 终端</label>
-                    </div>
-                </div>
-                <div style="display:flex; gap:8px; align-items:center; justify-content:flex-end;">
-                    <button class="xy-mini-btn" id="btn-clear-logs" style="font-size:11px; padding:5px 10px;">清空日志</button>
-                    <button class="xy-mini-btn" id="btn-clear-progress" style="font-size:11px; padding:5px 10px; color:#f87171; border-color:${T('rgba(248,113,113,0.2)','#fecaca')}; background:${T('rgba(248,113,113,0.08)','#fef2f2')};">重置时长</button>
+            <div id="xy-sys-ctrl" class="xy-panel" style="background:${T('rgba(30,41,59,0.3)','#f8fafc')}; border-style:dashed; padding:7px 10px; margin-bottom:6px; display:flex; align-items:center; gap:9px;">
+                <span style="font-weight:600; font-size:11px; color:${T('#94a3b8','#475569')}; flex-shrink:0;" title="系统控制">⚙ 系统</span>
+                <label style="font-size:10.5px; cursor:pointer; color:${T('#94a3b8','#64748b')}; font-weight:600; display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="toggle-refresh-panel" ${settingsState.showRefreshPanel ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 重载视窗</label>
+                <label style="font-size:10.5px; cursor:pointer; color:${T('#94a3b8','#64748b')}; font-weight:600; display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="toggle-terminal" ${settingsState.showTerminal ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 终端</label>
+                <div style="display:flex; gap:6px; align-items:center; margin-left:auto; flex-shrink:0;">
+                    <button class="xy-mini-btn" id="btn-clear-logs" title="清空终端日志" style="font-size:10.5px; padding:4px 8px;">🧹 日志</button>
+                    <button class="xy-mini-btn" id="btn-clear-progress" title="重置学习时长统计" style="font-size:10.5px; padding:4px 8px; color:#f87171; border-color:${T('rgba(248,113,113,0.2)','#fecaca')}; background:${T('rgba(248,113,113,0.08)','#fef2f2')};">⏱ 时长</button>
                 </div>
             </div>
 
