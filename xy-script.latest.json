@@ -1,8 +1,8 @@
 {
-  "version": "3.7.2.7",
+  "version": "3.7.2.8",
   "notes": [
-    "✨ 系统控制区瘦身：两行压缩为单行紧凑工具条，节省面板空间",
-    "🧹 「清空日志」「重置时长」改为图标短语，悬停可见完整说明"
+    "🖱️ 滚轮手感优化：悬停在面板任意位置滚动都顺畅，内部区域滚到头自动接力整体滚动",
+    "🛡️ 面板滚动不再穿透到背后网页"
   ],
   "downloadURL": "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js",
   "changelogURL": "https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
