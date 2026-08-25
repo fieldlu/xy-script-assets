@@ -1,8 +1,8 @@
 {
-  "version": "3.7.2.6",
+  "version": "3.7.2.7",
   "notes": [
-    "📜 面板缩小后内容可上下滚动：修复小尺寸面板下只能看到上半部分、没有滚动条的问题",
-    "🛠️ 学情概览分区同样保持主内容区可滚动，所有分区滚动行为统一"
+    "✨ 系统控制区瘦身：两行压缩为单行紧凑工具条，节省面板空间",
+    "🧹 「清空日志」「重置时长」改为图标短语，悬停可见完整说明"
   ],
   "downloadURL": "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js",
   "changelogURL": "https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
