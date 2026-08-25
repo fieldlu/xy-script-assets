@@ -1,9 +1,8 @@
 {
-  "version": "3.7.2.5",
+  "version": "3.7.2.6",
   "notes": [
-    "🛠️ 修复：面板收起后残留空白大框，现在收起只留标题栏、展开恢复原尺寸",
-    "🛠️ 修复：学情概览在小尺寸面板下被压扁，现保底高度且内部滚动",
-    "📐 浮窗缩放手感优化：最小化状态下不再受高度拖拽影响"
+    "📜 面板缩小后内容可上下滚动：修复小尺寸面板下只能看到上半部分、没有滚动条的问题",
+    "🛠️ 学情概览分区同样保持主内容区可滚动，所有分区滚动行为统一"
   ],
   "downloadURL": "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js",
   "changelogURL": "https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
