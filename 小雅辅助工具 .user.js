@@ -1,15 +1,13 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.2.6
+// @version      3.7.2.7
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
 // @match        https://*.ai-augmented.com/*
 // @noframes
 // @run-at       document-start
-// @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
-// @downloadURL  https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
 // @connect      gitee.com
 // @connect      *
 // @require      https://cdn.jsdmirror.com/npm/docx@7.1.0/build/index.min.js
@@ -826,7 +824,6 @@
         lastDocSubmitTime: 0,
         videoScriptProgress: undefined,
         videoLastTime: 0,
-        batchDocSubmitting: false,
         jumpFailCount: 0,
         jumpSleepUntil: 0,
         isProcessingJump: false,
@@ -891,9 +888,6 @@
 
     /** 用户设置域：开关项与主题（持久化到 GM 存储） */
     const settingsState = {
-        aiMode: GM_getValue('xy_ai_mode', true),
-        videoAutoSubmit: GM_getValue('xy_video_submit', true),
-        docBatchSubmit: GM_getValue('xy_doc_batch', true),
         showRefreshPanel: GM_getValue('xy_show_refresh_panel', true),
         showTerminal: GM_getValue('xy_show_terminal', false),
         theme: GM_getValue('xy_theme', 'auto')
@@ -1261,7 +1255,7 @@
         if (/\/(?:discussion|discuss)(?:\/|$)/.test(path)) return ZONE.DISC;
         if (/\/(?:mycourse|course)\/\d+\/(?:task|home|courseTools)$/.test(path)) return ZONE.OVERVIEW;
         if (/\/(?:mycourse|course)\/\d+\/resource\/\d+\/\d+$/.test(path)) return 'course';
-        if (/\/(?:mycourse|course)\/\d+\/resource$/.test(path)) return ZONE.DIR;
+        if (/\/(?:mycourse|course)\/\d+\/resource(?:\/\d+)?$/.test(path)) return ZONE.DIR;
         return /\/(?:mycourse|course)\/\d+(?:\/|$)/.test(path) ? ZONE.OVERVIEW : ZONE.COURSES;
     }
     /**
@@ -5458,6 +5452,7 @@
         window.fetch = async function(input, init) {
             const rawUrl = typeof input === 'string' ? input : (input && input.url ? input.url : String(input));
             if (rawUrl && rawUrl.includes('/queryStuPaper/v2')) {
+                // 同时兼容旧 quiz/ 前缀与新 survey/course/ 前缀的试卷接口
                 const response = await _hw_nativeFetch.apply(this, arguments);
                 // 参数学习后置 + 仅采信成功响应：防止主动拉取的 404 探测自我污染参数缓存
                 if (response.ok) {
@@ -5755,24 +5750,24 @@
     function forceDismissPopups(doc = document) {
         if (!guardState.guardActive) return false;
         try {
-            const dialogs = doc.querySelectorAll('.el-message-box:not([style*="none"]), .el-dialog:not([style*="none"]), .dialog-wrapper:not([style*="none"]), .v-modal');
+            const dialogs = doc.querySelectorAll('.el-message-box:not([style*="none"]), .el-dialog:not([style*="none"]), .dialog-wrapper:not([style*="none"]), .v-modal, .ant-result');
             for (let box of dialogs) {
-                if (box.offsetParent !== null) { 
-                    const boxText = (box.innerText || "").replace(/\s+/g, ''); 
-                    if (/长时间.*操作|无操作|没有操作|暂停|休息一下|继续|确认打开|预览确认/.test(boxText)) {
-                        let targetBtn = box.querySelector('.el-button--primary, .el-message-box__btns .el-button:nth-child(2)');
+                if (box.offsetParent !== null) {
+                    const boxText = (box.innerText || "").replace(/\s+/g, '');
+                    if (/长时间.*操作|无操作|没有操作|暂停|休息一下|继续|确认打开|预览确认|是否确认打开文件/.test(boxText)) {
+                        let targetBtn = box.querySelector('.el-button--primary, .el-message-box__btns .el-button:nth-child(2), .ant-btn-primary');
                         if (!targetBtn) {
                             const btns = Array.from(box.querySelectorAll('button, .el-button, [role="button"]'));
-                            targetBtn = btns.find(b => /确定|继续|是|我知道了|恢复|确认/.test((b.innerText || "").replace(/\s+/g, '')));
+                            targetBtn = btns.find(b => { const t = (b.innerText || "").replace(/\s+/g, ''); return t.length <= 8 && /确定|继续|是|我知道了|恢复|确认/.test(t); });
                         }
-                        if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统弹窗...`, 'success', false); }, 300); return true; } 
+                        if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统弹窗...`, 'success', false); }, 300); return true; }
                     }
                 }
             }
             const bodyText = doc.body ? (doc.body.innerText || "").replace(/\s+/g, '') : "";
-            if (/长时间.*操作|无操作|没有操作|任务暂停|休息一下|确认打开/.test(bodyText)) {
+            if (/长时间.*操作|无操作|没有操作|任务暂停|休息一下|确认打开|是否确认打开文件/.test(bodyText)) {
                 const allButtons = Array.from(doc.querySelectorAll('button, [role="button"], .btn, span[class*="btn"]'));
-                const targetBtn = allButtons.find(b => b.offsetParent !== null && /确定|继续|恢复|是|我知道了|确认/.test((b.innerText || "").replace(/\s+/g, '')));
+                const targetBtn = allButtons.find(b => { const t = ((b.innerText || "")).replace(/\s+/g, ''); return b.offsetParent !== null && t.length <= 8 && /确定|继续|恢复|我知道了|确认/.test(t); });
                 if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统弹窗...`, 'success', false); }, 500); return true; }
             }
         } catch(e) {} return false;
@@ -5997,31 +5992,6 @@
             guardState.camoClickActive = true;
             ['scroll','keyboard','click'].forEach(t => scheduleDeepCamo(t));
         }, 3000);
-    }
-    /**
-     * 文档批量狙击：当前文档验证通过后调用。从雷达缓存定位同课程下一批
-     * 未达标的 doc 任务，逐个预取直链后依序整页跳转——比通用连播更激进，
-     * 专攻「一批文档集中通关」场景。batchDocSubmitting 防重入门。
-     * [DEEP-DOC]
-     */
-    async function triggerDocBatchSniper() {
-        playState.batchDocSubmitting = true; logMsg('🔄 启动【全局文档清理】，静默完成阅读...', 'warning', false);
-        try {
-            const token = await getAuthToken();
-            const data = await fetchRadarCached();
-            if (data && data.success && data.data) {
-                const docTasks = data.data.filter(t => t.task_type === 1 && t.finish !== 2);
-                if (docTasks.length > 0) {
-                    for (let i = 0; i < docTasks.length; i++) {
-                        const t = docTasks[i]; if (t.node_id == getNodeId() || /mp4|avi|mov|wmv|flv|mkv/i.test(t.name || '')) continue;
-                        await new Promise(r => setTimeout(r, Math.floor(Math.random() * 4000) + 3000));
-                        await fetch(`https://${domain}/api/jx-iresource/resource/finishActivity`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify({ group_id: t.group_id, node_id: t.node_id, task_id: t.task_id }) });
-                        logMsg(`📄 自动处理：静默提交文档 -> ${t.name}`, 'success', false);
-                    }
-                    logMsg('🎉 文档自动清理完成，全网未读文档已提交！', 'success', false);
-                }
-            }
-        } catch (e) { console.warn('[小雅] triggerDocBatchSniper 失败', e); } finally { playState.batchDocSubmitting = false; }
     }
     /**
      * 文档预览自动开启：探测预览占位元素存在且未展开时 robustClick 触发。
@@ -6449,7 +6419,7 @@
 
     
     createPersistentInterval(async () => {
-        if (!settingsState.aiMode || playState.activeZone !== ZONE.COURSE || playState.mode !== PLAY_MODE.SEQUENCE) return;
+        if (playState.activeZone !== ZONE.COURSE || playState.mode !== PLAY_MODE.SEQUENCE) return;
 
         if (Date.now() < playState.jumpSleepUntil) return;
 
@@ -6499,15 +6469,13 @@
                         logMsg('✅ [API] 文档任务已获服务器成功确认！', 'success');
                         updateCourseUI();
 
-                        if (settingsState.docBatchSubmit && !playState.batchDocSubmitting) triggerDocBatchSniper();
                         await tryJumpToNext();
                     } else {
                         if (playState.docReadTime >= DOC_READ.FORCE_SECONDS) {
                             logMsg('⚡ 超过5分钟仍未达标，触发【强制提交放行】保护机制！', 'warning', false);
                             playState.isTaskCompleted = true;
                             updateCourseUI();
-                            
-                            if (settingsState.docBatchSubmit && !playState.batchDocSubmitting) triggerDocBatchSniper();
+
                             await tryJumpToNext();
                         } else {
                             logMsg(`⚠️ 文档验证未通过，将在30秒后利用API重试 (当前${playState.docReadTime}s/300s强行线)`, 'warning', false);
@@ -6985,22 +6953,15 @@
             }
         }
         ['man', PLAY_MODE.LOOP, 'seq'].forEach(m => { const btn = document.getElementById(`btn-mode-${m}`); if(btn) btn.className = `xy-mode-btn ${playState.mode === (m==='man'?PLAY_MODE.MANUAL:m===PLAY_MODE.LOOP?PLAY_MODE.LOOP:PLAY_MODE.SEQUENCE) ? 'active' : ''}`; });
-        
+
         const cRealTime = document.getElementById('xy-real-time');
         if (cRealTime) cRealTime.innerText = formatTime(recState.realTime);
-        
-        const btnGuard = document.getElementById('xy-btn-guard');
-        if(btnGuard) {
-            btnGuard.textContent = guardState.guardActive ? 'ON' : 'OFF';
-            btnGuard.style.background = guardState.guardActive ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
-            btnGuard.style.color = guardState.guardActive ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
-        }
 
-        const btnKeepalive = document.getElementById('xy-btn-keepalive');
-        if(btnKeepalive) {
-            btnKeepalive.textContent = guardState.keepaliveEnabled ? 'ON' : 'OFF';
-            btnKeepalive.style.background = guardState.keepaliveEnabled ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
-            btnKeepalive.style.color = guardState.keepaliveEnabled ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
+        const btnQuickMute = document.getElementById('xy-btn-quick-mute');
+        if(btnQuickMute) {
+            btnQuickMute.textContent = guardState.hardwareMute ? 'ON' : 'OFF';
+            btnQuickMute.style.background = guardState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
+            btnQuickMute.style.color = guardState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
         }
     }
     /**
@@ -8875,8 +8836,17 @@
         const currentGroupId = getCourseGroupId();
         if (payloadGroupId && currentGroupId && String(payloadGroupId) !== String(currentGroupId)) return false;
         const payloadPaperId = json?.data?.paper_id || json?.data?.paperId || json?.data?.id;
-        const currentPaperId = getPaperId() || hwPaperId;
-        return !payloadPaperId || !currentPaperId || String(payloadPaperId) === String(currentPaperId);
+        if (!payloadPaperId) return true;
+        /* 新版 resource 作业页：URL 末段是资源节点 ID，真卷 ID 是内层 quote/资源 id，
+           两者不同但都属于本卷。课程内守卫已足够拦截串包（载荷 group_id 必须与当前
+           课程一致），paper_id 只在双 ID 都已知且都匹配不上时才拒收。 */
+        if (hwPaperId && String(payloadPaperId) === String(hwPaperId)) return true;
+        const urlPaperId = getPaperId();
+        if (urlPaperId && String(payloadPaperId) === String(urlPaperId)) return true;
+        /* 放宽兜底：URL 是 resource/{dir}/{paperNode} 作业页形态时，直接信任课程守卫，
+           不因 paper_id 形态差异丢弃（防脚本启动早期 hwPaperId 未定值时误杀） */
+        if (/resource\/\d+\/\d+/.test(window.location.href) && !window.location.href.includes('/course_paper/')) return true;
+        return false;
     }
     /**
      * 题目数据主处理器 —— 作业模块的心脏。
@@ -8940,9 +8910,13 @@
      * _hwProactiveFetching 重入门防并发重复拉取。
      * [DEEP-DOC]
      */
+    let _hwProactiveNextAt = 0;
     async function hwProactiveFetchData() {
         if (_hwProactiveFetching) return;
         if (hwQuestionsData.length > 0) return;
+        /* 失败节流：上一轮拉取未拿到题目时至少间隔 10s 再试，
+           防止 scanner 每秒重入造成接口风暴（实测旧版曾 40+ 次连发） */
+        if (Date.now() < _hwProactiveNextAt) return;
         try {
             const urlObj = new URL(window.location.href);
             let groupId = urlObj.searchParams.get('group_id');
@@ -8961,6 +8935,10 @@
                 try {
                     const token = getCookie();
                     if (!token) { _hwProactiveFetching = false; return; }
+                    /* 新版作业页数据链（实测）：resource/{gid}/{dirId}/{paperNodeId} →
+                       ① queryResource/v3?node_id={paperNodeId} 取 resource.id(真卷 quote_id)
+                       ② survey/course/queryStuPaper/v2?paper_id={quote_id}&group_id&node_id={paperNodeId}
+                         一次拿全 questions + answer_record（批改状态） */
                     const resUrl = `https://${domain}/api/jx-iresource/resource/queryResource/v3?node_id=${encodeURIComponent(paperId)}`;
                     console.log('[小雅辅助·作业区] resource 页面用 queryResource/v3');
                     const res = await _hw_nativeFetch(resUrl, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -8969,7 +8947,24 @@
                         const questions = data.data.resource.questions;
                         console.log('[小雅辅助·作业区] queryResource/v3 获取到题目:', questions.length, '题');
                         const paperIdFromRes = data.data.resource.id || paperId;
-                        
+                        hwGroupId = groupId;
+                        hwNodeId = paperId;
+                        hwPaperId = String(paperIdFromRes);
+                        // 优先走正式试卷接口：题目+作答记录一次拿全（queryResource/v3 无 answer_record）
+                        try {
+                            const stuUrl = `https://${domain}/api/jx-iresource/survey/course/queryStuPaper/v2?paper_id=${encodeURIComponent(paperIdFromRes)}&group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(paperId)}`;
+                            const stuRes = await _hw_nativeFetch(stuUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+                            const stuData = await stuRes.json();
+                            if (stuData && stuData.success && stuData.data && Array.isArray(stuData.data.questions)) {
+                                console.log('[小雅辅助·作业区] survey/course/queryStuPaper/v2 获取到完整试卷数据');
+                                hwProcessPaperData(stuData);
+                                _hwProactiveFetching = false;
+                                return;
+                            }
+                            console.warn('[小雅辅助·作业区] survey 接口无 questions，回退 queryResource 组包');
+                        } catch(e) { console.warn('[小雅辅助·作业区] survey 接口失败，回退 queryResource 组包:', e); }
+
+                        // 子题平铺：type=9 组合题的 subQuestions 展开并标 _parentId
                         const allQuestions = [];
                         questions.forEach(q => {
                             allQuestions.push(q);
@@ -8977,17 +8972,21 @@
                                 q.subQuestions.forEach(sq => { sq._parentId = q.id; allQuestions.push(sq); });
                             }
                         });
-                        const compatData = {
-                            data: {
-                                paper_id: paperIdFromRes,
-                                group_id: groupId,
-                                questions: allQuestions,
-                                answer_record: data.data.answer_record || null
-                            }
-                        };
-                        hwGroupId = groupId;
-                        hwPaperId = String(paperIdFromRes);
-                        hwProcessPaperData(compatData);
+
+                        // 归属校验已在 hwIsCurrentPaperPayload 内做双 ID 白名单（URL 末段+内层卷 ID），无需临时包装
+                        try {
+                            const compatData = {
+                                data: {
+                                    paper_id: paperIdFromRes,
+                                    group_id: groupId,
+                                    questions: allQuestions,
+                                    answer_record: data.data.answer_record || null
+                                }
+                            };
+                            hwGroupId = groupId;
+                            hwPaperId = String(paperIdFromRes);
+                            hwProcessPaperData(compatData);
+                        } catch(e) { console.warn('[小雅辅助·作业区] compatData 组包失败:', e); }
                         _hwProactiveFetching = false;
                         return;
                     }
@@ -9014,7 +9013,7 @@
             for (let attempt = 0; attempt < 6; attempt++) {
                 if (hwQuestionsData.length > 0) { data = true; break; }
                 try {
-                    const url = `https://${domain}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(nodeId)}&paper_id=${encodeURIComponent(paperId)}`;
+                const url = `https://${domain}/api/jx-iresource/survey/course/queryStuPaper/v2?paper_id=${encodeURIComponent(paperId)}&group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(nodeId)}`;
 
                     const res = await window.fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
                     if (!res.ok) console.warn(`[小雅辅助·作业区] 试卷接口返回异常状态 ${res.status}(第${attempt + 1}次)`);
@@ -9035,6 +9034,7 @@
             console.warn('[小雅辅助·作业区] 主动拉取题目数据失败', e);
         } finally {
             _hwProactiveFetching = false;
+            if (hwQuestionsData.length === 0) _hwProactiveNextAt = Date.now() + 10000;
         }
     }
     /** data URI → ArrayBuffer：split 取 base64 段 → atob → Uint8Array 逐字节填充。docx ImageRun 的数据源转换器。
@@ -9338,7 +9338,7 @@
         const token = getCookie();
         if (!token) return false;
         const nodeId = hwNodeId || getResourceNodeId() || '';
-        const url = `${window.location.origin}/api/jx-iresource/quiz/queryStuPaper/v2?group_id=${encodeURIComponent(hwGroupId)}&node_id=${encodeURIComponent(nodeId)}&paper_id=${encodeURIComponent(hwPaperId)}`;
+        const url = `${window.location.origin}/api/jx-iresource/survey/course/queryStuPaper/v2?paper_id=${encodeURIComponent(hwPaperId)}&group_id=${encodeURIComponent(hwGroupId)}&node_id=${encodeURIComponent(nodeId)}`;
         for (let attempt = 0; attempt < 5; attempt++) {
             try {
 
@@ -9981,56 +9981,24 @@
                             </div>
                         </div>
                     </div>
-                    <div class="xy-panel" style="padding:10px 14px; margin-bottom:10px;">
-                        <div class="xy-section-hdr" id="xy-hdr-toggles" style="font-size:12px; font-weight:600; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
-                            <span>⚙️ 开关控制</span><span id="xy-arr-toggles" style="font-size:10px; transition:transform 0.25s;">▼</span>
-                        </div>
-                        <div id="xy-body-toggles" style="margin-top: 10px;">
-                            <div style="display:none; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
-                                <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🛡️ 防休眠</span>
-                            <button id="xy-btn-guard" style="font-size:12px; font-weight:700; padding:5px 14px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.guardActive ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.guardActive ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${guardState.guardActive ? 'ON' : 'OFF'}</button>
-                        </div>
-                        <div style="display:none; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
-                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">💓 后台保活</span>
-                            <button id="xy-btn-keepalive" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.keepaliveEnabled ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.keepaliveEnabled ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${guardState.keepaliveEnabled ? 'ON' : 'OFF'}</button>
-                        </div>
-                        <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
-                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔇 强制静音</span>
-                            <button id="xy-btn-quick-mute" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${guardState.hardwareMute ? 'ON' : 'OFF'}</button>
-                        </div>
-                        <div style="display:none; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
-                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🖱️ 鼠标模拟</span>
-                            <button id="xy-btn-mouse-sim" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.mouseSimActive ? T('rgba(236,72,153,0.2)','#fce7f3') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.mouseSimActive ? T('#f9a8d4','#be185d') : T('#94a3b8','#64748b')};">${guardState.mouseSimActive ? 'ON' : 'OFF'}</button>
-                        </div>
-                        <div style="display:none; align-items:center; justify-content:space-between; padding:7px 0; border-bottom:1px solid ${T('rgba(71,85,105,0.1)','#e2e8f0')};">
-                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🕵️ 深度伪装</span>
-                            <button id="xy-btn-deep-camo" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.deepCamouflage ? T('rgba(168,85,247,0.2)','#f3e8ff') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.deepCamouflage ? T('#c4b5fd','#7c3aed') : T('#94a3b8','#64748b')};">${guardState.deepCamouflage ? 'ON' : 'OFF'}</button>
-                        </div>
-                        <div style="display:flex; align-items:center; justify-content:space-between; padding:7px 0;">
-                            <span style="font-size:12px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔄 页面重载</span>
-                            <button id="btn-manual-refresh" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:1px solid ${T('rgba(129,140,248,0.25)','#c7d2fe')}; transition:0.2s; background:${T('rgba(99,102,241,0.12)','#eef2ff')}; color:${T('#a5b4fc','#4338ca')};">⚡ 刷新</button>
-                        </div>
-                        </div>
+                    <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 12px; margin-bottom:10px; border-radius:10px; border:1px solid var(--xy-border); background:${T('rgba(30,41,59,0.3)','#f8fafc')};">
+                        <span style="font-size:11.5px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔇 强制静音</span>
+                        <button id="xy-btn-quick-mute" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${guardState.hardwareMute ? 'ON' : 'OFF'}</button>
                     </div>
 
                     <div class="xy-panel" style="padding: 12px;">
                         <div class="xy-section-hdr" id="xy-hdr-engine" style="font-weight:600; font-size:12px; color:${T('#94a3b8','#475569')}; display:flex; justify-content:space-between; align-items:center; user-select:none; cursor:pointer;">
                             <span>智能双引擎中枢</span>
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                <label style="font-size:10px; cursor:pointer; color:${T('#64748b','#475569')}; font-weight:600; display:flex; align-items:center; gap:3px;" onclick="event.stopPropagation()"><input type="checkbox" id="toggle-ai-mode" ${settingsState.aiMode ? 'checked' : ''} style="width:12px; height:12px; accent-color:#818cf8; cursor:pointer;"> 自动</label>
-                                <span id="xy-arr-engine" style="font-size:10px; transition:transform 0.25s;">▼</span>
-                            </div>
+                            <span id="xy-arr-engine" style="font-size:10px; transition:transform 0.25s;">▼</span>
                         </div>
                         <div id="xy-body-engine" style="margin-top: 10px;">
                             <div style="display:flex; gap:8px;">
                             <div id="xy-engine-video" style="flex:1; padding:10px; background:${T('rgba(52,211,153,0.05)','#f0fdf4')}; border:1px solid ${T('rgba(52,211,153,0.15)','#bbf7d0')}; border-radius:8px; transition: opacity 0.3s;">
                                 <div style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; margin-bottom:6px;">📺 视频 <span id="xy-video-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
-                                <label style="font-size:10px; color:${T('#34d399','#059669')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-video-submit" ${settingsState.videoAutoSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#34d399; cursor:pointer;"> 播完跳课</label>
                             </div>
                             <div id="xy-engine-doc" style="flex:1; padding:10px; background:${T('rgba(168,85,247,0.05)','#faf5ff')}; border:1px solid ${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:8px; transition: opacity 0.3s;">
                                 <div style="font-size:11px; font-weight:600; color:${T('#c4b5fd','#7c3aed')}; margin-bottom:4px;">📄 文档 <span id="xy-doc-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
                                 <div style="width:100%; height:4px; background:${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:2px; margin-bottom:6px; overflow:hidden;"><div id="xy-doc-progress" style="width:0%; height:100%; background:linear-gradient(90deg, #a855f7, #818cf8); transition:width 0.5s ease-out; border-radius:2px;"></div></div>
-                                <label style="font-size:10px; color:${T('#a78bfa','#7c3aed')}; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="toggle-doc-batch" ${settingsState.docBatchSubmit ? 'checked' : ''} style="width:12px; height:12px; accent-color:#a855f7; cursor:pointer;"> 达标连交</label>
                             </div>
                         </div>
                         </div>
@@ -10465,10 +10433,6 @@
             };
         }
 
-        const toggleAi = document.getElementById('toggle-ai-mode'); if(toggleAi) toggleAi.onchange = (e) => { settingsState.aiMode = e.target.checked; GM_setValue('xy_ai_mode', settingsState.aiMode); };
-        const toggleVideo = document.getElementById('toggle-video-submit'); if(toggleVideo) toggleVideo.onchange = (e) => { settingsState.videoAutoSubmit = e.target.checked; GM_setValue('xy_video_submit', settingsState.videoAutoSubmit); };
-        const toggleDoc = document.getElementById('toggle-doc-batch'); if(toggleDoc) toggleDoc.onchange = (e) => { settingsState.docBatchSubmit = e.target.checked; GM_setValue('xy_doc_batch', settingsState.docBatchSubmit); };
-        
         const toggleRefresh = document.getElementById('toggle-refresh-panel');
         if (toggleRefresh) {
             toggleRefresh.onchange = (e) => {
@@ -10489,7 +10453,6 @@
             };
         }
 
-        document.getElementById('btn-manual-refresh').onclick = () => { logMsg('🔄 手动重载页面...', 'warning', false); setTimeout(() => window.location.reload(), 500); };
         document.getElementById('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
         document.getElementById('btn-clear-progress').onclick = () => { recState.recordCount = 0; recState.totalTime = 0; recState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
 
@@ -10503,42 +10466,9 @@
         };
         document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
         document.getElementById('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
-        
-        document.getElementById('xy-btn-guard').onclick = () => { guardState.guardActive = !guardState.guardActive; GM_setValue('xy_guard_active', guardState.guardActive); updateCourseUI(); logMsg(`🛡️ 防休眠${guardState.guardActive ? '已开启':'已关闭'}`, 'info', true); };
-        document.getElementById('xy-btn-keepalive').onclick = () => {
-            guardState.keepaliveEnabled = !guardState.keepaliveEnabled;
-            GM_setValue('xy_keepalive', guardState.keepaliveEnabled);
-            if (guardState.keepaliveEnabled) {
-                startKeepaliveWatchdog();
-                if (playState.activeZone === ZONE.COURSE && getNodeId() && !recState.recordActive) toggleRecord(true);
-            } else {
-                stopKeepaliveWatchdog();
-            }
-            updateCourseUI();
-            logMsg(`💓 后台保活${guardState.keepaliveEnabled ? '已开启':'已关闭'}`, 'info', true);
-        };
-        document.getElementById('xy-btn-mouse-sim').onclick = () => {
-            toggleMouseSim(!guardState.mouseSimActive);
-            const btn = document.getElementById('xy-btn-mouse-sim');
-            if (btn) {
-                btn.textContent = guardState.mouseSimActive ? 'ON' : 'OFF';
-                btn.style.background = guardState.mouseSimActive ? T('rgba(236,72,153,0.2)','#fce7f3') : T('rgba(71,85,105,0.2)','#e2e8f0');
-                btn.style.color = guardState.mouseSimActive ? T('#f9a8d4','#be185d') : T('#94a3b8','#64748b');
-            }
-        };
-        document.getElementById('xy-btn-deep-camo').onclick = () => {
-            if (guardState.deepCamouflage) {
-                stopDeepCamouflage();
-            } else {
-                startDeepCamouflage();
-            }
-            const btn = document.getElementById('xy-btn-deep-camo');
-            if (btn) {
-                btn.textContent = guardState.deepCamouflage ? 'ON' : 'OFF';
-                btn.style.background = guardState.deepCamouflage ? T('rgba(168,85,247,0.2)','#f3e8ff') : T('rgba(71,85,105,0.2)','#e2e8f0');
-                btn.style.color = guardState.deepCamouflage ? T('#c4b5fd','#7c3aed') : T('#94a3b8','#64748b');
-            }
-        };
+
+        // 防休眠/后台保活/鼠标模拟/深度伪装 UI 已删除——引擎按默认状态自动运行，无手动开关
+        document.getElementById('xy-btn-guard')?.remove();
         
         if (guardState.mouseSimActive) { scheduleMouseSim(); }
         document.getElementById('xy-btn-dashboard').onclick = openGlobalTaskDashboard;
@@ -10808,7 +10738,6 @@
             };
         };
         bindSection('xy-hdr-actions', 'xy-body-actions', 'xy-arr-actions');
-        bindSection('xy-hdr-toggles', 'xy-body-toggles', 'xy-arr-toggles');
         bindSection('xy-hdr-engine', 'xy-body-engine', 'xy-arr-engine');
 
         const themeBtn = document.getElementById('xy-theme-toggle');
