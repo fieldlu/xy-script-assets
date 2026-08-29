@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.0
+// @version      3.7.3.1
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业题目导出与AI作答保存、作业手写归档、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -20,7 +20,6 @@
 // @icon         https://www.ai-augmented.com/static/logo3.1dbbea8f.png
 // @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
 // @downloadURL  https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
-
 // ==/UserScript==
 
 (function () {
@@ -1229,14 +1228,6 @@
         return match ? match[1] : null;
     }
     /**
-     * 课程目录页判定：pathname 匹配 /mycourse/{id}/resource[/可选层级]/?
-     * 结尾形态（允许带资源子层级）。
-     * [DEEP-DOC]
-     */
-    function isCourseDirPage() {
-        return /\/mycourse\/\d+(?:\/resource(?:\/\d+)?)?\/?$/.test(window.location.pathname);
-    }
-    /**
      * 路由分类器 —— SPA 感知的基石。runLowLevelScanner 每次 URL 变化都调用它。
      *
      * 分类规则（自上而下首个命中生效，尾部斜杠先归一化）：
@@ -1943,25 +1934,6 @@
                 <div class="xy-today-prompt-counts"><span>可做 ${summary.counts.actionable || 0}</span><span>24小时内 ${summary.counts.dueToday || 0}</span><span>待批阅 ${summary.counts.pending || 0}</span><span>已截止 ${summary.counts.expired || 0}</span></div>
                 ${actions ? `<div class="xy-course-dashboard-today-actions">${actions}</div>` : ''}
             </section>`;
-    }
-    /**
-     * 数据一致性告警生成器：平台画像的任务完成数与待办接口对不上时的
-     * 解释性文案。pendingTasksError 非空 → 报「待办接口加载失败」并列出
-     * 两边数字；否则报「平台统计相差 N 项」并建议以作业页为准。
-     * [DEEP-DOC]
-     */
-    function xyOverviewUnresolvedTaskNotice(finishedCount, taskCount, pendingTasksError = '') {
-        if (pendingTasksError) {
-            return {
-                title: '待办接口加载失败',
-                meta: `成员画像为 ${xyOverviewNumber(finishedCount)} / ${xyOverviewNumber(taskCount)}；未能读取待办接口（${pendingTasksError}），暂时无法定位对应任务。`
-            };
-        }
-        const difference = Math.max(0, xyOverviewNumber(taskCount) - xyOverviewNumber(finishedCount));
-        return {
-            title: `平台统计相差 ${difference} 项`,
-            meta: `成员画像为 ${xyOverviewNumber(finishedCount)} / ${xyOverviewNumber(taskCount)}，但待办接口未返回对应任务；请以“作业任务”页的状态为准。`
-        };
     }
     /**
      * 学情概览主渲染器（三段布局拼装）。
@@ -5836,25 +5808,6 @@
         animateStep();
     }
     /**
-     * 鼠标模拟总开关：翻转 mouseSimActive 持久化 → 开启时 scheduleMouseSim
-     * 启动调度环，关闭时清理定时器。按钮文案 ON/OFF 同步。
-     * [DEEP-DOC]
-     */
-    function toggleMouseSim(active) {
-        guardState.mouseSimActive = active;
-        GM_setValue('xy_mouse_sim', active);
-        if (active) {
-            simMouseX = Math.random() * window.innerWidth;
-            simMouseY = Math.random() * window.innerHeight;
-            scheduleMouseSim();
-            logMsg('🖱️ 鼠标轨迹模拟已激活，随机游走中...', 'success', true);
-        } else {
-            clearTimeout(mouseSimTimer);
-            mouseSimTimer = null;
-            logMsg('⏸️ 鼠标轨迹模拟已关闭', 'warning', true);
-        }
-    }
-    /**
      * 鼠标模拟调度环：随机 8-25s 间隔触发 simulateMouseMove（随机起止点）+
      * 低概率 simulateRandomClick。递归 setTimeout 实现可中断的无限循环；
      * guardState.mouseSimActive 为 false 时自终止。
@@ -5962,33 +5915,7 @@
         const fn = type === 'scroll' ? simulateNaturalScroll : type === 'keyboard' ? simulateKeyboardActivity : simulateRandomClick;
         deepCamoTimers[type] = setTimeout(fn, delay);
     }
-    /** 深度伪装开启：置位持久化 → scheduleDeepCamo 启动全部模拟环 → 日志确认。
-     * [DEEP-DOC]
-     */
-    function startDeepCamouflage() {
-        guardState.deepCamouflage = true;
-        guardState.camoScrollActive = true;
-        guardState.camoKeyboardActive = true;
-        guardState.camoClickActive = true;
-        GM_setValue('xy_deep_camo', true);
-        ['scroll','keyboard','click'].forEach(t => scheduleDeepCamo(t));
-        logMsg('🕵️ 深度伪装2.0 已启动：滚动+键盘+点击全维模拟', 'success', true);
-    }
-    /** 深度伪装关闭：清位持久化 → 清理全部模拟定时器 → 日志确认。
-     * [DEEP-DOC]
-     */
-    function stopDeepCamouflage() {
-        guardState.deepCamouflage = false;
-        guardState.camoScrollActive = false;
-        guardState.camoKeyboardActive = false;
-        guardState.camoClickActive = false;
-        GM_setValue('xy_deep_camo', false);
-        Object.values(deepCamoTimers).forEach(t => clearTimeout(t));
-        deepCamoTimers = { scroll: null, keyboard: null, click: null };
-        logMsg('⏸️ 深度伪装2.0 已关闭', 'warning', true);
-    }
 
-    
     if (guardState.deepCamouflage) {
         setTimeout(() => {
             guardState.camoScrollActive = true;
@@ -6222,12 +6149,7 @@
         }, 10000);
         logMsg('💓 后台保活看门狗已启动（10s巡检）', 'silent', true);
     }
-    /** 清理看门狗定时器并置空句柄（keepaliveWatchdogTimer），允许下次重新 start。
-     * [DEEP-DOC]
-     */
-    function stopKeepaliveWatchdog() {
-        if (keepaliveWatchdogTimer) { clearInterval(keepaliveWatchdogTimer); keepaliveWatchdogTimer = null; }
-    }
+
 
     
     
@@ -6782,13 +6704,18 @@
     
     
     const EMBEDDED_NOTICE = {
-        "title": "🚀 小雅辅助工具 v3.7.3.0 正式发布",
-        "version": "3.7.3.0",
-        "updatedAt": "2026-08-28",
+        "title": "🧹 小雅辅助工具 v3.7.3.1 发布 · 内部清理版",
+        "version": "3.7.3.1",
+        "updatedAt": "2026-08-29",
         "items": [
             "🔮 更新链接：https://gitee.com/fieldlu/xy-script-assets",
             "🔒 隐私声明：本脚本不收集任何个人信息，数据仅存本地浏览器",
             "⚠️ 免责声明：本脚本按 GPL-3.0 协议开源，使用者自负风险",
+            "",
+            "⏰ === v3.7.3.1 更新 ===",
+            "🧹 内部清理：移除 15 个废弃函数（反馈旧问卷、Google 表单配置、鼠标模拟/深度伪装手动开关、看门狗停止器等）。",
+            "✅ 功能零变化：雷达连播、安全循环、防休眠、保活、鼠标模拟、深度伪装、作业、手写归档全部照常运行。",
+            "📏 脚本体积缩减，加载更快。",
             "",
             "⏰ === v3.7.3.0 更新 ===",
             "✨ 新增「作业手写归档」：作业题目与作答一键生成手写版，导出 .hinote / PDF / JPG，手写作业免手抄。",
@@ -8631,10 +8558,6 @@
     function dismissSplash() {
         try { if (window._xySplashDismiss) window._xySplashDismiss(); } catch(e) {}
     }
-    /** 作业模块独立 HTML 转义副本：与全局 escapeHtml 同实现。历史隔离产物，保留以避免大规模改名风险。
-     * [DEEP-DOC]
-     */
-    function hwEscapeHTML(v) { return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     /** docx 文本净化：剥离 C0/C1 控制字符（Word 不接受），保留常规 Unicode 文本。所有 TextRun 输入必经。
      * [DEEP-DOC]
      */
@@ -9028,10 +8951,6 @@
             if (hwQuestionsData.length === 0) _hwProactiveNextAt = Date.now() + 10000;
         }
     }
-    /** data URI → ArrayBuffer：split 取 base64 段 → atob → Uint8Array 逐字节填充。docx ImageRun 的数据源转换器。
-     * [DEEP-DOC]
-     */
-    function hwDataUrlToArrayBuffer(dataUrl){const b64=dataUrl.split(',')[1];const bs=atob(b64);const bytes=new Uint8Array(bs.length);for(let i=0;i<bs.length;i++)bytes[i]=bs.charCodeAt(i);return bytes.buffer}
     /**
      * 图片尺寸探测：Blob → objectURL → Image onload 读 natural 尺寸 → revoke。
      * onerror reject「无法获取图片尺寸」。用于 docx 中按原始宽高比缩放排版。
@@ -10533,23 +10452,6 @@ var XYPaper = (function (Hinote, Layout) {  'use strict';
 
   function line(x1, y1, x2, y2, color) {
     return new Hinote.Stroke([[x1, y1, 0, 0.021], [x2, y2, 0, 0.021]], color);
-  }
-
-  // 一行小字（可居中），用手写引擎渲染
-  function putLine(out, txt, cell, y, color, center, o) {
-    if (!txt) return;
-    var w = 0;
-    for (var i = 0; i < txt.length; i++) {
-      w += cell * (txt.charCodeAt(i) < 128 ? 0.55 : 1.0);
-    }
-    var ox = center ? (X0 + (PAGE_W - w) / 2) : bodyX();
-    var r = Layout.layout(txt, {
-      cell: cell, pitchY: cell * 1.25,
-      originX: ox, originY: y, contentWidth: PAGE_W,
-      db: o.db, raster: o.raster, ink: color,
-      seed: (o.seed === undefined ? 42 : o.seed) + 7
-    });
-    for (var k = 0; k < r.strokes.length; k++) out.push(r.strokes[k]);
   }
 
   // 印刷体抬头：真实字体（宋体）渲染 → 骨架 → 笔划；无旋转无抖动，横平竖直
@@ -12680,222 +12582,11 @@ var XYExport = (function (Hinote) {  'use strict';
         ensureUI();
     }
 
-    
-    window.xyKeepaliveStatus = () => {
-        console.log('[小雅] 后台保活:', guardState.keepaliveEnabled ? 'ON' : 'OFF');
-        console.log('[小雅] 看门狗:', keepaliveWatchdogTimer ? '运行中' : '未启动');
-    };
-    window.xyExportFeedbacks = () => {
-        const local = JSON.parse(GM_getValue('xy_local_feedbacks', '[]'));
-        if (local.length === 0) { console.log('📭 暂无本地反馈'); return; }
-        console.log(`📋 共 ${local.length} 条本地反馈：`);
-        console.log(JSON.stringify(local, null, 2));
-        console.log('\n💡 复制上面的 JSON 即可手动导入');
-    };
-
-    
-    window.xySetupFeedbackForm = () => {
-        const formUrl = prompt(
-            '📋 配置 Google 表单反馈\n\n' +
-            '1. 打开 https://forms.google.com 创建一个新表单\n' +
-            '2. 只加一个「段落」（Paragraph）类型的题目\n' +
-            '3. 点右上角「发送」→ 复制链接\n' +
-            '4. 把链接粘贴到这里：\n\n' +
-            '链接示例：https://forms.gle/XXXX 或 https://docs.google.com/forms/d/e/XXXX/viewform'
-        );
-        if (!formUrl) { console.log('已取消'); return; }
-
-        
-        const match1 = formUrl.match(/\/d\/e\/([^/]+)/);
-        const match2 = formUrl.match(/forms\.gle\/([^/]+)/);
-        let formId = match1 ? match1[1] : (match2 ? match2[1] : null);
-
-        if (!formId) {
-            console.log('❌ 无法从链接中提取表单 ID，请检查链接格式');
-            console.log('   正确格式：https://docs.google.com/forms/d/e/XXXXXX/viewform');
-            return;
-        }
-
-        
-        const previewUrl = `https://docs.google.com/forms/d/e/${formId}/viewform`;
-        console.log('🔍 正在分析表单...');
-        console.log('   如果自动检测失败，请打开此链接手动获取：' + previewUrl);
-        console.log('   在页面源代码中搜索 entry. 找到类似 entry.123456789 的值');
-
-        fetch(previewUrl)
-            .then(r => r.text())
-            .then(html => {
-                const match = html.match(/entry\.(\d+)/);
-                if (match) {
-                    const entryId = 'entry.' + match[1];
-                    GM_setValue('xy_feedback_form_id', formId);
-                    GM_setValue('xy_feedback_entry_id', entryId);
-                    console.log('✅ 配置成功！');
-                    console.log('   Form ID: ' + formId);
-                    console.log('   Entry ID: ' + entryId);
-                    console.log('   现在提交反馈即可自动上传到 Google Sheets！');
-                } else {
-                    
-                    const manual = prompt(
-                        '⚠ 自动检测失败\n\n请在浏览器打开：' + previewUrl + '\n' +
-                        '右键 → 查看页面源代码 → 搜索 "entry."\n' +
-                        '找到类似 entry.123456789 的值，粘贴到这里：\n' +
-                        '（例如：entry.123456789）'
-                    );
-                    if (manual && manual.startsWith('entry.')) {
-                        GM_setValue('xy_feedback_form_id', formId);
-                        GM_setValue('xy_feedback_entry_id', manual);
-                        console.log('✅ 手动配置成功！');
-                    } else {
-                        console.log('❌ 配置失败，请重试');
-                    }
-                }
-            })
-            .catch(() => {
-                console.log('⚠ 自动检测失败，请手动配置：');
-                console.log('   1. 打开 ' + previewUrl);
-                console.log('   2. 右键 → 查看页面源代码 → 搜索 entry.');
-                console.log('   3. 执行：GM_setValue("xy_feedback_form_id", "' + formId + '");');
-                console.log('   4. 执行：GM_setValue("xy_feedback_entry_id", "entry.XXXXXXXXX");');
-            });
-    };
-    /** 反馈问卷浮层样式注入：一次性 style 标签（幂等：已存在跳过），内含遮罩/
-     * 卡片/iframe 容器的全套 CSS。
-     * [DEEP-DOC]
-     */
-    function xyInjectFeedbackStyle() {
-        GM_addStyle(`
-            /* ── 反馈问卷遮罩 ── */
-            #xy-feedback-overlay {
-                position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-                background: rgba(0,0,0,0.72); z-index: 2147483645;
-                display: flex; justify-content: center; align-items: center;
-                animation: xy-fb-in 0.25s ease-out;
-            }
-            @keyframes xy-fb-in { 0%{opacity:0} 100%{opacity:1} }
-            @keyframes xy-fb-pop { 0%{opacity:0;transform:translateY(20px) scale(0.96)} 100%{opacity:1;transform:translateY(0) scale(1)} }
-
-            #xy-feedback-modal {
-                width: 620px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
-                background: rgba(15,23,42,0.96); border: 1px solid rgba(99,102,241,0.3);
-                border-radius: 18px; box-shadow: 0 0 60px rgba(99,102,241,0.12), 0 24px 80px rgba(0,0,0,0.6);
-                animation: xy-fb-pop 0.35s cubic-bezier(0.16,1,0.3,1);
-                padding: 32px 36px;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
-            }
-            #xy-feedback-modal .xy-fb-header {
-                display: flex; justify-content: space-between; align-items: center;
-                margin-bottom: 24px; padding-bottom: 18px;
-                border-bottom: 1px solid rgba(99,102,241,0.2);
-            }
-            #xy-feedback-modal .xy-fb-title {
-                font-size: 20px; font-weight: 700; color: #e2e8f0;
-                display: flex; align-items: center; gap: 10px;
-            }
-            #xy-feedback-modal .xy-fb-close {
-                cursor: pointer; color: #64748b; font-size: 22px; padding: 4px 8px;
-                border-radius: 6px; transition: 0.2s; line-height: 1;
-            }
-            #xy-feedback-modal .xy-fb-close:hover { background: rgba(71,85,105,0.4); color: #e2e8f0; }
-
-            /* ── 原生表单样式 ── */
-            #xy-feedback-modal .xy-fb-q { margin-bottom: 22px; }
-            #xy-feedback-modal .xy-fb-q-title { font-size: 14px; font-weight: 600; color: #e2e8f0; margin-bottom: 10px; }
-            #xy-feedback-modal .xy-stars { display: flex; gap: 6px; }
-            #xy-feedback-modal .xy-stars span { font-size: 32px; color: rgba(251,191,36,0.25); cursor: pointer; transition: 0.12s; user-select: none; }
-            #xy-feedback-modal .xy-stars span:hover, #xy-feedback-modal .xy-stars span.active { color: #fbbf24; transform: scale(1.1); }
-            #xy-feedback-modal .xy-checks { display: flex; flex-wrap: wrap; gap: 8px; }
-            #xy-feedback-modal .xy-check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #cbd5e1; cursor: pointer; padding: 6px 12px; background: rgba(30,41,59,0.6); border: 1px solid rgba(71,85,105,0.35); border-radius: 8px; transition: 0.15s; }
-            #xy-feedback-modal .xy-check:hover { border-color: rgba(129,140,248,0.5); background: rgba(30,41,59,0.8); }
-            #xy-feedback-modal .xy-check input[type="checkbox"] { accent-color: #818cf8; width: 15px; height: 15px; cursor: pointer; }
-            #xy-feedback-modal .xy-fb-input, #xy-feedback-modal .xy-fb-textarea { width: 100%; box-sizing: border-box; background: rgba(30,41,59,0.8); color: #e2e8f0; border: 1px solid rgba(71,85,105,0.5); border-radius: 8px; padding: 10px 14px; font-size: 13px; font-family: inherit; resize: vertical; }
-            #xy-feedback-modal .xy-fb-input:focus, #xy-feedback-modal .xy-fb-textarea:focus { border-color: #818cf8; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); outline: none; }
-            #xy-feedback-modal .xy-fb-input::placeholder, #xy-feedback-modal .xy-fb-textarea::placeholder { color: #64748b; }
-            #xy-feedback-modal .xy-fb-submit { display: block; width: 100%; margin-top: 20px; padding: 12px; background: linear-gradient(135deg, #818cf8, #6366f1); color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; cursor: pointer; transition: 0.2s; }
-            #xy-feedback-modal .xy-fb-submit:hover { background: linear-gradient(135deg, #6366f1, #4f46e5); box-shadow: 0 4px 16px rgba(99,102,241,0.35); transform: translateY(-1px); }
-            #xy-feedback-modal .xy-fb-note { text-align: center; font-size: 11px; color: #64748b; margin-top: 10px; }
-
-            /* ── 浅色模式 ── */
-            body.xy-theme-light #xy-feedback-modal { background: #ffffff; border-color: #e2e8f0; box-shadow: 0 0 40px rgba(0,0,0,0.08), 0 24px 80px rgba(0,0,0,0.1); }
-            body.xy-theme-light #xy-feedback-modal .xy-fb-title { color: #0f172a; }
-            body.xy-theme-light #xy-feedback-modal .xy-fb-header { border-bottom-color: #e2e8f0; }
-            body.xy-theme-light #xy-feedback-modal .xy-fb-q-title { color: #0f172a; }
-            body.xy-theme-light #xy-feedback-modal .xy-fb-input, body.xy-theme-light #xy-feedback-modal .xy-fb-textarea { background: #f8fafc; color: #0f172a; border-color: #e2e8f0; }
-            body.xy-theme-light #xy-feedback-modal .xy-check { background: #f8fafc; border-color: #e2e8f0; color: #334155; }
-            body.xy-theme-light #xy-feedback-modal .xy-check:hover { border-color: #c7d2fe; background: #eef2ff; }
-        `);
-    }
-    /**
-     * 用户反馈问卷浮层：Google Forms iframe 内嵌（表单 ID 由 GM 存储读取，
-     * 未配置时 console 打印配置指引而非弹空窗）。遮罩点击关闭；提交成功依赖
-     * Forms 自身跳转，脚本侧不做回执校验。
+    /** 用户反馈：一键打开 ScriptCat Issue 创建页，由用户填写提交。
      * [DEEP-DOC]
      */
     function xyShowFeedbackSurvey() {
         window.open('https://scriptcat.org/zh-CN/script-show-page/5881/issue/create', '_blank');
     }
-    /**
-     * 反馈上云通道：Gitee Issue 创建 API（token 鉴权）。成功返回 issue url；
-     * 401/网络失败自动降级调 SaveFeedbackLocal 落本地并提示稍后重试。
-     * [DEEP-DOC]
-     */
-    function xySaveFeedbackToGitee(surveyData) {
-        const payload = {
-            timestamp: new Date().toISOString(),
-            version: SCRIPT_VERSION,
-            userAgent: navigator.userAgent,
-            platform: window.location.hostname,
-            answers: surveyData
-        };
-
-        
-        
-        const feedbackText = JSON.stringify(payload, null, 2);
-
-        GM_xmlhttpRequest({
-            method: 'POST',
-            url: 'https://scriptcat.org/api/v2/feedback',
-            headers: { 'Content-Type': 'application/json;charset=UTF-8' },
-            data: JSON.stringify({
-                Reason: 'other',
-                title: '[小雅反馈] ' + (payload.answers && payload.answers.satisfaction ? '满意度' + payload.answers.satisfaction + '/5' : '用户体验调查'),
-                content: '## 📋 小雅辅助工具 v' + SCRIPT_VERSION + ' 反馈\n\n```json\n' + feedbackText + '\n```',
-                scriptId: 5881
-            }),
-            onload: function (resp) {
-                try {
-                    const result = JSON.parse(resp.responseText);
-                    if (result.code === 0) {
-                        logMsg('✅ 反馈已提交至 ScriptCat，感谢！', 'success', false);
-                    } else {
-                        logMsg('⚠ 提交失败：' + (result.msg || '未知错误'), 'warning', false);
-                        xySaveFeedbackLocal(payload);
-                    }
-                } catch(e) {
-                    xySaveFeedbackLocal(payload);
-                }
-            },
-            onerror: function () {
-                xySaveFeedbackLocal(payload);
-            }
-        });
-    }
-    /** 反馈本地降级存储：追加进 GM 数组 xy_local_feedbacks（带上时间戳与页面
-     * URL 上下文），下次打开反馈面板时可一键重试上传。
-     * [DEEP-DOC]
-     */
-    function xySaveFeedbackLocal(payload) {
-        try {
-            const localFeedbacks = JSON.parse(GM_getValue('xy_local_feedbacks', '[]'));
-            localFeedbacks.push(payload);
-            
-            if (localFeedbacks.length > 50) localFeedbacks.splice(0, localFeedbacks.length - 50);
-            GM_setValue('xy_local_feedbacks', JSON.stringify(localFeedbacks));
-            logMsg('📦 反馈已暂存本地（共 ' + localFeedbacks.length + ' 条）', 'info', false);
-        } catch (e) {
-            logMsg('⚠ 本地存储失败', 'warning', false);
-        }
-    }
-
 
 })();
