@@ -6,8 +6,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const SCRIPT = fs.readFileSync(path.join(__dirname, '小雅辅助工具 .user.js'), 'utf8');
-const LOCAL_SCRIPT_VERSION = '3.7.3.1';
-const PUBLISHED_MANIFEST_VERSION = '3.7.3.1';
+const LOCAL_SCRIPT_VERSION = '3.7.3.2';
+const PUBLISHED_MANIFEST_VERSION = '3.7.3.2';
 const LATEST_MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'xy-script.latest.json'), 'utf8'));
 assert.match(SCRIPT, new RegExp(`@version\\s+${LOCAL_SCRIPT_VERSION.replaceAll('.', '\\.')}`));
 assert.equal(LATEST_MANIFEST.version, PUBLISHED_MANIFEST_VERSION, 'cloud manifest must remain on the published version before release');
