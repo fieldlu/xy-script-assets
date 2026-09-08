@@ -1,9 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.2
-// @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
-// @downloadURL  https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
+// @version      3.7.3.3
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业统一导出（作答文档/手写归档，题目·答案·我的作答自由组合）与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -826,6 +824,8 @@
         currentEngine: 'none',
         docReadTime: 0,
         lastDocSubmitTime: 0,
+        docSubmitSeconds: 0,
+        docForceSeconds: 0,
         videoScriptProgress: undefined,
         videoLastTime: 0,
         jumpFailCount: 0,
@@ -1867,7 +1867,7 @@
     function xyTodayPromptRenderCourse(summary) {
         const icon = summary.state === 'urgent' ? '⏱' : summary.state === 'continue' ? '🎯' : summary.state === 'waiting' ? '🕒' : summary.state === 'unknown' ? '⚠' : '✓';
         const actions = summary.actions.slice(0, 3).map((task, index) => {
-            const canOpen = !!task.parentId && !!task.nodeId;
+            const canOpen = !!task.nodeId;
             const deadline = task.deadlineAt ? xyOverviewDeadlineText(task.endTime || task.end_time) : '';
             return `
                 <button class="xy-today-prompt-step${canOpen ? '' : ' is-disabled'}" type="button"
@@ -1908,7 +1908,7 @@
             || (xyCourseDashboardState.pendingAvailable ? '' : xyCourseDashboardState.pendingError);
         const summary = xyTodayPromptBuildGlobalSummary(courses, Date.now(), promptDataError);
         const actions = summary.actions.map((task, index) => {
-            const canOpenTask = !!task.parentId && !!task.nodeId;
+            const canOpenTask = !!task.nodeId;
             const deadline = task.deadlineAt ? xyOverviewDeadlineText(task.endTime || task.end_time) : '';
             return `
                 <div class="xy-course-dashboard-today-action">
@@ -2030,7 +2030,7 @@
                     : task.totalScore > 0
                         ? `— / ${task.totalScore}`
                         : task.endTime ? `截止 ${xyOverviewDeadlineText(task.endTime) || '待定'}` : '课程任务';
-                const canOpen = !!task.parentId && !!task.nodeId;
+                const canOpen = !!task.nodeId;
                 return `
                     <button type="button" class="xy-overview-task${canOpen ? '' : ' is-disabled'}"
                         data-task-index="${taskIndex}" ${canOpen ? '' : 'disabled'}>
@@ -2228,13 +2228,25 @@
      * 整页跳转（encodeURIComponent 逐段转义）。
      * [DEEP-DOC]
      */
-    function xyOverviewOpenTask(courseId, parentId, nodeId) {
-        if (!courseId || !parentId || !nodeId) {
+    async function xyOverviewOpenTask(courseId, parentId, nodeId) {
+        if (!courseId || !nodeId) {
             showToast('该任务缺少跳转信息', 'warning');
             return;
         }
+        let targetParentId = parentId;
+        if (!targetParentId) {
+            // jx-stat 待办接口从不返回 parent_id：从课程资源树按 nodeId 反查补齐
+            try {
+                const resources = await fetchCourseResourcesForRadar(courseId);
+                if (resources) targetParentId = xyCourseDashboardResolveTaskParentId(resources, nodeId);
+            } catch (e) { /* 反查失败走下方兜底提示 */ }
+            if (!targetParentId) {
+                showToast('未能定位任务所在章节，已取消跳转', 'warning');
+                return;
+            }
+        }
         const prefix = xyCourseRoutePrefix();
-        window.location.href = `/app/jx-web/${prefix}/${encodeURIComponent(courseId)}/resource/${encodeURIComponent(parentId)}/${encodeURIComponent(nodeId)}`;
+        window.location.href = `/app/jx-web/${prefix}/${encodeURIComponent(courseId)}/resource/${encodeURIComponent(targetParentId)}/${encodeURIComponent(nodeId)}`;
     }
     /**
      * 路由变化时的概览状态同步。
@@ -3227,7 +3239,7 @@
                     document.title = '[视频] 挂机中';
                 }
             } else if (taskType === TASK_TYPE.DOC) {
-                const pct = Math.min(Math.round((playState.docReadTime / DOC_READ.SUBMIT_SECONDS) * 100), 100);
+                const pct = Math.min(Math.round((playState.docReadTime / xyDocEffectiveSubmitSeconds()) * 100), 100);
                 document.title = playState.isTaskCompleted ? '[✓] 文档已达标' : `[${pct}%] 文档阅读中`;
             } else {
                 document.title = playState.isTaskCompleted ? '[✓] 已达标' : '[·] 挂机中';
@@ -3438,6 +3450,8 @@
                 dlState._lastCourseNodeId = currentNodeId;
                 playState.docReadTime = 0;
                 playState.lastDocSubmitTime = 0;
+                playState.docSubmitSeconds = 0;
+                playState.docForceSeconds = 0;
                 playState.videoScriptProgress = undefined;
                 playState.isTaskCompleted = false;
             }
@@ -3473,6 +3487,51 @@
             }
         })();
         return _radarCache.promise;
+    }
+    /* ================================================================
+     * 动态时长任务（watch_min_minutes）支持
+     * 老师可为资源设置「最少观看 N 分钟」，un_finish 接口每条任务带
+     * watch_min_minutes 字段（未设置时缺省/为 0）。服务端按页面累计
+     * 打开时长 ≥ 该值才放行 finishActivity。以下辅助函数把本地交卷线/
+     * 放行线/循环线动态对齐到服务端要求，未设置时保持原默认阈值。
+     * ================================================================ */
+    /** 从雷达缓存按 nodeId（可叠加 courseId）查任务的时长要求分钟数，未设置返回 0 */
+    function xyGetWatchMinutesForNode(courseId, nodeId) {
+        try {
+            const list = Array.isArray(_radarCache.data) ? _radarCache.data : [];
+            const hit = list.find(t => String(t?.node_id || '') === String(nodeId || '')
+                && (!courseId || !t?.group_id || String(t.group_id) === String(courseId)));
+            const minutes = Number(hit?.watch_min_minutes);
+            return Number.isFinite(minutes) && minutes > 0 ? minutes : 0;
+        } catch (e) { return 0; }
+    }
+    /** 单条任务的时长要求分钟数（未设置返回 0），供计划调度入队规划 */
+    function xyTaskWatchMinutes(task) {
+        const minutes = Number(task?.watch_min_minutes);
+        return Number.isFinite(minutes) && minutes > 0 ? minutes : 0;
+    }
+    /** 计划调度入队时长：有时长要求取要求值，否则默认 30 分钟 */
+    function xyScheduleDurationFor(task) {
+        return xyTaskWatchMinutes(task) || 30;
+    }
+    /** 文档交卷线：有时长要求取 max(默认线, 要求×60+10s)（留 10s 缓冲） */
+    function xyDocEffectiveSubmitSeconds() {
+        return playState.docSubmitSeconds > 0
+            ? Math.max(DOC_READ.SUBMIT_SECONDS, playState.docSubmitSeconds * 60 + 10)
+            : DOC_READ.SUBMIT_SECONDS;
+    }
+    /** 文档放行线：动态交卷线 +170s 宽限，且不低于默认放行线 */
+    function xyDocEffectiveForceSeconds() {
+        if (playState.docForceSeconds > 0) return playState.docForceSeconds;
+        return playState.docSubmitSeconds > 0
+            ? Math.max(DOC_READ.FORCE_SECONDS, playState.docSubmitSeconds * 60 + 10 + 170)
+            : DOC_READ.FORCE_SECONDS;
+    }
+    /** 循环模式达标线：对齐时长要求，避免不到时长就一圈圈空转 */
+    function xyDocEffectiveLoopSeconds() {
+        return playState.docSubmitSeconds > 0
+            ? Math.max(DOC_READ.LOOP_SECONDS, playState.docSubmitSeconds * 60 + 10)
+            : DOC_READ.LOOP_SECONDS;
     }
     /**
      * SPA 路由感知主扫描器 —— 由 createPersistentInterval 低频驱动的「心跳」。
@@ -6274,24 +6333,27 @@
                     playState.docReadTime += 1; 
                     
                     if (playState.mode === PLAY_MODE.SEQUENCE) {
-                        let progress = Math.min((playState.docReadTime / DOC_READ.SUBMIT_SECONDS) * 100, 100);
+                        const submitLine = xyDocEffectiveSubmitSeconds();
+                        const forceLine = xyDocEffectiveForceSeconds();
+                        let progress = Math.min((playState.docReadTime / submitLine) * 100, 100);
                         const statusEl = document.getElementById('xy-doc-status'), progressEl = document.getElementById('xy-doc-progress');
                         if(statusEl) {
-                            if (playState.docReadTime < DOC_READ.SUBMIT_SECONDS) {
+                            if (playState.docReadTime < submitLine) {
                                 statusEl.innerText = `阅读倒数: ${progress.toFixed(1)}%`;
-                            } else if (playState.docReadTime < DOC_READ.FORCE_SECONDS) {
+                            } else if (playState.docReadTime < forceLine) {
                                 statusEl.innerText = `验证重试中: ${playState.docReadTime}s`;
                             } else {
                                 statusEl.innerText = `强制提交阶段: ${playState.docReadTime}s`;
                             }
                         }
                         if(progressEl) progressEl.style.width = `${progress}%`;
-                    } 
+                    }
                     else {
-                        let progress = Math.min((playState.docReadTime / DOC_READ.LOOP_SECONDS) * 100, 100);
+                        const loopLine = xyDocEffectiveLoopSeconds();
+                        let progress = Math.min((playState.docReadTime / loopLine) * 100, 100);
                         const statusEl = document.getElementById('xy-doc-status'), progressEl = document.getElementById('xy-doc-progress');
                         if(statusEl) {
-                            if (playState.mode === PLAY_MODE.LOOP && playState.docReadTime >= DOC_READ.LOOP_SECONDS) {
+                            if (playState.mode === PLAY_MODE.LOOP && playState.docReadTime >= loopLine) {
                                 statusEl.innerText = `[循环] 挂机中: ${playState.docReadTime}s`;
                             } else {
                                 statusEl.innerText = progress < 100 ? `等待 ${progress.toFixed(1)}%` : `请求验证中...`;
@@ -6299,7 +6361,7 @@
                         }
                         if(progressEl) progressEl.style.width = `${progress}%`;
                         
-                        if (playState.mode === PLAY_MODE.LOOP && playState.docReadTime >= DOC_READ.LOOP_SECONDS && !playState.isProcessingJump) {
+                        if (playState.mode === PLAY_MODE.LOOP && playState.docReadTime >= loopLine && !playState.isProcessingJump) {
                              playState.isProcessingJump = true;
                              autoSubmitCurrentTask(true).then(success => {
                                  if (success) {
@@ -6383,11 +6445,22 @@
                 }
             }
         } else if (taskType === TASK_TYPE.DOC) {
-            if (playState.docReadTime >= DOC_READ.SUBMIT_SECONDS) {
+            if (playState.docSubmitSeconds === 0 && playState.docForceSeconds === 0) {
+                try {
+                    const needMin = xyGetWatchMinutesForNode(getCourseGroupId(), getNodeId());
+                    if (needMin > 0) {
+                        playState.docSubmitSeconds = needMin;
+                        playState.docForceSeconds = Math.max(DOC_READ.FORCE_SECONDS, needMin * 60 + 10 + 170);
+                        logMsg(`⏱ 检测到时长要求：本任务需累计观看 ${needMin} 分钟，交卷线已动态对齐`, 'info', true);
+                    }
+                } catch (e) { /* 雷达不可用时保持默认阈值 */ }
+            }
+            const submitLine = xyDocEffectiveSubmitSeconds();
+            if (playState.docReadTime >= submitLine) {
                 if (playState.lastDocSubmitTime === 0 || (playState.docReadTime - playState.lastDocSubmitTime >= DOC_READ.RETRY_GAP_SECONDS)) {
                     let isDocRetry = playState.lastDocSubmitTime > 0;
-                    logMsg(isDocRetry ? `⏳ 文档未达标，周期性重试提交 (${playState.docReadTime}s)...` : '⏳ 2分10秒已到，发起首次文档验证请求...', 'info', true);
-                    
+                    logMsg(isDocRetry ? `⏳ 文档未达标，周期性重试提交 (${playState.docReadTime}s)...` : `⏳ ${Math.floor(submitLine / 60)}分${submitLine % 60}秒已到，发起首次文档验证请求...`, 'info', true);
+
                     const success = await autoSubmitCurrentTask();
                     playState.lastDocSubmitTime = playState.docReadTime;
 
@@ -6398,14 +6471,15 @@
 
                         await tryJumpToNext();
                     } else {
-                        if (playState.docReadTime >= DOC_READ.FORCE_SECONDS) {
-                            logMsg('⚡ 超过5分钟仍未达标，触发【强制提交放行】保护机制！', 'warning', false);
+                        const forceLine = xyDocEffectiveForceSeconds();
+                        if (playState.docReadTime >= forceLine) {
+                            logMsg(`⚡ 超过 ${Math.round(forceLine / 60)} 分钟仍未达标，触发【强制提交放行】保护机制！`, 'warning', false);
                             playState.isTaskCompleted = true;
                             updateCourseUI();
 
                             await tryJumpToNext();
                         } else {
-                            logMsg(`⚠️ 文档验证未通过，将在30秒后利用API重试 (当前${playState.docReadTime}s/300s强行线)`, 'warning', false);
+                            logMsg(`⚠️ 文档验证未通过，将在${DOC_READ.RETRY_GAP_SECONDS}秒后利用API重试 (当前${playState.docReadTime}s/${forceLine}s强行线)`, 'warning', false);
                         }
                     }
                 }
@@ -7598,7 +7672,8 @@
                 name: task.name,
                 type: 1,
                 strategy: task.finish === 2 ? STRATEGY.FIXED_DURATION : STRATEGY.UNTIL_DONE,
-                duration: 30,
+                duration: xyScheduleDurationFor(task),
+                watchMin: xyTaskWatchMinutes(task),
                 elapsedSec: 0,
                 actionDone: false,
                 status: 'pending'
@@ -7671,8 +7746,9 @@
                 resourceId: resId,
                 name: task.name,
                 type: 1,
-                strategy: STRATEGY.UNTIL_DONE, 
-                duration: 30,
+                strategy: STRATEGY.UNTIL_DONE,
+                duration: xyScheduleDurationFor(task),
+                watchMin: xyTaskWatchMinutes(task),
                 elapsedSec: 0,
                 actionDone: false,
                 status: 'pending'
@@ -8109,7 +8185,8 @@
                             name: task.name,
                             type: 1,
                             strategy: task.finish === 2 ? STRATEGY.FIXED_DURATION : STRATEGY.UNTIL_DONE,
-                            duration: 30,
+                            duration: xyScheduleDurationFor(task),
+                            watchMin: xyTaskWatchMinutes(task),
                             elapsedSec: 0,
                             actionDone: false,
                             status: 'pending'
@@ -8353,17 +8430,17 @@
             const name = escapeHtml((task.name || '未知').substring(0, 16));
             const elapsed = task.elapsedSec || 0;
             const elapStr = elapsed >= 3600 ? `${Math.floor(elapsed/3600)}h${Math.floor((elapsed%3600)/60)}m` : `${Math.floor(elapsed/60)}m${elapsed%60}s`;
-            const durStr = task.strategy === STRATEGY.INFINITE ? '∞' : task.strategy === STRATEGY.UNTIL_DONE ? '达标连播' : `刷${task.duration||30}min`;
+            const durStr = task.strategy === STRATEGY.INFINITE ? '∞' : task.strategy === STRATEGY.UNTIL_DONE ? '' : `刷${task.duration||30}min`;
             const paused = xyScheduleState.isPaused;
 
             if (paused) {
                 card.style.borderLeftColor = T('#f59e0b','#d97706');
                 card.style.background = T('rgba(251,191,36,0.06)','#fffbeb');
-                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b style="color:${T('#fbbf24','#d97706')};">⏸ 已暂停 · 第 ${idx}/${total} 项 · ${name}</b><span style="color:${T('#94a3b8','#64748b')};font-size:12px;">已刷 ${elapStr} / ${durStr}</span></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">▶ 继续</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏭ 跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🛑 停止</button></div>`;
+                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b style="color:${T('#fbbf24','#d97706')};">⏸ 已暂停 · 第 ${idx}/${total} 项 · ${name}</b><span style="color:${T('#94a3b8','#64748b')};font-size:12px;">${durStr ? `已刷 ${elapStr} / ${durStr}` : `已刷 ${elapStr}`}</span></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">▶ 继续</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏭ 跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🛑 停止</button></div>`;
             } else {
                 card.style.borderLeftColor = T('#818cf8','#6366f1');
                 card.style.background = T('rgba(99,102,241,0.06)','#eef2ff');
-                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b>📅 第 ${idx}/${total} 项 · ${name} · ${durStr}</b><b style="color:${T('#34d399','#059669')};font-family:monospace;">⏱ ${elapStr}</b></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')};color:${T('#fcd34d','#92400e')};border:1px solid ${T('rgba(251,191,36,0.25)','#fde68a')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏸ 暂停</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏭ 跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🛑 停止</button></div>`;
+                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b>📅 第 ${idx}/${total} 项 · ${name}${durStr ? ` · ${durStr}` : ''}</b><b style="color:${T('#34d399','#059669')};font-family:monospace;">⏱ ${elapStr}</b></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')};color:${T('#fcd34d','#92400e')};border:1px solid ${T('rgba(251,191,36,0.25)','#fde68a')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏸ 暂停</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏭ 跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🛑 停止</button></div>`;
             }
         }
 
@@ -11933,7 +12010,9 @@ var XYExport = (function (Hinote) {  'use strict';
                 #xy-super-console .xy-overview-task-list { max-height:none; overflow-y:visible; }
                 #xy-super-console .xy-overview-task { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:10px 12px; border:0; border-bottom:1px solid var(--xy-border); border-radius:0; background:transparent; color:var(--xy-text); cursor:pointer; text-align:left; }
                 #xy-super-console .xy-overview-task:last-child { border-bottom:0; }
-                #xy-super-console .xy-overview-task:hover { background:color-mix(in srgb, var(--xy-accent) 8%, transparent); }
+                #xy-super-console .xy-overview-task:not(.is-disabled) { transition:background 0.15s ease, box-shadow 0.15s ease; }
+                #xy-super-console .xy-overview-task:not(.is-disabled):hover { background:color-mix(in srgb, var(--xy-accent) 10%, transparent); box-shadow:inset 2px 0 0 var(--xy-accent); }
+                #xy-super-console .xy-overview-task:focus-visible { outline:2px solid var(--xy-accent); outline-offset:-2px; }
                 #xy-super-console .xy-overview-task:active { transform:none !important; }
                 #xy-super-console .xy-overview-task.is-disabled { cursor:default; opacity:0.65; }
                 #xy-super-console .xy-overview-task-main { min-width:0; }
@@ -11959,15 +12038,17 @@ var XYExport = (function (Hinote) {  'use strict';
                 #xy-super-console .xy-today-prompt-reasons { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px; min-width:0; }
                 #xy-super-console .xy-today-prompt-reason { min-width:0; padding:2px 6px; border-radius:999px; color:var(--xy-text-muted); background:color-mix(in srgb, var(--xy-text-muted) 10%, transparent); font-size:8.5px; font-weight:650; line-height:1.3; overflow-wrap:anywhere; word-break:break-word; }
                 #xy-super-console .xy-today-prompt-steps { display:grid; gap:5px; margin-top:8px; }
-                #xy-super-console .xy-today-prompt-step { display:flex; width:100%; min-width:0; align-items:center; gap:7px; padding:7px 8px; border:1px solid color-mix(in srgb, var(--xy-accent) 18%, var(--xy-border)); border-radius:8px; background:color-mix(in srgb, var(--xy-accent) 5%, transparent); color:var(--xy-text); cursor:pointer; text-align:left; font:inherit; }
-                #xy-super-console .xy-today-prompt-step:hover { border-color:color-mix(in srgb, var(--xy-accent) 48%, var(--xy-border)); background:color-mix(in srgb, var(--xy-accent) 10%, transparent); }
+                #xy-super-console .xy-today-prompt-step { display:flex; width:100%; min-width:0; align-items:center; gap:7px; padding:7px 8px; border:1px solid color-mix(in srgb, var(--xy-accent) 18%, var(--xy-border)); border-radius:8px; background:color-mix(in srgb, var(--xy-accent) 5%, transparent); color:var(--xy-text); cursor:pointer; text-align:left; font:inherit; transition:border-color 0.15s ease, background 0.15s ease, transform 0.15s ease; }
+                #xy-super-console .xy-today-prompt-step:hover { border-color:color-mix(in srgb, var(--xy-accent) 48%, var(--xy-border)); background:color-mix(in srgb, var(--xy-accent) 10%, transparent); transform:translateY(-1px); }
+                #xy-super-console .xy-today-prompt-step:focus-visible { outline:2px solid var(--xy-accent); outline-offset:1px; }
                 #xy-super-console .xy-today-prompt-step.is-disabled { cursor:default; opacity:0.62; }
                 #xy-super-console .xy-today-prompt-step-index { display:grid; flex:0 0 18px; width:18px; height:18px; place-items:center; border-radius:50%; color:var(--xy-accent); background:color-mix(in srgb, var(--xy-accent) 14%, transparent); font-size:9px; font-weight:750; }
                 #xy-super-console .xy-today-prompt-step-copy { flex:1; min-width:0; }
                 #xy-super-console .xy-today-prompt-step-copy strong, #xy-super-console .xy-today-prompt-step-copy small { display:block; min-width:0; overflow-wrap:anywhere; word-break:break-word; }
                 #xy-super-console .xy-today-prompt-step-copy strong { color:var(--xy-text); font-size:10px; font-weight:700; line-height:1.4; }
                 #xy-super-console .xy-today-prompt-step-copy small { margin-top:1px; color:var(--xy-text-muted); font-size:8.5px; line-height:1.35; }
-                #xy-super-console .xy-today-prompt-step-go { flex:0 0 auto; color:var(--xy-accent); font-size:9px; font-weight:700; white-space:nowrap; }
+                #xy-super-console .xy-today-prompt-step-go { flex:0 0 auto; color:var(--xy-accent); font-size:9px; font-weight:700; white-space:nowrap; transition:transform 0.15s ease; }
+                #xy-super-console .xy-today-prompt-step:not(.is-disabled):hover .xy-today-prompt-step-go { transform:translateX(2px); }
                 #xy-super-console .xy-today-prompt-counts { display:flex; flex-wrap:wrap; gap:4px 8px; margin-top:8px; color:var(--xy-text-muted); font-size:8.5px; font-variant-numeric:tabular-nums; line-height:1.35; }
                 #xy-super-console .xy-today-prompt.is-urgent, #xy-super-console .xy-course-dashboard-today.is-urgent { border-color:color-mix(in srgb, var(--xy-warning) 46%, var(--xy-border)); }
                 #xy-super-console .xy-today-prompt.is-urgent .xy-today-prompt-icon, #xy-super-console .xy-today-prompt.is-urgent .xy-today-prompt-state { color:var(--xy-warning); background:color-mix(in srgb, var(--xy-warning) 13%, transparent); }
