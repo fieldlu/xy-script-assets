@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.3
+// @version      3.7.3.4
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业统一导出（作答文档/手写归档，题目·答案·我的作答自由组合）与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
+// @source       https://gitee.com/fieldlu/xy-script-assets
 // @match        https://*.ai-augmented.com/*
 // @noframes
 // @run-at       document-start
@@ -19,6 +20,26 @@
 // @grant        unsafeWindow
 // @icon         https://www.ai-augmented.com/static/logo3.1dbbea8f.png
 // ==/UserScript==
+
+/*
+ * 小雅辅助工具 — 开源协议与第三方声明
+ *
+ * 本脚本采用 GPL-3.0-or-later 协议开源，许可证全文见
+ * https://gitee.com/fieldlu/xy-script-assets/blob/main/LICENSE
+ *
+ * 开发过程中引用了以下开源项目的部分代码，一并致谢：
+ *   - 小雅爬爬爬   作者 zygame1314   MIT License
+ *   - 小雅做做做   作者 zygame1314   MIT License
+ *   - 小雅自动刷   作者 Qy           Apache License 2.0
+ *   - 小雅粘粘粘   作者 Qy           Apache License 2.0
+ *
+ * 上述代码按其原始许可证授权，相应的版权与归属声明完整保留，
+ * 许可证全文及详细声明见仓库内 LICENSE-MIT / LICENSE-APACHE /
+ * THIRD_PARTY_NOTICES.md。署名或标注有误请提交 Issue。
+ *
+ * 本脚本按「原样」提供，不附带任何明示或暗示的担保；
+ * 使用产生的一切后果由使用者自行承担，请遵守所在学校、平台及当地法律法规。
+ */
 
 (function () {
     'use strict';
