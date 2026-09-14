@@ -860,6 +860,16 @@
         prevZone: ZONE.COURSE
     };
 
+    /**
+     * 跳转重试计数跨页恢复：整页导航后 playState 会重建，若计数只存在页内
+     * 变量里，「导航成功但落在错误节点」（目标被下架 / 无权限被踢回首页）
+     * 会因每页 count 归零而无限重跳。此处从 GM 存储恢复，保证跨页累计。
+     */
+    try {
+        playState.jumpRetryKey = GM_getValue('xy_jump_retry_key', '') || '';
+        playState.jumpRetryCount = parseInt(GM_getValue('xy_jump_retry_count', '0'), 10) || 0;
+    } catch(e) {}
+
     /** 学习记录域：计数器与会话累计时长 */
     const recState = {
         recordActive: false,
@@ -7896,6 +7906,7 @@
 
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
+        xyScheduleHeartbeat(true);
         saveScheduleState();
 
         updateCourseUI();
@@ -8453,6 +8464,7 @@
 
             xyScheduleState.isRunning = true;
             xyScheduleState.isPaused = false;
+            xyScheduleHeartbeat(true);
             saveScheduleState();
 
             updateCourseUI();
@@ -8480,6 +8492,8 @@
             xyScheduleState.isRunning = false;
             xyScheduleState.isPaused = false;
             xyScheduleHeartbeatClear();
+            xyJumpRetryReset();
+            playState.isJumping = false;
             try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
             playState.mode = xyScheduleState.lastMode || PLAY_MODE.SEQUENCE;
@@ -8595,6 +8609,7 @@
         GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
+        xyScheduleHeartbeat(true);
         saveScheduleState();
         updateCourseUI();
         updateSchCard();
@@ -8623,6 +8638,8 @@
         xyScheduleState.isRunning = false;
         xyScheduleState.isPaused = false;
         xyScheduleHeartbeatClear();
+        xyJumpRetryReset();
+        playState.isJumping = false;
         try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
         playState.mode = xyScheduleState.lastMode || PLAY_MODE.SEQUENCE;
         GM_setValue('xy_play_mode', playState.mode);
@@ -8634,12 +8651,27 @@
         logMsg('🛑 计划调度已强停', 'warning');
     };
 
+    /**
+     * 清空跳转重试计数（含跨页持久化）。
+     * 用户主动「跳过 / 停止 / 重新开始」时调用：这些动作代表用户已介入，
+     * 不应让上一个卡住任务的重试计数影响后续调度。
+     */
+    function xyJumpRetryReset() {
+        try {
+            playState.jumpRetryKey = '';
+            playState.jumpRetryCount = 0;
+            GM_setValue('xy_jump_retry_key', '');
+            GM_setValue('xy_jump_retry_count', 0);
+        } catch(e) {}
+    }
+
     window.xySchSkip = () => {
         if (!xyScheduleState.isRunning) return;
         const t = xyScheduleState.queue[xyScheduleState.currentIdx];
         if (t) { t.status = 'completed'; t.elapsedSec = t.elapsedSec || 0; }
         xyScheduleState.currentIdx++;
         playState.isJumping = false;
+        xyJumpRetryReset();
         saveScheduleState();
         updateCourseUI();
         updateSchCard();
@@ -8655,7 +8687,12 @@
         xyScheduleState.isPaused = false;
         xyScheduleState.lastMode = playState.mode;
         playState.mode = PLAY_MODE.MANUAL;
+        playState.isJumping = false;
+        xyJumpRetryReset();
         GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
+        // 重启需补心跳：停止/暂停路径会清心跳，若不补，重启后立刻刷新
+        // 会被判定为残留而清空刚恢复的队列。
+        xyScheduleHeartbeat(true);
         saveScheduleState();
         updateCourseUI();
         updateSchCard();
@@ -8678,6 +8715,8 @@
 
             xyScheduleState.isRunning = false;
             xyScheduleHeartbeatClear();
+            xyJumpRetryReset();
+            playState.isJumping = false;
             try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
             
@@ -8726,6 +8765,11 @@
                     playState.jumpRetryCount = 0;
                 }
                 playState.jumpRetryCount = (playState.jumpRetryCount || 0) + 1;
+                // 计数持久化：整页导航后 playState 重建，靠 GM 存储跨页累计。
+                try {
+                    GM_setValue('xy_jump_retry_key', playState.jumpRetryKey);
+                    GM_setValue('xy_jump_retry_count', playState.jumpRetryCount);
+                } catch(e) {}
 
                 if (playState.jumpRetryCount > 3) {
                     /**
@@ -8739,6 +8783,10 @@
                     playState.isJumping = false;
                     playState.jumpRetryCount = 0;
                     playState.jumpRetryKey = '';
+                    try {
+                        GM_setValue('xy_jump_retry_key', '');
+                        GM_setValue('xy_jump_retry_count', 0);
+                    } catch(e) {}
                     xyScheduleState.isPaused = true;
                     GM_setValue('xy_schedule_paused', true);
                     xyScheduleHeartbeatClear();
@@ -8776,8 +8824,15 @@
             return;
         }
 
-        // 节点已对齐：跳转成功，复位重试计数，允许下一个任务重新计数。
-        if (playState.jumpRetryCount) { playState.jumpRetryCount = 0; playState.jumpRetryKey = ''; }
+        // 节点已对齐：跳转成功，复位重试计数（含跨页持久化），允许下一个任务重新计数。
+        if (playState.jumpRetryCount) {
+            playState.jumpRetryCount = 0;
+            playState.jumpRetryKey = '';
+            try {
+                GM_setValue('xy_jump_retry_key', '');
+                GM_setValue('xy_jump_retry_count', 0);
+            } catch(e) {}
+        }
 
         
         
