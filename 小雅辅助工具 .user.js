@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.4
+// @version      3.7.3.5
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业统一导出（作答文档/手写归档，题目·答案·我的作答自由组合）与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -5691,7 +5691,7 @@
             const unfinishTasks = (unfinishData && unfinishData.success && unfinishData.data) ? unfinishData.data : [];
             const now = new Date();
             
-            const watchTasks = unfinishTasks.filter(t => {
+            const watchTasks = xyBrushNormalizeTasks(unfinishTasks).filter(t => {
                 if (t.task_type !== 1) return false; 
                 if (t.finish === 2) return false; 
                 if (t.node_id == currentNodeId) return false; 
@@ -5767,6 +5767,31 @@
                  setTimeout(() => { isJumpingLock = false; }, delay);
             }
         }
+    }
+
+    /** 刷课任务归一化：去重、过滤无效状态，供雷达连播和智能排课共用。 */
+    function xyBrushNormalizeTasks(tasks) {
+        const now = Date.now();
+        const seen = new Set();
+        return (Array.isArray(tasks) ? tasks : []).filter(task => {
+            if (!task || task.finish === 2 || task.task_type !== 1) return false;
+            if (task.start_time && Date.parse(task.start_time) > now) return false;
+            if (task.end_time && Date.parse(task.end_time) < now) return false;
+            const key = `${task.group_id || ''}:${task.node_id || ''}:${task.task_id || task.id || ''}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+    }
+
+    function xyBrushTaskSort(a, b) {
+        const aEnd = Date.parse(a.end_time || '') || Number.MAX_SAFE_INTEGER;
+        const bEnd = Date.parse(b.end_time || '') || Number.MAX_SAFE_INTEGER;
+        if (aEnd !== bEnd) return aEnd - bEnd;
+        const aGroup = String(a.group_id || '');
+        const bGroup = String(b.group_id || '');
+        if (aGroup !== bGroup) return aGroup.localeCompare(bGroup);
+        return (parseInt(a.node_id, 10) || 0) - (parseInt(b.node_id, 10) || 0);
     }
 
     let lastTaskCheck = 0;
@@ -6020,6 +6045,13 @@
      * 被 sendRecordRequest 包装（增强失败告警），二者构成装饰器结构。
      * [DEEP-DOC]
      */
+    async function xyHeartbeatFetch(url, options = {}, timeoutMs = 30000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try { return await fetch(url, { ...options, signal: controller.signal }); }
+        finally { clearTimeout(timer); }
+    }
+
     async function _origSendRecordRequest() {
         const groupId = getCourseGroupId(); const resourceId = getNodeId();
         if (!groupId || !resourceId) throw new Error('no resource');
@@ -6030,9 +6062,9 @@
         let lastError = null;
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
-                if (attempt > 0) await sleep(Math.pow(3, attempt) * 1000);
+                if (attempt > 0) await sleep(Math.pow(3, attempt) * 1000 + Math.random() * 500);
 
-                const uRes = await fetch(`https://${domain}/api/jx-auth/oauth2/info`, { headers: { "authorization": `Bearer ${token}` }});
+                const uRes = await xyHeartbeatFetch(`https://${domain}/api/jx-auth/oauth2/info`, { headers: { "authorization": `Bearer ${token}` }});
                 if (!uRes.ok) { lastError = new Error(`oauth2/info HTTP ${uRes.status}`); continue; }
                 const uData = await uRes.json(); const userId = uData?.data?.info?.id; if (!userId) { lastError = new Error('no userId'); continue; }
 
@@ -6042,7 +6074,8 @@
                 const hashBuffer = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(arr));
                 const signature = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 
-                const response = await fetch(`https://${domain}/api/jx-iresource/learnLength/learnRecord`, { method: 'POST', headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ message, signature, timestamp, nonce }) });
+                const response = await xyHeartbeatFetch(`https://${domain}/api/jx-iresource/learnLength/learnRecord`, { method: 'POST', headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ message, signature, timestamp, nonce }) });
+                if (!response.ok) { lastError = new Error(`learnRecord HTTP ${response.status}`); continue; }
                 const result = await response.json();
                 if (result.code === 0 || result.success) {
                     recState.recordCount++; recState.lastRecordDate = new Date();
@@ -7668,7 +7701,7 @@
      */
     async function smartOptimizeAndImport() {
         const tasks = await fetchGlobalTasks();
-        const watchTasks = tasks.filter(t => {
+        const watchTasks = xyBrushNormalizeTasks(tasks).filter(t => {
             const name = (t.name || '').toLowerCase();
             const isVideo = SHARED_PATTERNS.MEDIA.test(name);
             const isDoc = SHARED_PATTERNS.DOC.test(name);
@@ -7724,7 +7757,7 @@
         const now = new Date();
 
         
-        const pendingTasks = allTasks.filter(t => {
+        const pendingTasks = xyBrushNormalizeTasks(allTasks).filter(t => {
             const name = (t.name || '').toLowerCase();
             const isVideo = SHARED_PATTERNS.MEDIA.test(name);
             const isDoc = SHARED_PATTERNS.DOC.test(name);
@@ -7741,16 +7774,7 @@
         }
 
         
-        pendingTasks.sort((a, b) => {
-            const aEnd = new Date(a.end_time || '2099-12-31').getTime();
-            const bEnd = new Date(b.end_time || '2099-12-31').getTime();
-            if (aEnd !== bEnd) return aEnd - bEnd;
-            
-            if (a.finish !== b.finish) return (a.finish || 0) - (b.finish || 0);
-            
-            if (a.group_id !== b.group_id) return (parseInt(a.group_id) || 0) - (parseInt(b.group_id) || 0);
-            return (parseInt(a.node_id) || 0) - (parseInt(b.node_id) || 0);
-        });
+        pendingTasks.sort(xyBrushTaskSort);
 
         
         xyScheduleState.queue = [];
