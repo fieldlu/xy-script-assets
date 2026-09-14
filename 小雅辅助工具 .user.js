@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.6
+// @version      3.7.3.7
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业统一导出（作答文档/手写归档，题目·答案·我的作答自由组合）与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -1081,11 +1081,20 @@
     let _schJumping = false;
     try { _schJumping = sessionStorage.getItem('xy_sch_jumping') === '1'; sessionStorage.removeItem('xy_sch_jumping'); } catch(e) {}
 
-    
-    let _schNewSession = true;
-    try { _schNewSession = !sessionStorage.getItem('xy_sch_session'); sessionStorage.setItem('xy_sch_session', '1'); } catch(e) {}
+    /**
+     * 连播会话存活判定：基于心跳时间戳，而非 sessionStorage 的标签页身份。
+     * 连播跳转可能发生在新标签页 / 复制链接打开 / 标签页恢复等场景，此时
+     * sessionStorage 是全新的，旧的「新会话」判定会误清空正在跑的队列，
+     * 表现为主面板不显示当前任务。改为：只要 60 秒内有过心跳，就认为
+     * 是同一场连播的续跑，保留现场。
+     */
+    let _schHeartbeatAlive = false;
+    try {
+        const _hb = parseInt(GM_getValue('xy_schedule_heartbeat', '0')) || 0;
+        _schHeartbeatAlive = _hb > 0 && (Date.now() - _hb) < 60000;
+    } catch(e) { _schHeartbeatAlive = false; }
 
-    if (xyScheduleState.isRunning && !_schJumping && _schNewSession) {
+    if (xyScheduleState.isRunning && !_schJumping && !_schHeartbeatAlive) {
         xyScheduleState.isRunning = false;
         xyScheduleState.isPaused = false;
         xyScheduleState.currentIdx = 0;
@@ -1094,6 +1103,16 @@
         GM_setValue('xy_schedule_paused', false);
         GM_setValue('xy_schedule_idx', 0);
         GM_setValue('xy_schedule_queue', JSON.stringify(xyScheduleState.queue));
+    }
+
+    /** 心跳打点：连播每 tick 调用，标记「这场连播还活着」。 */
+    function xyScheduleHeartbeat() {
+        try { GM_setValue('xy_schedule_heartbeat', Date.now()); } catch(e) {}
+    }
+
+    /** 心跳清除：连播停止 / 队列清空时调用，避免残留心跳让下一场连播被误判为续跑。 */
+    function xyScheduleHeartbeatClear() {
+        try { GM_setValue('xy_schedule_heartbeat', 0); } catch(e) {}
     }
 
     
@@ -5689,13 +5708,15 @@
             _radarCache.time = 0; 
             const unfinishData = await fetchRadarCached();
             const unfinishTasks = (unfinishData && unfinishData.success && unfinishData.data) ? unfinishData.data : [];
-            const now = new Date();
-            
-            const watchTasks = xyBrushNormalizeTasks(unfinishTasks).filter(t => {
-                if (t.task_type !== 1) return false; 
-                if (t.finish === 2) return false; 
-                if (t.node_id == currentNodeId) return false; 
-                if (t.start_time && new Date(t.start_time) > now) return false; 
+
+            /**
+             * 雷达连播口径：基础筛选 + 排除当前节点 + 排除未开始任务。
+             * 不按文件名后缀过滤——雷达靠节点跳转，播放引擎由目标页自行决定，
+             * 任务名未必带后缀（如「第一集 工业强国-轴承」），加了会误杀。
+             */
+            const watchTasks = xyBrushFilterPlayable(unfinishTasks).filter(t => {
+                if (t.node_id == currentNodeId) return false;
+                if (t.start_time && Date.parse(t.start_time) > Date.now()) return false;
                 return true;
             });
             
@@ -5770,21 +5791,35 @@
     }
 
     /**
-     * 刷课任务归一化：去重与硬性无效过滤，供雷达连播和智能排课共用。
-     * 只处理「无论调用方语义如何都一定无效」的条目：非任务点、已完成、缺节点 ID。
-     * 时间窗口（未开始 / 已截止）各调用方语义不同，一律由调用方自行判断，此处不动。
+     * 连播基础筛选器：所有连播入口（一键连播 / 雷达连播 / 智能排课）共用。
+     *
+     * 只做「无论哪个入口都必然正确」的判断，保证三个入口口径一致且互不削弱：
+     *   1. task_type === 1   —— 必须是任务点，不是章节或其它节点
+     *   2. finish !== 2      —— 已完成的不再排
+     *   3. node_id 存在      —— 缺节点 ID 无法跳转
+     *   4. 按 group:node:task 去重
+     *
+     * 各入口的额外条件（文件名识别、时间窗口、排除当前节点）在各自调用后追加，
+     * 因为它们的语义并不相同：雷达连播靠节点跳转不需识别后缀，排课与一键连播
+     * 需要按后缀选择播放引擎，而排课原本不做时间过滤。
      */
-    function xyBrushNormalizeTasks(tasks) {
+    function xyBrushFilterPlayable(tasks) {
         const seen = new Set();
-        return (Array.isArray(tasks) ? tasks : []).filter(task => {
-            if (!task || task.task_type !== 1) return false;
-            if (task.finish === 2) return false;
-            if (!task.node_id) return false;
-            const key = `${task.group_id || ''}:${task.node_id || ''}:${task.task_id || task.id || ''}`;
+        return (Array.isArray(tasks) ? tasks : []).filter(t => {
+            if (!t || t.task_type !== 1) return false;
+            if (t.finish === 2) return false;
+            if (!t.node_id) return false;
+            const key = `${t.group_id || ''}:${t.node_id || ''}:${t.task_id || t.id || ''}`;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
         });
+    }
+
+    /** 播放引擎可识别性：任务名后缀需命中 MEDIA/DOC 之一。 */
+    function xyBrushIsPlayableName(task) {
+        const name = ((task && task.name) || '').toLowerCase();
+        return SHARED_PATTERNS.MEDIA.test(name) || SHARED_PATTERNS.DOC.test(name);
     }
 
     /**
@@ -7709,12 +7744,13 @@
      */
     async function smartOptimizeAndImport() {
         const tasks = await fetchGlobalTasks();
-        const watchTasks = xyBrushNormalizeTasks(tasks).filter(t => {
-            const name = (t.name || '').toLowerCase();
-            const isVideo = SHARED_PATTERNS.MEDIA.test(name);
-            const isDoc = SHARED_PATTERNS.DOC.test(name);
-            return (isVideo || isDoc) && t.task_type === 1;
-        });
+
+        /**
+         * 智能排课口径：基础筛选 + 文件名可识别（要按后缀选播放引擎）。
+         * 与原实现一致，不做时间过滤——排课是「用户主动挑选后统一排程」，
+         * 未开始/已截止的任务交给调度执行时再判断。
+         */
+        const watchTasks = xyBrushFilterPlayable(tasks).filter(t => xyBrushIsPlayableName(t));
 
         if (watchTasks.length === 0) {
             showToast('未发现可优化的视频/文档任务', 'warning');
@@ -7762,16 +7798,14 @@
         showToast('正在扫描全网任务...', 'info');
 
         const allTasks = await fetchGlobalTasks();
-        const now = new Date();
 
-        
-        const pendingTasks = xyBrushNormalizeTasks(allTasks).filter(t => {
-            const name = (t.name || '').toLowerCase();
-            const isVideo = SHARED_PATTERNS.MEDIA.test(name);
-            const isDoc = SHARED_PATTERNS.DOC.test(name);
-            if (!(isVideo || isDoc)) return false;
-            if (t.finish === 2) return false; 
-            if (t.start_time && new Date(t.start_time) > now) return false; 
+        /**
+         * 一键连播口径：基础筛选 + 文件名可识别（要按后缀选播放引擎）
+         * + 排除未开始任务。保留已截止任务（老师未关闭的仍可补看）。
+         */
+        const pendingTasks = xyBrushFilterPlayable(allTasks).filter(t => {
+            if (!xyBrushIsPlayableName(t)) return false;
+            if (t.start_time && Date.parse(t.start_time) > Date.now()) return false;
             return true;
         });
 
@@ -8401,6 +8435,7 @@
         stopBtn.onclick = () => {
             xyScheduleState.isRunning = false;
             xyScheduleState.isPaused = false;
+            xyScheduleHeartbeatClear();
             try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
             playState.mode = xyScheduleState.lastMode || PLAY_MODE.SEQUENCE;
@@ -8476,7 +8511,8 @@
         else if (playState.isJumping) {
             card.style.borderLeftColor = T('#f59e0b','#d97706');
             card.style.background = T('rgba(251,191,36,0.06)','#fffbeb');
-            html = `<b style="color:${T('#fcd34d','#b45309')};">🚀 正在跳转至「${escapeHtml((task.name||'未知').substring(0,14))}」...</b>`;
+            const jIdx = xyScheduleState.currentIdx + 1;
+            html = `<b style="color:${T('#fcd34d','#b45309')};">🚀 正在跳转 · 第 ${jIdx}/${total} 项 → 「${escapeHtml((task.name||'未知').substring(0,14))}」</b>`;
         }
         else {
             const idx = xyScheduleState.currentIdx + 1;
@@ -8540,6 +8576,7 @@
         if (!xyScheduleState.isRunning) return;
         xyScheduleState.isRunning = false;
         xyScheduleState.isPaused = false;
+        xyScheduleHeartbeatClear();
         try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
         playState.mode = xyScheduleState.lastMode || PLAY_MODE.SEQUENCE;
         GM_setValue('xy_play_mode', playState.mode);
@@ -8594,6 +8631,7 @@
             logMsg('✅ 所有计划调度任务已圆满完成！已自动切换为手动休眠。', 'success', false);
 
             xyScheduleState.isRunning = false;
+            xyScheduleHeartbeatClear();
             try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
             
@@ -8633,7 +8671,20 @@
                 playState.isJumping = true;
                 currentTask.status = 'running';
                 saveScheduleState();
-                
+
+                /**
+                 * 跳转兜底复位：正常情况下页面会在 1.5s 后整页跳走，isJumping
+                 * 随新页面重建为 false。若跳转失败（目标页异常、导航被拦截），
+                 * 标志会永久停在 true，卡片一直显示「正在跳转」不再更新进度。
+                 * 这里挂一个 15 秒兜底，超时后复位标志并让主循环重新接管。
+                 */
+                setTimeout(() => {
+                    if (playState.isJumping) {
+                        playState.isJumping = false;
+                        logMsg('⚠️ 跳转超时未完成，已复位调度状态，稍后将重试', 'warning', false);
+                    }
+                }, 15000);
+
                 logMsg(`🚀 计划调度：跨空间跳跃前往【${(currentTask.name||'未知').substring(0,10)}】...`, 'info', false);
                 
                 setTimeout(() => {
@@ -8658,6 +8709,8 @@
         
         
         watchdogLastActiveTime = Date.now();
+
+        xyScheduleHeartbeat();
 
         if (currentTask.elapsedSec % 5 === 0) saveScheduleState(); 
 
