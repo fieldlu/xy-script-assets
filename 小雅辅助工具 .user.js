@@ -853,6 +853,8 @@
         jumpSleepUntil: 0,
         isProcessingJump: false,
         isJumping: false,
+        jumpRetryKey: '',
+        jumpRetryCount: 0,
         enableDomScan: true,
         lastPopupClickTime: 0,
         prevZone: ZONE.COURSE
@@ -1085,13 +1087,20 @@
      * 连播会话存活判定：基于心跳时间戳，而非 sessionStorage 的标签页身份。
      * 连播跳转可能发生在新标签页 / 复制链接打开 / 标签页恢复等场景，此时
      * sessionStorage 是全新的，旧的「新会话」判定会误清空正在跑的队列，
-     * 表现为主面板不显示当前任务。改为：只要 60 秒内有过心跳，就认为
-     * 是同一场连播的续跑，保留现场。
+     * 表现为主面板不显示当前任务。改为：只要 TTL 内有过心跳，就认为是同一场
+     * 连播的续跑，保留现场。
+     *
+     * TTL 取 5 分钟：心跳由主循环每 tick 打点，但标签页被浏览器冻结
+     * (Tab Freeze)、后台长时挂起或电脑休眠时主循环会停摆，若 TTL 过短
+     * （如 60 秒），用户切回刷新时会被误判为残留而清空队列——这恰是本
+     * 判定要修的症状。5 分钟与 60 秒在「识别上一次连播的残留」上没有实质
+     * 差别（真正的残留是隔了很久才重开页面），但能覆盖挂起场景。
      */
+    const XY_SCH_HEARTBEAT_TTL = 5 * 60 * 1000;
     let _schHeartbeatAlive = false;
     try {
         const _hb = parseInt(GM_getValue('xy_schedule_heartbeat', '0')) || 0;
-        _schHeartbeatAlive = _hb > 0 && (Date.now() - _hb) < 60000;
+        _schHeartbeatAlive = _hb > 0 && (Date.now() - _hb) < XY_SCH_HEARTBEAT_TTL;
     } catch(e) { _schHeartbeatAlive = false; }
 
     if (xyScheduleState.isRunning && !_schJumping && !_schHeartbeatAlive) {
@@ -1105,15 +1114,47 @@
         GM_setValue('xy_schedule_queue', JSON.stringify(xyScheduleState.queue));
     }
 
-    /** 心跳打点：连播每 tick 调用，标记「这场连播还活着」。 */
-    function xyScheduleHeartbeat() {
-        try { GM_setValue('xy_schedule_heartbeat', Date.now()); } catch(e) {}
+    /**
+     * 心跳打点：连播每 tick 调用，标记「这场连播还活着」。
+     * 写节流到 10 秒一次——GM_setValue 可能落 localStorage / IndexedDB，
+     * 每秒一写在长时挂机（数小时）下写放大可观；而心跳只需覆盖 TTL 量级，
+     * 10 秒粒度足够。force=true 用于暂停续跑 / 唤醒补点等需要立即落盘的场景。
+     */
+    let _schHbWroteAt = 0;
+    function xyScheduleHeartbeat(force) {
+        try {
+            const now = Date.now();
+            if (!force && now - _schHbWroteAt < 10000) return;
+            _schHbWroteAt = now;
+            GM_setValue('xy_schedule_heartbeat', now);
+        } catch(e) {}
     }
 
     /** 心跳清除：连播停止 / 队列清空时调用，避免残留心跳让下一场连播被误判为续跑。 */
     function xyScheduleHeartbeatClear() {
-        try { GM_setValue('xy_schedule_heartbeat', 0); } catch(e) {}
+        try { _schHbWroteAt = 0; GM_setValue('xy_schedule_heartbeat', 0); } catch(e) {}
     }
+
+    /**
+     * 挂起 / 恢复补打点：主循环在标签页冻结、后台挂起、系统休眠期间不跑，
+     * 心跳会停在最后一次打点。页面重新可见时补一次心跳，避免「切回刷新」
+     * 触碰 TTL 边界被误判为残留。
+     *
+     * 只在「连播在跑 且 未暂停」时补：暂停态的语义就是「用户主动停下来」，
+     * 此时心跳应保持为 0（由暂停处理清除），不能被切标签页意外续命。
+     */
+    (function _bindHeartbeatWakeup() {
+        const rebeat = () => {
+            try {
+                if (xyScheduleState.isRunning && !xyScheduleState.isPaused) xyScheduleHeartbeat(true);
+            } catch(e) {}
+        };
+        try {
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) rebeat(); });
+            window.addEventListener('focus', rebeat);
+            window.addEventListener('pageshow', rebeat);
+        } catch(e) {}
+    })();
 
     
     if (xyScheduleState.isRunning) {
@@ -8425,6 +8466,9 @@
         pauseBtn.onclick = () => {
             xyScheduleState.isPaused = !xyScheduleState.isPaused;
             GM_setValue('xy_schedule_paused', xyScheduleState.isPaused);
+            // 暂停时清心跳：主循环在暂停期间不跑、心跳自然停刷，
+            // 若不主动清除，暂停超过 TTL 后刷新页面会被误判为残留而清空队列。
+            if (xyScheduleState.isPaused) xyScheduleHeartbeatClear(); else xyScheduleHeartbeat(true);
             saveScheduleState();
             updateSchButtons();
             updateSchCard();
@@ -8563,6 +8607,8 @@
         if (!xyScheduleState.isRunning) return;
         xyScheduleState.isPaused = !xyScheduleState.isPaused;
         GM_setValue('xy_schedule_paused', xyScheduleState.isPaused);
+        // 同卡片暂停按钮：暂停清心跳，继续时补一次，避免暂停期间被误判为残留。
+        if (xyScheduleState.isPaused) xyScheduleHeartbeatClear(); else xyScheduleHeartbeat(true);
         saveScheduleState();
         updateCourseUI();
         updateSchCard();
@@ -8668,6 +8714,29 @@
         
         if (currentGroupId != currentTask.groupId || currentNodeId != currentTask.nodeId) {
             if (!playState.isJumping) {
+                /**
+                 * 跳转重试计数：同一任务节点连续跳转失败达上限则暂停调度。
+                 * 若不设上限，SPA 路由拦截（未整页导航）时会出现
+                 * 「跳过 → 复位 → 再跳」的无限循环，白耗时间且日志刷屏。
+                 * 计数以 `groupId:nodeId` 为键，跳转成功（节点对齐）后清零。
+                 */
+                const jumpKey = `${currentTask.groupId}:${currentTask.nodeId}`;
+                if (playState.jumpRetryKey !== jumpKey) {
+                    playState.jumpRetryKey = jumpKey;
+                    playState.jumpRetryCount = 0;
+                }
+                playState.jumpRetryCount = (playState.jumpRetryCount || 0) + 1;
+
+                if (playState.jumpRetryCount > 3) {
+                    xyScheduleState.isPaused = true;
+                    GM_setValue('xy_schedule_paused', true);
+                    xyScheduleHeartbeatClear();
+                    saveScheduleState();
+                    updateSchCard();
+                    logMsg('⚠️ 该任务连续跳转失败 3 次，已暂停调度，请手动检查任务链接或稍后继续', 'error', false);
+                    return;
+                }
+
                 playState.isJumping = true;
                 currentTask.status = 'running';
                 saveScheduleState();
@@ -8676,12 +8745,13 @@
                  * 跳转兜底复位：正常情况下页面会在 1.5s 后整页跳走，isJumping
                  * 随新页面重建为 false。若跳转失败（目标页异常、导航被拦截），
                  * 标志会永久停在 true，卡片一直显示「正在跳转」不再更新进度。
-                 * 这里挂一个 15 秒兜底，超时后复位标志并让主循环重新接管。
+                 * 这里挂一个 15 秒兜底，超时后复位标志并让主循环重新接管
+                 * （重试次数由上面的计数器约束，不会无限重跳）。
                  */
                 setTimeout(() => {
                     if (playState.isJumping) {
                         playState.isJumping = false;
-                        logMsg('⚠️ 跳转超时未完成，已复位调度状态，稍后将重试', 'warning', false);
+                        logMsg(`⚠️ 跳转超时未完成，已复位调度状态，稍后将重试（第 ${playState.jumpRetryCount}/3 次）`, 'warning', false);
                     }
                 }, 15000);
 
@@ -8694,6 +8764,9 @@
             }
             return;
         }
+
+        // 节点已对齐：跳转成功，复位重试计数，允许下一个任务重新计数。
+        if (playState.jumpRetryCount) { playState.jumpRetryCount = 0; playState.jumpRetryKey = ''; }
 
         
         
