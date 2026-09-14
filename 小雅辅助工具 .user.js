@@ -8728,6 +8728,17 @@
                 playState.jumpRetryCount = (playState.jumpRetryCount || 0) + 1;
 
                 if (playState.jumpRetryCount > 3) {
+                    /**
+                     * 达到上限：暂停调度并复位跳转态与计数。
+                     * 必须同时复位 isJumping 与 jumpRetryCount——
+                     *   - 不复位 isJumping：暂停稳态下留着悬挂标记，语义不清；
+                     *   - 不复位 count：用户点「继续」后下一 tick 立刻又 >3 再次暂停，
+                     *     用户被锁死（只能先「跳过」该任务才能恢复）。
+                     * 复位后「继续」即从第 1 次重新尝试，行为可预期。
+                     */
+                    playState.isJumping = false;
+                    playState.jumpRetryCount = 0;
+                    playState.jumpRetryKey = '';
                     xyScheduleState.isPaused = true;
                     GM_setValue('xy_schedule_paused', true);
                     xyScheduleHeartbeatClear();
