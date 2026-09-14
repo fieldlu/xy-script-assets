@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.5
+// @version      3.7.3.6
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业统一导出（作答文档/手写归档，题目·答案·我的作答自由组合）与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -5769,14 +5769,17 @@
         }
     }
 
-    /** 刷课任务归一化：去重、过滤无效状态，供雷达连播和智能排课共用。 */
+    /**
+     * 刷课任务归一化：去重与硬性无效过滤，供雷达连播和智能排课共用。
+     * 只处理「无论调用方语义如何都一定无效」的条目：非任务点、已完成、缺节点 ID。
+     * 时间窗口（未开始 / 已截止）各调用方语义不同，一律由调用方自行判断，此处不动。
+     */
     function xyBrushNormalizeTasks(tasks) {
-        const now = Date.now();
         const seen = new Set();
         return (Array.isArray(tasks) ? tasks : []).filter(task => {
-            if (!task || task.finish === 2 || task.task_type !== 1) return false;
-            if (task.start_time && Date.parse(task.start_time) > now) return false;
-            if (task.end_time && Date.parse(task.end_time) < now) return false;
+            if (!task || task.task_type !== 1) return false;
+            if (task.finish === 2) return false;
+            if (!task.node_id) return false;
             const key = `${task.group_id || ''}:${task.node_id || ''}:${task.task_id || task.id || ''}`;
             if (seen.has(key)) return false;
             seen.add(key);
@@ -5784,13 +5787,18 @@
         });
     }
 
+    /**
+     * 排课 / 连播通用排序：截止时间 → 完成状态 → 分组 → 节点。
+     * group_id 为长整型字符串，必须按数值比较，不能按字典序。
+     */
     function xyBrushTaskSort(a, b) {
         const aEnd = Date.parse(a.end_time || '') || Number.MAX_SAFE_INTEGER;
         const bEnd = Date.parse(b.end_time || '') || Number.MAX_SAFE_INTEGER;
         if (aEnd !== bEnd) return aEnd - bEnd;
-        const aGroup = String(a.group_id || '');
-        const bGroup = String(b.group_id || '');
-        if (aGroup !== bGroup) return aGroup.localeCompare(bGroup);
+        if ((a.finish || 0) !== (b.finish || 0)) return (a.finish || 0) - (b.finish || 0);
+        const aGroup = parseInt(a.group_id, 10) || 0;
+        const bGroup = parseInt(b.group_id, 10) || 0;
+        if (aGroup !== bGroup) return aGroup - bGroup;
         return (parseInt(a.node_id, 10) || 0) - (parseInt(b.node_id, 10) || 0);
     }
 
