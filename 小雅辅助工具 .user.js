@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.5
+// @version      3.7.3.6
 // @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业统一导出（作答文档/手写归档，题目·答案·我的作答自由组合）与AI作答保存、讨论区互动等常用功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
 // @source       https://gitee.com/fieldlu/xy-script-assets
+// @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
+// @downloadURL  https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
 // @match        https://*.ai-augmented.com/*
 // @noframes
 // @run-at       document-start
@@ -681,10 +683,13 @@
 
     /** 文档阅读时长阈值（秒） */
     const DOC_READ = Object.freeze({
-        SUBMIT_SECONDS: 130,       // 发起首次验证请求线
+        SUBMIT_SECONDS: 130,       // 发起首次验证请求线（无教师要求时的回落值）
         RETRY_GAP_SECONDS: 30,     // 未达标时的周期重试间隔
-        FORCE_SECONDS: 300,        // 强制提交放行线
-        LOOP_SECONDS: 120          // 循环模式达标线
+        FORCE_SECONDS: 300         // 强制提交放行线
+        // LOOP_SECONDS 已移除：循环/序列两种模式的达标线已统一走
+        // xyDocEffectiveSubmitSeconds()，独立的循环线会造成同份文档两种模式
+        // 跳转时机不一致（120s vs 130s）。原 xyDocEffectiveLoopSeconds() 作为
+        // 兼容壳保留（见该函数处注释）。
     });
 
     /** 雷达探测退避配置（毫秒） */
@@ -845,10 +850,22 @@
         currentEngine: 'none',
         docReadTime: 0,
         lastDocSubmitTime: 0,
+        /** 视频侧的上次交卷尝试时刻（秒）。与 lastDocSubmitTime 对称，
+         *  使两种类型的「重试节流」记账方式完全一致。 */
+        lastVideoSubmitTime: 0,
         docSubmitSeconds: 0,
         docForceSeconds: 0,
         videoScriptProgress: undefined,
         videoLastTime: 0,
+        /**
+         * 视频侧在本任务上的累计驻留秒数（1s 主循环的视频分支每 tick +1）。
+         *
+         * 为什么视频需要独立计时器：docReadTime 的累加点只在文档分支内，
+         * 视频页永不自增 ⇒ 任何用 docReadTime 做「放行线」判据的逻辑在视频侧
+         * 恒假。此前 LOOP 模式的「安全循环重载」兜底就是这个情况（死判据），
+         * 导致服务端不放行时视频播完就停在最后一帧，只能等看门狗强刷。
+         */
+        videoWatchSeconds: 0,
         jumpFailCount: 0,
         jumpSleepUntil: 0,
         isProcessingJump: false,
@@ -865,10 +882,8 @@
      * 变量里，「导航成功但落在错误节点」（目标被下架 / 无权限被踢回首页）
      * 会因每页 count 归零而无限重跳。此处从 GM 存储恢复，保证跨页累计。
      */
-    try {
-        playState.jumpRetryKey = GM_getValue('xy_jump_retry_key', '') || '';
-        playState.jumpRetryCount = parseInt(GM_getValue('xy_jump_retry_count', '0'), 10) || 0;
-    } catch(e) {}
+    playState.jumpRetryKey = GM_getValue('xy_jump_retry_key', '') || '';
+    playState.jumpRetryCount = parseInt(GM_getValue('xy_jump_retry_count', '0'), 10) || 0;
 
     /** 学习记录域：计数器与会话累计时长 */
     const recState = {
@@ -1434,7 +1449,7 @@
      */
     async function xyOverviewFetchJson(path) {
         const token = await getAuthToken();
-        const response = await fetch(new URL(path, window.location.origin), {
+        const response = await xyFetch(new URL(path, window.location.origin), {
             headers: { authorization: `Bearer ${token}` }
         });
         if (!response.ok) throw new Error(`请求失败 (${response.status})`);
@@ -3135,9 +3150,28 @@
      * HTML 转义五字符集（& < > " '）。本脚本所有 innerHTML 拼插点的动态文本
      * 都必须经过它——XSS 防线的唯一入口约定。
      * @param {string} s - 任意输入（nullish 安全，转 String 处理）
+     *
+     * [R3-02 修复] 原实现用 div.textContent -> innerHTML，浏览器只转义 & < >，
+     * **不转义 " 与 '**，导致所有 title="..." / data-xxx="..." / value="..."
+     * 属性上下文可被闭合注入。改为显式替换五字符集，同时覆盖文本节点与
+     * 属性值两种上下文（文本节点里 &quot; &#39; 会正常渲染为 " '，视觉不变）。
      * [DEEP-DOC]
      */
-    function escapeHtml(value) { if (value === null || value === undefined) return ''; const div = document.createElement('div'); div.textContent = String(value); return div.innerHTML; }
+    function escapeHtml(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+    /**
+     * 属性值转义：与 escapeHtml 等价，语义上标注「此处输出落在 HTML 属性里」。
+     * 属性上下文是 XSS 高危区，显式命名便于后续审计识别。
+     * [R3-02]
+     */
+    function escAttr(value) { return escapeHtml(value); }
     /**
      * 下载 ID 归一化：nullish 直接 null；String 化 trim 后空串也返回 null。
      * 全下载域的资源标识统一出口，勾选集(Set)/查找/URL 拼接都以它的输出为键。
@@ -3224,7 +3258,7 @@
         try {
             const token = getCookie();
             if (!token || !groupId) return null;
-            const res = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
+            const res = await xyFetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
                 body: JSON.stringify({ group_id: groupId, role_type: 'normal' })
@@ -3325,7 +3359,7 @@
                 let video = document.querySelector('video');
                 if (video && video.duration) {
                     const pct = Math.round((video.currentTime / video.duration) * 100);
-                    document.title = `[${pct}%] ${playState.mode === PLAY_MODE.LOOP ? '循环' : '连播'}挂机中`;
+                    document.title = `[${pct}%] ${playState.mode === PLAY_MODE.LOOP ? '循环' : '顺序'}运行中`;
                 } else {
                     document.title = '[视频] 挂机中';
                 }
@@ -3336,7 +3370,7 @@
                 document.title = playState.isTaskCompleted ? '[✓] 已达标' : '[·] 挂机中';
             }
         } else if (playState.activeZone === ZONE.DISC) {
-            document.title = `[${discState.targetNames.length}人] 讨论区`;
+            document.title = `[${discState.targetNames.length}人] 交流区`;
         } else {
             document.title = originalTitle;
         }
@@ -3465,6 +3499,50 @@
      * @param {string} newZone - ZONE 常量值
      * [DEEP-DOC]
      */
+    /**
+     * 任务进度清场 —— 引擎与调度共用的唯一重置入口。
+     *
+     * 为什么要抽成函数：清场点有两处（路由切换 / 调度切项），各自手写一份字段列表时，
+     * 新增 `lastVideoSubmitTime` 只改了字段定义和读取处，**两处清场都漏了它** —— 于是：
+     *   上一项视频失败过一次 → `lastVideoSubmitTime` = 上一项的时间戳（很大）
+     *   → 切到下一项后 `docReadTime` 从 0 重新计
+     *   → 节流判据 `docReadTime - lastVideoSubmitTime` 恒为负数（< 30s）
+     *   → **下一项视频在攒够 30 秒前完全无法首触提交**，
+     *     且 5s 补偿器同样被卡住，最坏要等放行线才靠 forcePass 强推。
+     * 抽成单一函数后，字段清单只有一份，不会再漂移。
+     *
+     * 清场清单与理由：
+     *   isTaskCompleted      ← 达标标志，不清则下一项秒判达标被跳过
+     *   docReadTime          ← 累计计时，两种类型共用，必须归零
+     *   lastDocSubmitTime    ← 文档重试节流记账
+     *   lastVideoSubmitTime  ← 视频重试节流记账（与上者对称，缺一不可）
+     *   docSubmitSeconds     ← 教师要求的达标分钟
+     *   docForceSeconds      ← 由此推出的放行线
+     *   videoScriptProgress  ← 脚本进度，不清则新视频一进就判「已播完」
+     *   videoLastTime        ← 拖动检测基准，不清则新视频首个 tick 被误判拖动
+     *   isProcessingJump     ← 跳转防重入锁，不清则新任务永远不触发跳转
+     *
+     * 注意**不**清 jumpFailCount / jumpRetryCount —— 它们是跨页累计的重试计数，
+     * 语义上属于「跳转尝试」而非「单个任务」，归 tryJumpToNext 自己的成功分支管理。
+     */
+    function xyResetTaskProgress() {
+        playState.isTaskCompleted = false;
+        playState.docReadTime = 0;
+        playState.lastDocSubmitTime = 0;
+        playState.lastVideoSubmitTime = 0;
+        playState.docSubmitSeconds = 0;
+        playState.docForceSeconds = 0;
+        // [R3-04] 换任务后重新允许对齐教师时长要求（不清则新任务沿用旧任务的 0 结果）
+        playState.docWmSyncDone = false;
+        playState.docWmSyncTries = 0;
+        // [R3-17] 换任务后重置「视频元素缺失」宽限计数
+        playState.videoMissingTicks = 0;
+        playState.videoScriptProgress = undefined;
+        playState.videoLastTime = 0;
+        playState.videoWatchSeconds = 0;
+        playState.isProcessingJump = false;
+    }
+
     function switchToZone(newZone) {
         if (newZone !== ZONE.OVERVIEW && xyShouldKeepDashboardOverview(getCourseGroupId())) return;
         if (newZone !== ZONE.OVERVIEW) {
@@ -3521,14 +3599,14 @@
             if (viewHW) viewHW.style.display = newZone === ZONE.HW ? 'block' : 'none';
             if (viewDIR) viewDIR.style.display = newZone === ZONE.DIR ? 'block' : 'none';
 
-            const zoneLabel = newZone === ZONE.COURSE ? '📚 刷课区' : newZone === ZONE.COURSES ? '📚 课程总览' : newZone === ZONE.OVERVIEW ? '📊 学情概览' : newZone === ZONE.DISC ? '💭 讨论区' : newZone === ZONE.DOWNLOAD ? '📥 下载区' : newZone === ZONE.HW ? '📝 作业区' : '📂 课程目录';
+            const zoneLabel = newZone === ZONE.COURSE ? '📚 课程学习区' : newZone === ZONE.COURSES ? '📚 课程总览' : newZone === ZONE.OVERVIEW ? '📊 学情概览' : newZone === ZONE.DISC ? '💭 交流区' : newZone === ZONE.DOWNLOAD ? '📥 资料归档' : newZone === ZONE.HW ? '📝 作业查看' : '📂 课程目录';
             segZone.innerHTML = zoneLabel;
             segZone.classList.add('active');
             if (newZone === 'overview') xyOverviewRenderCachedNow();
         }
 
         if (oldZone !== ZONE.UNINITIALIZED) {
-            const zoneName = newZone === ZONE.COURSE ? '视频/文档自动引擎' : newZone === ZONE.COURSES ? '进行中课程总览' : newZone === ZONE.OVERVIEW ? '课程学习数据概览' : newZone === ZONE.DISC ? '互动点赞引擎' : newZone === ZONE.DOWNLOAD ? '课件下载区' : newZone === ZONE.HW ? '作业答题台' : '课程目录区';
+            const zoneName = newZone === ZONE.COURSE ? '视频/文档自动引擎' : newZone === ZONE.COURSES ? '进行中课程总览' : newZone === ZONE.OVERVIEW ? '课程学习数据概览' : newZone === ZONE.DISC ? '互动协作引擎' : newZone === ZONE.DOWNLOAD ? '课件归档区' : newZone === ZONE.HW ? '作业查看台' : '课程目录区';
             logMsg(`📍 底层指令：已切换至【${zoneName}】`, 'success', true);
         }
 
@@ -3539,12 +3617,7 @@
             const currentNodeId = getNodeId();
             if (!dlState._lastCourseNodeId || dlState._lastCourseNodeId !== currentNodeId) {
                 dlState._lastCourseNodeId = currentNodeId;
-                playState.docReadTime = 0;
-                playState.lastDocSubmitTime = 0;
-                playState.docSubmitSeconds = 0;
-                playState.docForceSeconds = 0;
-                playState.videoScriptProgress = undefined;
-                playState.isTaskCompleted = false;
+                xyResetTaskProgress();
             }
         }
         if (newZone === ZONE.DIR) {
@@ -3555,6 +3628,9 @@
 
     
     let _radarCache = { data: null, time: 0, promise: null };
+    /** [R3-04] 教师时长同步在途标记。主循环每 tick 都会检查是否需要对齐，
+     *  用它防止在同步 Promise 未落地时重复发起雷达请求。 */
+    let _xyWmSyncing = false;
     /**
      * 全局雷达数据源（带缓存）：调 fetchGlobalTasks 取全网任务并附课程名映射。
      * 缓存命中直接返回旧引用；未命中拉取后写缓存。供秒判/跳转/调度复用，
@@ -3568,11 +3644,26 @@
         _radarCache.promise = (async () => {
             try {
                 const token = await getAuthToken();
-                const res = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { headers: { "authorization": `Bearer ${token}` } });
+                /**
+                 * ⚠️ 必须带超时。fetchRadarCached 是秒判 / 跳转 / 调度**共用**的数据源，
+                 * 且本函数用 `_radarCache.promise` 做并发去重（见上一行的复用分支）。
+                 * 一旦请求悬挂（TCP 半开 / 服务端不响应）且无超时，Promise 永不 settle →
+                 * 所有 await 它的调用者全部挂起，且后续调用复用同一个悬挂 Promise →
+                 * **级联冻结三条链**，比单点失败严重得多。
+                 */
+                const res = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, {
+                    headers: { "authorization": `Bearer ${token}` },
+                    signal: AbortSignal.timeout(15000)
+                });
                 const data = await res.json();
                 _radarCache.data = data;
                 _radarCache.time = Date.now();
                 return data;
+            } catch (e) {
+                console.warn('[小雅] 雷达请求失败/超时，本轮降级为空结果', e);
+                // 降级返回可判别空结果：调用方均按 `radarData.success && radarData.data` 判空，
+                // 不会被误认为「雷达列表里没有当前任务」而错误放行。
+                return { success: false, data: [], _error: true };
             } finally {
                 _radarCache.promise = null;
             }
@@ -3589,7 +3680,11 @@
     /** 从雷达缓存按 nodeId（可叠加 courseId）查任务的时长要求分钟数，未设置返回 0 */
     function xyGetWatchMinutesForNode(courseId, nodeId) {
         try {
-            const list = Array.isArray(_radarCache.data) ? _radarCache.data : [];
+            // [R3-05] _radarCache.data 存的是**整个响应信封**（见 fetchRadarCached 内
+            // `_radarCache.data = data`），不是任务数组。旧写法 Array.isArray(...) 恒为
+            // false，本函数的缓存快路径一直是死代码。按主路径同样的口径解包 data.data。
+            const env = _radarCache.data;
+            const list = (env && env.success && Array.isArray(env.data)) ? env.data : [];
             const hit = list.find(t => String(t?.node_id || '') === String(nodeId || '')
                 && (!courseId || !t?.group_id || String(t.group_id) === String(courseId)));
             const minutes = Number(hit?.watch_min_minutes);
@@ -3618,11 +3713,85 @@
             ? Math.max(DOC_READ.FORCE_SECONDS, playState.docSubmitSeconds * 60 + 10 + 170)
             : DOC_READ.FORCE_SECONDS;
     }
-    /** 循环模式达标线：对齐时长要求，避免不到时长就一圈圈空转 */
+    /**
+     * 循环模式达标线。
+     *
+     * 历史遗留：曾经独立取 max(LOOP_SECONDS, 要求×60+10)，与序列模式的
+     * submitLine 是**两条不同的线**，导致同一份文档在两种模式下跳转时机不一致
+     * （循环线 120s vs 序列线 130s，且教师设了时长后两条线的偏差进一步放大）。
+     *
+     * 现已统一委托给 xyDocEffectiveSubmitSeconds()，两种模式共用同一条达标线。
+     *
+     * ⚠️ 当前**无任何调用点**（全文件仅本定义一处）。保留为兼容壳，
+     * 以防外部/后续代码按旧名调用；若确认长期不用可安全删除。
+     * 新代码请直接调 xyDocEffectiveSubmitSeconds()。
+     */
     function xyDocEffectiveLoopSeconds() {
-        return playState.docSubmitSeconds > 0
-            ? Math.max(DOC_READ.LOOP_SECONDS, playState.docSubmitSeconds * 60 + 10)
-            : DOC_READ.LOOP_SECONDS;
+        return xyDocEffectiveSubmitSeconds();
+    }
+
+    /**
+     * 主动对齐当前节点的教师时长要求 —— 交卷线/放行线的唯一数据来源。
+     *
+     * 为什么需要它（这是「设置了两分钟仍按默认跑」的根因）：
+     *   `xyGetWatchMinutesForNode` 只读 `_radarCache` 的 3 秒 TTL 内存缓存，
+     *   缓存未预热时必然返回 0 → 三条 effective 线全部回落到 DOC_READ 默认常量
+     *   → 用户看到的永远是默认时长，教师设的 N 分钟从未生效。
+     *
+     * 本函数在缓存未命中时**主动 await fetchRadarCached()**（内部有 promise 去重，
+     * 并发调用只发一次请求），拿到 watch_min_minutes 后写回 playState：
+     *   docSubmitSeconds ← N（真实要求）
+     *   docForceSeconds  ← max(FORCE_SECONDS, N×60+10+170)（据此推出的放行线）
+     *
+     * @returns {Promise<number>} 对齐后的要求分钟数（无要求返回 0）
+     */
+    async function xySyncWatchMinutesForCurrentNode() {
+        try {
+            const groupId = getCourseGroupId();
+            const nodeId = getNodeId();
+            if (!nodeId) return 0;
+
+            let needMin = xyGetWatchMinutesForNode(groupId, nodeId);
+            if (needMin > 0) {
+                // [R4-P2] 写回前确认仍在同一任务上。缓存命中路径是同步的，await 前就完成，
+                // 理论上不会跨任务；这里一并守卫以保持两条路径口径一致。
+                if (getNodeId() !== nodeId) return 0;
+                // 缓存命中：仅补齐可能被清空的推导值
+                if (playState.docSubmitSeconds !== needMin) {
+                    playState.docSubmitSeconds = needMin;
+                }
+                if (playState.docForceSeconds <= 0) {
+                    playState.docForceSeconds = Math.max(DOC_READ.FORCE_SECONDS, needMin * 60 + 10 + 170);
+                }
+                return needMin;
+            }
+
+            // 缓存未命中：主动拉雷达（不依赖被动预热）
+            const data = await fetchRadarCached();
+            /**
+             * [R4-P2] await 之后必须校验任务未变。
+             *
+             * 同步在途期间若用户/调度跳到了新任务 B，旧任务 A 的结果落地时会把
+             * A 的时长要求写进 B 的 docSubmitSeconds，并把 B 的 docWmSyncDone 置 true
+             * → B 永不重新对齐：要么用偏低线提前交卷（服务端判未达标），
+             * 要么被强加 A 的等待时长。重试窗口（最多 5 次、约 75s）让这个窗口
+             * 比 R3-04 修复前的"仅首 tick 一次"更容易命中，故必须显式丢弃过期结果。
+             */
+            if (getNodeId() !== nodeId) return 0;
+            const list = (data && data.success && Array.isArray(data.data)) ? data.data : [];
+            const hit = list.find(t => String(t?.node_id || '') === String(nodeId)
+                && (!groupId || !t?.group_id || String(t.group_id) === String(groupId)));
+            needMin = Number(hit?.watch_min_minutes);
+            if (!Number.isFinite(needMin) || needMin <= 0) return 0;
+
+            playState.docSubmitSeconds = needMin;
+            playState.docForceSeconds = Math.max(DOC_READ.FORCE_SECONDS, needMin * 60 + 10 + 170);
+            logMsg(`⏱ 检测到时长要求：本任务需累计观看 ${needMin} 分钟，交卷线已动态对齐`, 'info', true);
+            return needMin;
+        } catch (e) {
+            // 雷达不可用时保持默认阈值，不阻断主循环
+            return 0;
+        }
     }
     /**
      * SPA 路由感知主扫描器 —— 由 createPersistentInterval 低频驱动的「心跳」。
@@ -3714,9 +3883,28 @@
                         if (currentRes) taskType = currentRes.computed_task_type;
                     }
                     if (!playState.isTaskCompleted && playState.activeZone === ZONE.COURSE) {
-                        playState.isTaskCompleted = true;
-                        logMsg('✅ [雷达秒判] 当前任务已在全局雷达达成，瞬间放行！', 'success', false);
-                        updateCourseUI();
+                        /**
+                         * ⚠️ 此处**不能**先置 isTaskCompleted，与 globalTaskStatusChecker 同源约束。
+                         *
+                         * 旧写法是 `playState.isTaskCompleted = true; logMsg(...); updateCourseUI();`
+                         * ——「雷达列表里不含当前 node」只是**间接信号**（多端同步下另一台设备
+                         * 完成、或雷达缓存陈旧都会命中），不等于「服务端已确认本机完成」。
+                         *
+                         * 后果：本页从未调用 finishActivity，服务端没有本页的完成记录，但
+                         * isTaskCompleted 已为 true → 引擎所有入口被 `if (!playState.isTaskCompleted)`
+                         * 挡住、调度 tick 直接判 isDone 切下一项 → **本页提交永远不会补发**。
+                         *
+                         * 且本段挂在 1s 主循环的 `await fetchRadarCached()` 之后，命中概率高于
+                         * globalTaskStatusChecker（后者仅事件驱动）。
+                         *
+                         * 正确做法：走统一收口，让步进逻辑读**服务端确认结果**。
+                         */
+                        logMsg('✅ [雷达秒判] 当前任务已在全局雷达达成，交由统一收口确认', 'success', false);
+                        await xyEngineCompleteAndAdvance({
+                            silent: true,
+                            forceSubmit: true,   // 外部信号判定完成，跳过本地判据
+                            typeLabel: '雷达秒判'
+                        });
                     }
                 }
             }
@@ -3809,25 +3997,25 @@
                 const token = await getAuthToken();
                 if (!token) return null;
 
-                let res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
+                let res = await xyFetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
                     headers: { "authorization": `Bearer ${token}` }
                 });
                 let data = await res.json();
                 if (data.code === 50007) {
-                    const gvRes = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
+                    const gvRes = await xyFetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
                         method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                         body: JSON.stringify({ group_id: key, role_type: 'normal' })
                     });
                     const gv = await gvRes.json();
                     const visitData = gv.data;
                     if (visitData && visitData.site_id) {
-                        const authRes = await fetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${encodeURIComponent(visitData.site_id)}&role_type=4`, {
+                        const authRes = await xyFetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${encodeURIComponent(visitData.site_id)}&role_type=4`, {
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
                         const auth = await authRes.json();
                         const accessToken = auth.data?.access_group_token;
                         if (accessToken) {
-                            res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
+                            res = await xyFetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
                                 headers: { 'authorization': `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8', 'X-Course-Access': accessToken }
                             });
                             data = await res.json();
@@ -4110,11 +4298,24 @@
                 padding: unsafeWindow.CryptoJS.pad.Pkcs7
             });
             return decrypted.toString(unsafeWindow.CryptoJS.enc.Utf8);
-        } catch (error) {
-            console.warn('[小雅] URL解密失败:', error);
-            return encryptedUrl;
-        }
+    } catch (error) {
+    /**
+     * [R3-13] 解密失败不能把密文当 URL 返回。
+     *
+     * 旧实现无条件 `return encryptedUrl` —— 若传入真的是密文，调用方会拿它
+     * 去发必然失败的请求，甚至被当成文件名/路径使用，产出垃圾文件。
+     *
+     * [R4-P2] 但也不能一律返回 null：本函数注释明示「部分链路传入的本身就
+     * 是明文」，平台存在「标记 is_encryption=true 但存的已是明文直链」的数据。
+     * 一律 null 会把这类从"可正常下载"退化成"静默跳过"。
+     * 折中：解密失败时若入参本身长得像合法 http(s) 直链则原样透传，
+     * 否则（真密文/空值/乱码）返回 null，由调用方跳过。
+     */
+    console.warn('[小雅] URL解密失败:', error);
+    const raw = String(encryptedUrl ?? '');
+    return /^https?:\/\//i.test(raw) ? raw : null;
     }
+}
     /** 时间戳归一化：数字 <1e12 视为秒 ×1000 转 ms；字符串走 Date.parse；均失败返回 0。用于 createdAt 排序字段统一。
      * [DEEP-DOC]
      */
@@ -4147,25 +4348,25 @@
             try {
                 const token = getCookie();
                 if (!token) return null;
-                let res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
+                let res = await xyFetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
                     headers: { 'authorization': `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' }
                 });
                 let data = await res.json();
                 if (data.code === 50007) {
-                    const gvRes = await fetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
+                    const gvRes = await xyFetch(`https://${domain}/api/jx-iresource/statistics/group/visit`, {
                         method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                         body: JSON.stringify({ group_id: key, role_type: 'normal' })
                     });
                     const gv = await gvRes.json();
                     const visitData = gv.data;
                     if (visitData && visitData.site_id) {
-                        const authRes = await fetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${encodeURIComponent(visitData.site_id)}&role_type=4`, {
+                        const authRes = await xyFetch(`https://${domain}/api/jx-iresource/group/access/authorization?site_id=${encodeURIComponent(visitData.site_id)}&role_type=4`, {
                             headers: { 'Authorization': `Bearer ${token}` }
                         });
                         const auth = await authRes.json();
                         const accessToken = auth.data?.access_group_token;
                         if (accessToken) {
-                            res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
+                            res = await xyFetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${encodeURIComponent(key)}`, {
                                 headers: { 'authorization': `Bearer ${token}`, 'X-Course-Access': accessToken }
                             });
                             data = await res.json();
@@ -4239,10 +4440,13 @@
                 const data = await res.json();
                 if (data.success && data.data && data.data.url) {
                     let fileUrl = data.data.url;
-                    if (data.data.is_encryption) {
-                        fileUrl = decryptFileUrl(fileUrl);
-                    }
-                    return fileUrl;
+                if (data.data.is_encryption) {
+                fileUrl = decryptFileUrl(fileUrl);
+                // [R3-13] 解密失败返回 null，不能拿密文当 URL 继续走下载
+                // [R4-P3] 解密是确定性失败，重拉 file_url 无收益；保留退避避免 3 次背靠背请求
+                if (!fileUrl) { console.warn('[小雅] 文件 URL 解密失败，跳过该项'); await sleep(500); continue; }
+                }
+                return fileUrl;
                 }
             } catch(e) {
                 if (e?.name === 'AbortError') throw e;
@@ -5421,7 +5625,7 @@
             if (playState.isTaskCompleted || Date.now() < playState.jumpSleepUntil) {
                 if (lastRefreshStrategy !== 'sequence_completed') {
                     lastRefreshStrategy = 'sequence_completed';
-                    scheduleDynamicRefresh(10 * 60 * 1000, `连播状态休眠探测`);
+                    scheduleDynamicRefresh(10 * 60 * 1000, `顺序调度状态休眠探测`);
                 }
             } else if (currentTaskType === TASK_TYPE.DOC) {
                 if (lastRefreshStrategy !== 'sequence_doc') {
@@ -5456,7 +5660,7 @@
 
                 let txt = el.innerText ? el.innerText.trim() : '';
                 if (txt && txt.length > 1 && txt.length <= 15 && !txt.includes('\n') && !txt.includes('=')) {
-                    if (!/^(回复|评论|作者|楼主|老师|助教|管理员|匿名|刚刚|今天|昨天|分享|赞|查看|更多|展开|全部|时间|我的|首页|取消|确定|保存|上传|下载|关闭)$/.test(txt) && !/(课程|作业|考试|测验|班级|任务|讨论区)/.test(txt)) {
+                    if (!/^(回复|评论|作者|楼主|老师|助教|管理员|匿名|刚刚|今天|昨天|分享|赞|查看|更多|展开|全部|时间|我的|首页|取消|确定|保存|上传|下载|关闭)$/.test(txt) && !/(课程|作业|考试|测验|班级|任务|交流区)/.test(txt)) {
                         names.push(cleanName(txt));
                     }
                 }
@@ -5641,11 +5845,11 @@
         if (xyShouldKeepDashboardOverview(getCourseGroupId())) return;
         discState.discLockedUrl = window.location.href; 
         if (playState.activeZone !== ZONE.DISC) { 
-            logMsg(`🎯 抓包拦截：零延迟识别讨论区网络流！`, 'success', false); 
+            logMsg(`🎯 拦截：零延迟识别交流区网络流！`, 'success', false); 
             switchToZone('disc'); 
         }
         
-        logMsg('🔄 检测到新讨论区，自动清空旧名单并开启全量采集...', 'info');
+        logMsg('🔄 检测到新交流区，自动清空旧名单并开启全量采集...', 'info');
         discState.targetNames = [];
         discState.selectedNames.clear();
         GM_setValue('xy_target_names', JSON.stringify([]));
@@ -5680,14 +5884,43 @@
      *
      * 组装当前课程/节点的完成上报请求发往平台接口，解析响应判定 success。
      * 调用方分布：循环模式播完即交、sequence 定时器达标强交、快速击破手动触发。
-     * @returns {Promise<boolean>} 平台确认成功与否
+     *
+     * **返回结果对象而非裸布尔**，因为裸 false 有两种截然不同的含义：
+     *   · skipped=true  → 本次被并发锁挡回，请求**根本没发出**，答案在途
+     *   · skipped=false → 请求**确实发出过**，confirmed 才是服务端结论
+     * 调用方必须能区分：前者不该记节流时间戳（否则白等一个重试周期），
+     * 后者应该记（否则会以秒级频率反复打接口）。
+     *
+     * 结果经**返回值**回传，不走任何模块级共享状态 —— 返回值是每次调用
+     * 私有的通道，并发调用各拿各的，天然免疫交错。
+     *
+     * ⚠️ 为什么不用「模块级信封 + 令牌认领」传结果（曾这么设计，已废弃）：
+     * 信封是**单槽**共享状态，只存得下「最后一次」。A 持锁请求中、B 被锁
+     * 挡回时 B 会覆盖信封；待 A 的 await 返回再去读，无论按号读（过期）还是
+     * 按当前号读（读到 B 的），都拿不到 A 自己那份结论。
+     * **共享槽位数 < 并发路数 ⇒ 信息必然丢失，加多少令牌都救不回来。**
+     *
+     * ⚠️ 返回的是对象，**禁止直接用于布尔判断**（`if (await ...)` 恒真）。
+     * 必须读 .ok / .skipped / .confirmed。
+     *
+     * @param {boolean} [silent]
+     * @returns {Promise<{ok: boolean, skipped: boolean, confirmed: boolean}>}
+     *   ok        - 等价于 confirmed，保留为调用方习惯用语（挡回时恒为 false）
+     *   skipped   - 是否被并发锁挡回
+     *   confirmed - 服务端是否确认（skipped 时恒为 false）
      * [DEEP-DOC]
      */
     async function autoSubmitCurrentTask(silent = false) {
-        if (isSubmittingLock) return false;
+        if (isSubmittingLock) {
+            // 被锁挡回：请求未发出，结果对象明确标记 skipped
+            return { ok: false, skipped: true, confirmed: false };
+        }
         isSubmittingLock = true;
+        let confirmed = false;
+        /** 所有 return 都经此收口，保证 skipped:false 与 confirmed 始终一致 */
+        const done = (ok) => ({ ok: !!ok, skipped: false, confirmed: !!confirmed });
         try {
-            const token = await getAuthToken(); const groupId = getCourseGroupId(); const nodeId = getNodeId(); if (!groupId || !nodeId) return false;
+            const token = await getAuthToken(); const groupId = getCourseGroupId(); const nodeId = getNodeId(); if (!groupId || !nodeId) return done(false);
             
             let taskId = null;
             const radarData = await fetchRadarCached();
@@ -5697,7 +5930,8 @@
                     taskId = rTask.task_id || rTask.id;
                 } else if (!rTask || rTask.finish === 2) {
                     if (!silent) logMsg('✅ [雷达] 任务已在后台完成，无需再提交！', 'success', false);
-                    return true; 
+                    confirmed = true;
+                    return done(true); 
                 }
             }
             
@@ -5710,29 +5944,188 @@
                 }
             }
 
-            if (!taskId) return false;
+            if (!taskId) return done(false);
             
+            /**
+             * 提交请求加超时保护。
+             *
+             * 为什么必须加：这个 fetch 是持锁期间的最后一跳。若服务端连接挂起
+             * （不返回也不断开），isSubmittingLock 会一直为 true ——
+             * 期间所有其它调用方都被挡回、拿到 skipped:true（判定在途、不记账、
+             * 不强制放行），等于整条链原地空转，只能等看门狗 180s 强刷兜底。
+             * 加 15s 超时后，最坏情况退化为「本次失败 → 记一次账 → 30s 后重试」，
+             * 仍在正常节流节奏内。
+             */
             const finishRes = await fetch(`https://${domain}/api/jx-iresource/resource/finishActivity`, { 
                 method: "POST", 
                 headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, 
-                body: JSON.stringify({ group_id: groupId, node_id: nodeId, task_id: taskId }) 
+                body: JSON.stringify({ group_id: groupId, node_id: nodeId, task_id: taskId }),
+                signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+                    ? AbortSignal.timeout(15000) : undefined
             });
             const finishData = await finishRes.json();
             
             if (finishData.success === true || finishData.code === 200 || finishData.code === 0) {
                 if (!silent) { logMsg('✅ [API] 任务时长达标，后端已成功确认！', 'success', false); }
-                return true;
+                confirmed = true;
+                return done(true);
             } else {
                 if (!silent) logMsg(`⚠️ 时长验证未通过，等待下一次提交心跳...`, 'warning', true);
-                return false;
+                return done(false);
             }
         } catch(e) { 
             if (!silent) logMsg(`❌ 任务提交请求异常`, 'error', true); 
         } finally {
             isSubmittingLock = false;
         }
-        return false;
+        return done(false);
     }
+
+    /* ================================================================
+     * [MODULE] 达标判定与跳转统一内核
+     * ----------------------------------------------------------------
+     * 设计目标：让「文档引擎」「视频引擎」「计划调度」三处共用同一套
+     * 达标判定 → 交卷 → 跳转 → 状态清场流程，消除历史上三份互相漂移的
+     * 重复实现（曾导致文档/视频行为不一致、调度与引擎打架）。
+     *
+     * 统一口径（与教师后台设置一一对应）：
+     *   视频 → 教师只设「看完视频」⇒ 达标条件 = 播放进度到达片长
+     *   文档 → 教师设「至少 N 分钟」  ⇒ 达标条件 = 累计阅读 ≥ N×60 秒
+     * 两者在「达标后动作」上完全一致：提交 → 置 isTaskCompleted → 跳转。
+     * ================================================================ */
+
+    /**
+     * 达标判定内核（纯函数，无副作用）——三种任务类型的唯一判定入口。
+     *
+     * @param {string} taskType - TASK_TYPE.VIDEO / TASK_TYPE.DOC
+     * @param {object} ctx - 判定上下文 { video, needSeconds, readSeconds }
+     * @returns {{done: boolean, reason: string}} done=是否达标；reason=诊断文案
+     */
+    function xyEngineCheckCompletion(taskType, ctx) {
+        const { video, needSeconds = 0, readSeconds = 0 } = ctx || {};
+
+        if (taskType === TASK_TYPE.VIDEO) {
+            /**
+             * 视频：教师后台只有「看完视频」一个选项，因此判定就是播完。
+             * 不信赖 video.ended 单一信号（部分播放器 ended 事件不触发），
+             * 叠加脚本进度 ≥ 片长 作为等价判据——两者任一成立即算看完。
+             */
+            if (!video) return { done: false, reason: '未找到视频元素' };
+            const dur = Number(video.duration) || 0;
+            const byEnded = video.ended === true;
+            const byProgress = dur > 0 && playState.videoScriptProgress >= dur;
+            if (byEnded || byProgress) return { done: true, reason: '视频已播完' };
+            const pct = dur > 0 ? Math.min(((playState.videoScriptProgress || 0) / dur) * 100, 100) : 0;
+            return { done: false, reason: `播放中 ${pct.toFixed(1)}%` };
+        }
+
+        if (taskType === TASK_TYPE.DOC) {
+            /**
+             * 文档：教师设「至少 N 分钟」。needSeconds 由 xyDocEffectiveSubmitSeconds()
+             * 给出（教师有要求时 = N×60+10 缓冲；无要求时回落 DOC_READ 默认线）。
+             *
+             * 防御：need <= 0 时 `readSeconds >= need` 恒真 ⇒ 一进页面就判达标。
+             * 正常调用链不会传 0（xyDocEffectiveSubmitSeconds 恒返回 ≥130），
+             * 但内核作为纯函数不该依赖调用方的正确性，故显式回落默认线。
+             */
+            const need = Number(needSeconds) > 0 ? Number(needSeconds) : DOC_READ.SUBMIT_SECONDS;
+            if (readSeconds >= need) return { done: true, reason: `阅读 ${readSeconds}s ≥ ${need}s` };
+            const pct = need > 0 ? Math.min((readSeconds / need) * 100, 100) : 100;
+            return { done: false, reason: `阅读中 ${pct.toFixed(1)}%` };
+        }
+
+        return { done: false, reason: '未知任务类型' };
+    }
+
+    /**
+     * 达标后统一收口（引擎与调度共用的唯一出口）。
+     *
+     * 职责边界（对齐三处调用方）：
+     *   1. 幂等：已达标则直接返回，避免重复提交刷接口
+     *   2. 交卷：调 autoSubmitCurrentTask，拿服务端确认
+     *   3. 置位：成功后写 isTaskCompleted（调度的唯一判据）
+     *   4. 去向：调度在跑则交由调度切项；否则走连播雷达跳转
+     *
+     * @param {object} opts
+     * @param {boolean} [opts.silent]      - 静默提交（循环挂机用）
+     * @param {boolean} [opts.forcePass]   - 强制放行（超过放行线仍未确认时用）
+     * @param {string}  [opts.typeLabel]   - 日志用任务类型名
+     * @param {boolean} [opts.forceSubmit]  - 强制交卷：由外部信号（雷达列表）判定完成，
+     *                                        本地判据不适用；仍要求服务端确认，失败不推进
+     * @returns {Promise<{ok: boolean, fired: boolean, skipped: boolean}>}
+     *   ok      - 是否已确认达标（含「被挡回、判定在途」的乐观放行）
+     *   fired   - 本次是否真的向服务端发出过提交（false ⇒ 不该记节流时间戳）
+     *             ⚠️ false 有两种来源，含义不同：
+     *               · skipped=true  → 被并发锁挡回，请求未发出，答案在途
+     *               · forcePass=true → 有意跳过提交直接放行
+     *             调用方若只需「该不该记账」，用 fired 即可；
+     *             若要区分原因，须同时看 skipped。
+     *   skipped - 是否因并发锁被挡回
+     */
+    async function xyEngineCompleteAndAdvance(opts = {}) {
+        const { silent = false, forcePass = false, forceSubmit = false, typeLabel = '任务' } = opts;
+
+        if (playState.isTaskCompleted) return { ok: true, fired: false, skipped: false };
+
+        let confirmed = false;
+        let skipped = false;
+        if (!forcePass) {
+            /**
+             * 结果直接取自返回值 —— 不经任何模块级共享状态。
+             *
+             * 返回值是每次调用私有的通道：即便 await 期间另一路并发提交
+             * 跑了完整流程，也不会覆写本次返回的对象，因此结论永远归属正确。
+             * （此前用「模块级信封 + 令牌认领」是错的：信封单槽，存不下两路并发，
+             *   必然丢失一路的结论 —— 见 xySubmitSeq 处注释。）
+             */
+            const res = await autoSubmitCurrentTask(silent);
+            /**
+             * 提交被锁挡回：本轮的答案还没出来（同秒已有另一次提交在途）。
+             * 直接把「已达标的判断在途」回报给调用方，**不推进节流记账**，
+             * 也不走强制放行 —— 避免把一次并非真实发生的尝试当成已尝试。
+             * 真实结果会由持锁那次提交或它的调用方负责收口。
+             */
+            skipped = !!res.skipped;
+            if (skipped) return { ok: true, fired: false, skipped: true };
+            confirmed = res.confirmed;
+        }
+        /**
+         * forceSubmit 语义：调用方已从**外部信号**（雷达列表）判定任务完成，
+         * 本地判据（视频播完 / 阅读满 N 分钟）在此场景下不适用或不成立，
+         * 因此只看服务端确认结果，不走 forcePass 的无条件放行。
+         *
+         * 与 forcePass 的区别：
+         *   forcePass   = 放弃本项、强行推进（服务端可能根本没收到请求）
+         *   forceSubmit = 必须由服务端确认，失败则不推进（留给后续 tick 重试）
+         */
+        if (forceSubmit && !confirmed) {
+            return { ok: false, fired: true, skipped: false };
+        }
+        if (!confirmed && !forcePass) return { ok: false, fired: true, skipped: false };
+
+        playState.isTaskCompleted = true;
+        updateCourseUI();
+        /**
+         * 日志区分两种达标来源，避免误导：
+         *   forcePass → 服务端**未**收到请求，这是「放弃本项、推进下一项」，
+         *               措辞不能写成「达标」（雷达里该项仍是未完成状态）
+         *   正常路径  → 服务端已确认
+         */
+        logMsg(forcePass
+            ? `⚡ ${typeLabel}已达放行线，跳过等待并推进（服务端未确认本项）`
+            : `✅ ${typeLabel}已获服务器确认达标`, forcePass ? 'warning' : 'success', silent);
+
+        // 去向分流：调度独占跳转权，避免与雷达跳转双头打架
+        if (xyScheduleState.isRunning) {
+            // 调度在跑：不动导航，下一个 tick 由调度读 isTaskCompleted 切项
+            return { ok: true, fired: !forcePass, skipped: false };
+        }
+        playState.isProcessingJump = true;
+        try { await tryJumpToNext(); }
+        finally { playState.isProcessingJump = false; }
+        return { ok: true, fired: !forcePass, skipped: false };
+    }
+
     /**
      * 连播跳转下一任务编排（指数退避宿主）。
      *
@@ -5907,8 +6300,27 @@
                 const isStillUnfinished = data.data.filter(t => t.task_type === 1).some(t => t.node_id == nodeId);
                 if (!isStillUnfinished) {
                     if (!playState.isTaskCompleted) {
-                        playState.isTaskCompleted = true; updateCourseUI(); await autoSubmitCurrentTask(true);
-                        logMsg('✅ [雷达] 当前任务已在全局雷达达成！', 'success', false);
+                        /**
+                         * ⚠️ 此处**不能**先置 isTaskCompleted。
+                         *
+                         * 旧写法是 `playState.isTaskCompleted = true; updateCourseUI();
+                         * await autoSubmitCurrentTask(true);` —— 在提交发生**之前**就宣告达标，
+                         * 且不接收返回值。后果：若这次提交失败（服务端未确认），
+                         * 本页会永久停在「已达标」，而引擎所有入口都有
+                         * `if (!playState.isTaskCompleted)` 门外加调度 tick 的达标判定，
+                         * **再也不会有人重试提交** —— 用户以为这项完成了，实际没有。
+                         * 触发场景：多端同步下另一台设备完成了该项（雷达列表消失），
+                         * 而本机此刻网络抖动导致 finishActivity 失败。
+                         *
+                         * 正确做法：走统一收口。让步进逻辑读的是**服务端确认结果**，
+                         * 而不是「雷达列表里消失」这一条间接信号。
+                         */
+                        const res = await xyEngineCompleteAndAdvance({
+                            silent: true,
+                            forceSubmit: true,      // 雷达已判完成，本地判据不适用，直接交卷
+                            typeLabel: '雷达任务'
+                        });
+                        if (res.ok) logMsg('✅ [雷达] 当前任务已在全局雷达达成！', 'success', false);
                     }
                 } else { 
                     if (playState.isTaskCompleted || (document.getElementById('xy-status-banner') && document.getElementById('xy-status-banner').innerText.includes('初始化'))) { 
@@ -5936,7 +6348,7 @@
                             const btns = Array.from(box.querySelectorAll('button, .el-button, [role="button"]'));
                             targetBtn = btns.find(b => { const t = (b.innerText || "").replace(/\s+/g, ''); return t.length <= 8 && /确定|继续|是|我知道了|恢复|确认/.test(t); });
                         }
-                        if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统弹窗...`, 'success', false); }, 300); return true; }
+                        if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统提示框...`, 'success', false); }, 300); return true; }
                     }
                 }
             }
@@ -5944,7 +6356,7 @@
             if (/长时间.*操作|无操作|没有操作|任务暂停|休息一下|确认打开|是否确认打开文件/.test(bodyText)) {
                 const allButtons = Array.from(doc.querySelectorAll('button, [role="button"], .btn, span[class*="btn"]'));
                 const targetBtn = allButtons.find(b => { const t = ((b.innerText || "")).replace(/\s+/g, ''); return b.offsetParent !== null && t.length <= 8 && /确定|继续|恢复|我知道了|确认/.test(t); });
-                if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统弹窗...`, 'success', false); }, 500); return true; }
+                if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统提示框...`, 'success', false); }, 500); return true; }
             }
         } catch(e) {} return false;
     }
@@ -6146,6 +6558,36 @@
         finally { clearTimeout(timer); }
     }
 
+    /**
+     * [R3-01] 带超时的通用 fetch（走页面 fetch，含脚本自身的响应体劫持链）。
+     *
+     * 背景：全脚本 40 个网络调用点里有 26 个是裸 fetch，既不传 signal 也没有
+     * 其它超时手段。在「TCP 已连上但服务端不返回」的场景下，fetch 既不 resolve
+     * 也不 reject，await 永久悬挂 —— 这是 R3-01 主循环冻结的直接燃料。
+     *
+     * 与 xyHeartbeatFetch 同构，只是默认超时更短（15s，贴合普通业务接口）。
+     * @param {string} url
+     * @param {RequestInit} [options]
+     * @param {number} [timeoutMs] 默认 15000
+     */
+    async function xyFetch(url, options = {}, timeoutMs = 15000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try { return await fetch(url, { ...options, signal: controller.signal }); }
+        finally { clearTimeout(timer); }
+    }
+
+    /**
+     * [R3-01] 带超时的**原生** fetch：绕过脚本对 window.fetch 的劫持链，
+     * 用于作业区必须拿到未经处理的原始响应体的拉取。
+     */
+    async function xyNativeFetch(url, options = {}, timeoutMs = 15000) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try { return await _hw_nativeFetch(url, { ...options, signal: controller.signal }); }
+        finally { clearTimeout(timer); }
+    }
+
     async function _origSendRecordRequest() {
         const groupId = getCourseGroupId(); const resourceId = getNodeId();
         if (!groupId || !resourceId) throw new Error('no resource');
@@ -6234,14 +6676,58 @@
         let callbackRunning = false;
         let pendingRuns = 0;
 
+        /**
+         * [R3-01] 单 tick 硬超时。
+         *
+         * 原实现里 `callbackRunning` 只在 finally 复位，而 finally 要等 `await fn()`
+         * 落地才执行。一旦 fn 内部有一个永不 settle 的 await（典型：无超时的 fetch，
+         * TCP 已连上但服务端不返回），callbackRunning 就永远是 true，
+         * 此后每次 catchUp() 都在入口 `if (callbackRunning) return` 处直接返回 ——
+         * 整个定时器**永久停摆且无自愈**，表现为脚本静默卡死。
+         *
+         * 这里给每次 fn() 加一道硬超时：超时后强制结束本次 tick 并释放互斥，
+         * 把「永久冻结」降级为「一次慢 tick」。超时不取消 fn 本身（它可能还持有
+         * 有价值的副作用），只是不再阻塞后续调度。
+         */
+        const tickTimeoutMs = Math.max(intervalMs * 10, 45000);
+
         async function drain() {
             if (callbackRunning || !running) return;
             callbackRunning = true;
             try {
                 while (running && pendingRuns > 0) {
                     pendingRuns--;
+                    let fnPromise = null;
                     try {
-                        await fn();
+                        let timeoutHandle = null;
+                        const TIMEOUT = Symbol('xyTickTimeout');
+                        const guard = new Promise(resolve => {
+                            timeoutHandle = setTimeout(() => {
+                                console.warn('[小雅] 持久定时任务单次执行超时，已强制让出（' + tickTimeoutMs + 'ms）');
+                                resolve(TIMEOUT);
+                            }, tickTimeoutMs);
+                        });
+                        // fn() 可能同步抛错：先在 try 内调用，异常由外层 catch 接管
+                        fnPromise = fn();
+                        const result = await Promise.race([Promise.resolve(fnPromise), guard]);
+                        clearTimeout(timeoutHandle);
+                        if (result === TIMEOUT) {
+                            // 本 tick 判定为悬挂：丢弃剩余补偿次数，避免瞬间爆发重入
+                            pendingRuns = 0;
+                            /**
+                             * [R4-P2] 超时后不能立刻放行下一轮 fn —— 原实现的
+                             * callbackRunning 互斥保证了 fn 串行；若这里直接退出，
+                             * 悬挂中的 fn 与下一轮 fn 会并发执行，可能重复计数、
+                             * 重复提交。改为再等一个 tickTimeoutMs 让悬挂 fn 落地
+                             * （由于所有网络调用已收编为 15s 超时，真实悬挂通常
+                             * 远早于此返回，串行得以保留）；仍悬挂才放弃等待，
+                             * 接受并发风险以保住调度自愈能力。
+                             */
+                            await Promise.race([
+                                Promise.resolve(fnPromise).catch(() => {}),
+                                new Promise(r => setTimeout(r, tickTimeoutMs))
+                            ]);
+                        }
                     } catch (e) {
                         console.warn('[小雅] 持久定时任务执行失败:', e);
                     }
@@ -6404,16 +6890,29 @@
             if(vEngine) vEngine.style.opacity = taskType === TASK_TYPE.VIDEO ? '1' : '0.4';
             if(dEngine) dEngine.style.opacity = taskType === TASK_TYPE.DOC ? '1' : '0.4';
 
-            let isMakingProgress = false;
+    let isMakingProgress = false;
+    /** [R3-17] 提到外层，供尾部看门狗喂狗判据使用（跨域 iframe 播放器会取不到） */
+    let video = null;
 
-            if (taskType === TASK_TYPE.VIDEO) {
-                let video = document.querySelector('video');
+    if (taskType === TASK_TYPE.VIDEO) {
+    video = document.querySelector('video');
                 if (!video) { const iframes = document.querySelectorAll('iframe'); for (let i = 0; i < iframes.length; i++) { try { if (iframes[i].contentDocument) video = iframes[i].contentDocument.querySelector('video'); } catch(e){} if (video) break; } }
                 
                 if (video) {
                     if (video.paused && !video.ended) video.play().catch(() => { if(!guardState.hardwareMute) video.muted = true; video.play().catch(()=>{}); });
                     
                     if (guardState.hardwareMute && !video.muted) video.muted = true;
+
+                    /**
+                     * 视频侧驻留计时（每 tick +1 秒）。
+                     *
+                     * docReadTime 只在文档分支自增，视频页恒为 0；而 LOOP 模式的
+                     * 「安全循环重载」兜底与服务端确认结果都以「越过放行线」为前置。
+                     * 用 docReadTime 判定 ⇒ 视频侧恒假 ⇒ 兜底永死。
+                     * 故视频侧维护自己的驻留秒数，作为放行线判据。
+                     * 计数不受 isTaskCompleted 影响：达标后仍需它判断是否该重载。
+                     */
+                    playState.videoWatchSeconds = (playState.videoWatchSeconds || 0) + 1;
 
                     if (playState.mode === PLAY_MODE.SEQUENCE) {
                         if (playState.videoScriptProgress === undefined) {
@@ -6422,9 +6921,19 @@
                         }
 
                         if (video.currentTime - playState.videoLastTime > 3) {
+                            /**
+                             * 拖动检测：弹回原位。
+                             *
+                             * 注意这里**不能 `return`** —— 该 return 在函数顶层（1s 主循环），
+                             * 会连带跳过：
+                             *   1. 本分支下方的 isMakingProgress 标记
+                             *   2. 函数尾部的看门狗刷新与 updateTitleBar()
+                             * 拖动频繁时（视频一被外部逻辑 seek 就触发）会让看门狗持续收不到
+                             * 活动信号，最终误判「死锁」并强刷页面 —— 表现为视频反复从头开始。
+                             * 改为弹回后继续走完本轮逻辑即可。
+                             */
                             logMsg('⚠️ 检测到拖动进度条，已弹回原位', 'warning', true);
                             video.currentTime = playState.videoLastTime;
-                            return;
                         }
 
                         if (!video.paused && !video.ended) {
@@ -6432,19 +6941,39 @@
                         }
                         playState.videoLastTime = video.currentTime;
 
-                        let duration = video.duration || 1;
-                        let scriptProgressPct = Math.min((playState.videoScriptProgress / duration) * 100, 100);
+                        /**
+                         * duration 口径必须与判定内核（xyEngineCheckCompletion 的
+                         * `Number(video.duration) || 0`）**完全同源**。
+                         * 曾写成 `video.duration || 1`：元数据未加载时 duration=NaN
+                         * → 这里取 1，于是 `videoScriptProgress >= 1` 立刻为真，
+                         * 状态栏提前显示「已播完, 验证中...」，而内核用 dur=0
+                         * 判定为「未播完」——UI 与内核结论相反，误导用户与排障。
+                         */
+                        const duration = Number(video.duration) || 0;
+                        const hasDuration = duration > 0;
+                        const scriptProgressPct = hasDuration
+                            ? Math.min((playState.videoScriptProgress / duration) * 100, 100) : 0;
                         
+                        // #xy-video-status 的唯一写入者（与文档侧同一纪律）
                         const statusEl = document.getElementById('xy-video-status');
                         if (statusEl) {
-                            statusEl.innerText = (video.ended || playState.videoScriptProgress >= duration) ? '已播完, 验证中...' : `脚本进度 ${scriptProgressPct.toFixed(1)}%`;
+                            if (video.ended || (hasDuration && playState.videoScriptProgress >= duration)) {
+                                statusEl.innerText = '已播完, 验证中...';
+                            } else if (playState.docSubmitSeconds > 0) {
+                                // 教师设有时长要求时，同时给出观看分钟数便于对照
+                                const wMin = Math.floor(playState.docReadTime / 60);
+                                statusEl.innerText = `播放 ${scriptProgressPct.toFixed(0)}% · 已看 ${wMin}/${playState.docSubmitSeconds} 分`;
+                            } else {
+                                statusEl.innerText = `脚本进度 ${scriptProgressPct.toFixed(1)}%`;
+                            }
                         }
                         
                         if (video.currentTime > 0 && !video.paused) isMakingProgress = true;
-                        if (video.ended || playState.videoScriptProgress >= duration) isMakingProgress = true;
-                    } 
-                    else {
-                        let progress = (video.currentTime / video.duration) * 100 || 0;
+                        if (video.ended || (hasDuration && playState.videoScriptProgress >= duration)) isMakingProgress = true;
+                    } else {
+                        /** 与上方 SEQUENCE 分支同源：duration 可能为 NaN，用 hasDuration 守卫 */
+                        const loopDur = Number(video.duration) || 0;
+                        const progress = loopDur > 0 ? (video.currentTime / loopDur) * 100 : 0;
                         const statusEl = document.getElementById('xy-video-status');
                         if (statusEl) {
                              if (playState.mode === PLAY_MODE.LOOP && playState.isTaskCompleted) {
@@ -6454,24 +6983,64 @@
                              }
                         }
                         
-                        if (video.ended && playState.mode === PLAY_MODE.LOOP && !playState.isProcessingJump) {
-                             playState.isProcessingJump = true;
-                             autoSubmitCurrentTask(true).then(success => {
-                                 if (success || playState.isTaskCompleted) {
-                                      logMsg('✅ 安全循环：当前任务已达标，即将刷新页面重载继续挂机...', 'success', false);
-                                 } else {
-                                      logMsg('⚠️ 安全循环：时长暂未达标，即将刷新页面重置播放...', 'warning', true);
-                                 }
-                                 
-                                 setTimeout(() => {
-                                      logMsg('🔄 触发安全循环单次播完重载机制...', 'info', false);
-                                      window.location.reload();
-                                 }, 1500);
-                             });
-                        }
-                        
                         if (video.currentTime > 0 && !video.paused) isMakingProgress = true;
                         if (video.ended) isMakingProgress = true;
+                    }
+
+                    /**
+                     * 达标后的低延迟首触 —— 对 SEQUENCE / LOOP 两种模式行为完全一致。
+                     *
+                     * 与文档侧结构逐项对齐：判定（纯函数）→ 节流检查 → 单一收口。
+                     * 模式差异只保留在一处「异常兜底」：LOOP 模式在未获放行且到达放行线时
+                     * 刷新页面重置播放（视频播完即静止，需重载才能重来）；
+                     * SEQUENCE 模式则交由 5 秒补偿器按同一放行线强制放行。
+                     * 两者是同一概念的两种实现，不改变触发条件与收口路径。
+                     */
+                    if (!playState.isProcessingJump && !playState.isTaskCompleted) {
+                        const vVerdict = xyEngineCheckCompletion(TASK_TYPE.VIDEO, { video });
+                        /**
+                         * 节流基准必须与记账基准同源 —— 都用 videoWatchSeconds。
+                         * 曾用 docReadTime：但它在视频分支从不自增（只在文档分支 +1），
+                         * 于是 `docReadTime - lastVideoSubmitTime` 恒为负，
+                         * 视频侧的重试节流形同失效。用 videoWatchSeconds 才是同一个时钟。
+                         */
+                        const vSinceLast = playState.lastVideoSubmitTime > 0
+                            ? (playState.videoWatchSeconds || 0) - playState.lastVideoSubmitTime : Infinity;
+                        if (vVerdict.done && vSinceLast >= DOC_READ.RETRY_GAP_SECONDS) {
+                            const vRes = await xyEngineCompleteAndAdvance({ silent: true, typeLabel: '视频任务' });
+                            /**
+                             * 记账必须发生在调用**之后**：若这次提交被锁挡回
+                             * （同秒已有另一次在途），fired 为 false 表示请求根本没发出，
+                             * 此时不该写节流时间戳 —— 否则等于把一次并未真实发出的
+                             * 尝试记成已尝试，白等一个重试周期。
+                             *
+                             * fired 由 autoSubmitCurrentTask 的返回值私有携带、
+                             * 经收口层透传，**不读任何共享状态**，因此同秒并发的
+                             * 另一路不会污染本判断。
+                             */
+                            if (vRes.fired) playState.lastVideoSubmitTime = playState.videoWatchSeconds || 0;
+                            /**
+                             * 异常兜底：未获放行时才考虑重置播放。
+                             * 必须同时满足「越过放行线」，否则服务端短暂不放行就会
+                             * 无限重载 —— 而每次刷新都会清零驻留计时，永远攒不够。
+                             *
+                             * ⚠️ 放行线判据必须用 **videoWatchSeconds** 而非 docReadTime：
+                             * docReadTime 只在文档分支自增，视频页恒为 0，
+                             * 用它判定会让这里的保护条件恒假、兜底变死代码
+                             * （曾就是这个 bug：服务端不放行时视频播完停在最后一帧）。
+                             */
+                            if (!vRes.ok && !playState.isTaskCompleted
+                                && playState.mode === PLAY_MODE.LOOP) {
+                                const forceLine = xyDocEffectiveForceSeconds();
+                                if ((playState.videoWatchSeconds || 0) >= forceLine) {
+                                    logMsg('⚠️ 安全循环：服务端暂未放行，即将刷新页面重置播放...', 'warning', true);
+                                    setTimeout(() => {
+                                        logMsg('🔄 触发安全循环单次播完重载机制...', 'info', false);
+                                        window.location.reload();
+                                    }, 1500);
+                                }
+                            }
+                        }
                     }
                 }
             } else if (taskType === TASK_TYPE.DOC) {
@@ -6479,45 +7048,84 @@
 
                 if (!playState.isTaskCompleted) {
                     playState.docReadTime += 1; 
-                    
-                    if (playState.mode === PLAY_MODE.SEQUENCE) {
-                        const submitLine = xyDocEffectiveSubmitSeconds();
-                        const forceLine = xyDocEffectiveForceSeconds();
-                        let progress = Math.min((playState.docReadTime / submitLine) * 100, 100);
-                        const statusEl = document.getElementById('xy-doc-status'), progressEl = document.getElementById('xy-doc-progress');
-                        if(statusEl) {
-                            if (playState.docReadTime < submitLine) {
-                                statusEl.innerText = `阅读倒数: ${progress.toFixed(1)}%`;
-                            } else if (playState.docReadTime < forceLine) {
-                                statusEl.innerText = `验证重试中: ${playState.docReadTime}s`;
-                            } else {
-                                statusEl.innerText = `强制提交阶段: ${playState.docReadTime}s`;
-                            }
-                        }
-                        if(progressEl) progressEl.style.width = `${progress}%`;
+
+                    // 进任务后主动对齐教师要求（异步，不阻塞主循环）
+                    //
+                    // [R3-04] 旧写法 `docSubmitSeconds === 0 && docReadTime <= 1` 有两个问题：
+                    //   1) 条件只在进任务的第 1 个 tick 成立，之后 docReadTime 递增就再也不成立；
+                    //   2) 调用没有 await，同步结果何时落地完全不可控。
+                    // 二者叠加 = 网络稍慢时 docSubmitSeconds 永远是 0 → 永久回落
+                    // DOC_READ.SUBMIT_SECONDS 默认线，表现为「教师设了时长却不生效」。
+                    // 改为：本次任务内持续重试直到拿到结果（或达到次数上限），
+                    // 用 _xyWmSyncing 防并发、playState.docWmSyncDone 防无限重试。
+                    if (!playState.docWmSyncDone && !_xyWmSyncing) {
+                        _xyWmSyncing = true;
+                        Promise.resolve(xySyncWatchMinutesForCurrentNode())
+                            .then(min => {
+                                _xyWmSyncing = false;
+                                playState.docWmSyncTries = (playState.docWmSyncTries || 0) + 1;
+                                // 拿到教师要求 → 停止；连续 5 次仍为 0 → 认为教师确未设置，停止
+                                if (min > 0 || playState.docWmSyncTries >= 5) playState.docWmSyncDone = true;
+                            })
+                            .catch(() => { _xyWmSyncing = false; });
                     }
-                    else {
-                        const loopLine = xyDocEffectiveLoopSeconds();
-                        let progress = Math.min((playState.docReadTime / loopLine) * 100, 100);
-                        const statusEl = document.getElementById('xy-doc-status'), progressEl = document.getElementById('xy-doc-progress');
-                        if(statusEl) {
-                            if (playState.mode === PLAY_MODE.LOOP && playState.docReadTime >= loopLine) {
-                                statusEl.innerText = `[循环] 挂机中: ${playState.docReadTime}s`;
-                            } else {
-                                statusEl.innerText = progress < 100 ? `等待 ${progress.toFixed(1)}%` : `请求验证中...`;
-                            }
+
+                    /**
+                     * #xy-doc-status / #xy-doc-progress 的唯一写入者。
+                     *
+                     * 严格遵循「一个元素一个写入者」：5s 定时器只做判定与交卷，
+                     * 绝不写展示层 —— 两者周期不同，同写一个元素会交替覆盖同一文案，
+                     * 表现为「阅读中 / 阅读倒数」反复抢时间。
+                     *
+                     * 文案分三阶段，与判定内核 xyEngineCheckCompletion 的语义对齐：
+                     *   未到交卷线   → 「阅读 m/n 分 (xx%)」
+                     *   已交卷待确认 → 「验证重试中」
+                     *   超过放行线   → 「强制提交阶段」
+                     */
+                    const submitLine = xyDocEffectiveSubmitSeconds();
+                    const forceLine = xyDocEffectiveForceSeconds();
+                    const reqMin = playState.docSubmitSeconds > 0 ? playState.docSubmitSeconds : Math.round(submitLine / 60);
+                    const doneMin = Math.floor(playState.docReadTime / 60);
+                    const progress = Math.min((playState.docReadTime / submitLine) * 100, 100);
+                    const statusEl = document.getElementById('xy-doc-status'), progressEl = document.getElementById('xy-doc-progress');
+                    if (statusEl) {
+                        if (playState.docReadTime < submitLine) {
+                            statusEl.innerText = `阅读 ${doneMin}/${reqMin} 分 (${progress.toFixed(0)}%)`;
+                        } else if (playState.docReadTime < forceLine) {
+                            statusEl.innerText = `验证重试中: ${playState.docReadTime}s`;
+                        } else {
+                            statusEl.innerText = `强制提交阶段: ${playState.docReadTime}s`;
                         }
-                        if(progressEl) progressEl.style.width = `${progress}%`;
-                        
-                        if (playState.mode === PLAY_MODE.LOOP && playState.docReadTime >= loopLine && !playState.isProcessingJump) {
-                             playState.isProcessingJump = true;
-                             autoSubmitCurrentTask(true).then(success => {
-                                 if (success) {
-                                     playState.isTaskCompleted = true;
-                                     logMsg('✅ 安全循环：文档已达标，继续静默挂机...', 'success', false);
-                                 }
-                                 playState.isProcessingJump = false;
-                             });
+                    }
+                    if (progressEl) progressEl.style.width = `${progress}%`;
+
+                    /**
+                     * 达标后的低延迟首触（两种模式共用）。
+                     *
+                     * 与视频侧结构完全对齐：判定 → 节流检查 → 收口。
+                     * 5s 定时器只作补偿重试，这里才是主触发路径。
+                     * 幂等由 xyEngineCompleteAndAdvance 保证。
+                     */
+                    if (!playState.isProcessingJump && !playState.isTaskCompleted) {
+                        const dVerdict = xyEngineCheckCompletion(TASK_TYPE.DOC, {
+                            needSeconds: submitLine,
+                            readSeconds: playState.docReadTime
+                        });
+                        const sinceLast = playState.lastDocSubmitTime > 0
+                            ? playState.docReadTime - playState.lastDocSubmitTime : Infinity;
+                        if (dVerdict.done && sinceLast >= DOC_READ.RETRY_GAP_SECONDS) {
+                            /**
+                             * 与视频侧逐项同构：await 收口 → 未获放行且越过放行线 → 强制放行。
+                             * 文档页无需刷新即持续计时，故「异常兜底」表现为强制放行，
+                             * 视频侧因播完即静止才需重载——同一概念、同一触发条件、同一收口路径。
+                             * 记账在调用之后且跳过锁挡回的情形，口径与视频侧一致。
+                             */
+                            const dRes = await xyEngineCompleteAndAdvance({ silent: true, typeLabel: '文档任务' });
+                            if (dRes.fired) playState.lastDocSubmitTime = playState.docReadTime;
+                            if (!dRes.ok && !playState.isTaskCompleted
+                                && playState.docReadTime >= forceLine) {
+                                await xyEngineCompleteAndAdvance({ forcePass: true, typeLabel: '文档任务' });
+                            }
                         }
                     }
                     isMakingProgress = true;
@@ -6528,8 +7136,26 @@
                 }
             }
 
-            if (isMakingProgress || playState.isProcessingJump || recState.recordActive) {
+            /**
+             * [R3-06] 喂狗判据：只认「本 tick 确有推进」。
+             *
+             * 旧写法 `|| recState.recordActive` 把「学习记录开关开着」当成活性信号 ——
+             * 只要用户开着学习记录，watchdogLastActiveTime 每拍都被无条件刷新，
+             * 上面 `Date.now() - watchdogLastActiveTime > timeoutLimit` 永不成立，
+             * 防死锁强刷**整条分支是死代码**。
+             *
+             * [R3-17] 必须与 R3-06 同批改：视频元素取不到时（跨域 iframe 播放器
+             * 取不到 contentDocument、或播放器尚未渲染），isMakingProgress 恒为
+             * false；若简单地「不喂狗」就会每 3 分钟误判死锁并强刷，页面反复重载。
+             * 故给一个**有界**宽限窗口：连续取不到元素超过 120 拍（约 2 分钟）后
+             * 停止喂狗，把判定权交还看门狗 —— 既不误刷，也保留自愈能力。
+             */
+            if (isMakingProgress || playState.isProcessingJump) {
+                playState.videoMissingTicks = 0;
                 watchdogLastActiveTime = Date.now();
+            } else if (taskType === TASK_TYPE.VIDEO && !video) {
+                playState.videoMissingTicks = (playState.videoMissingTicks || 0) + 1;
+                if (playState.videoMissingTicks <= 120) watchdogLastActiveTime = Date.now();
             }
         } else {
             watchdogLastActiveTime = Date.now(); 
@@ -6575,63 +7201,98 @@
 
         const taskType = await getTaskTypeAccurate();
 
-        if (taskType === TASK_TYPE.VIDEO) {
-            let video = document.querySelector('video');
-            if (!video) { const iframes = document.querySelectorAll('iframe'); for (let i = 0; i < iframes.length; i++) { try { if (iframes[i].contentDocument) video = iframes[i].contentDocument.querySelector('video'); } catch(e){} if (video) break; } }
-            
-            if (video && (video.ended || (video.duration > 0 && playState.videoScriptProgress >= video.duration))) {
-                logMsg('⏳ 满足连播脚本进度，发起视频验证请求...', 'info', true);
-                const success = await autoSubmitCurrentTask();
-                
-                if (success) {
-                    playState.isTaskCompleted = true;
-                    logMsg('✅ [API] 视频任务已获服务器成功确认！', 'success');
-                    updateCourseUI();
-                    await tryJumpToNext();
-                } else {
-                    logMsg('⚠️ 后台仍判未达标，5秒后继续强交！', 'warning', true);
+        /**
+         * 判定口径与 1s 主循环**完全同源**：直接调 xyEngineCheckCompletion。
+         *
+         * 分工（两级触发，语义明确）：
+         *   1. 1s 主循环（首触）：拿到判定结果后立即尝试交卷，追求低延迟
+         *   2. 本 5s 定时器（补偿）：若主循环那次失败（网络抖动 / 服务端未就绪），
+         *      这里按 RETRY_GAP_SECONDS 节流重试，避免因一次失败就永久卡住
+         *
+         * 幂等由 xyEngineCompleteAndAdvance 保证（isTaskCompleted 已置位则直接返回），
+         * 因此两级触发不会重复提交。
+         */
+        const isDoc = taskType === TASK_TYPE.DOC;
+        const typeLabel = isDoc ? '文档任务' : '视频任务';
+
+        let videoEl = null;
+        if (!isDoc) {
+            videoEl = document.querySelector('video');
+            if (!videoEl) {
+                const iframes = document.querySelectorAll('iframe');
+                for (let i = 0; i < iframes.length; i++) {
+                    try { if (iframes[i].contentDocument) videoEl = iframes[i].contentDocument.querySelector('video'); } catch(e){}
+                    if (videoEl) break;
                 }
             }
-        } else if (taskType === TASK_TYPE.DOC) {
-            if (playState.docSubmitSeconds === 0 && playState.docForceSeconds === 0) {
-                try {
-                    const needMin = xyGetWatchMinutesForNode(getCourseGroupId(), getNodeId());
-                    if (needMin > 0) {
-                        playState.docSubmitSeconds = needMin;
-                        playState.docForceSeconds = Math.max(DOC_READ.FORCE_SECONDS, needMin * 60 + 10 + 170);
-                        logMsg(`⏱ 检测到时长要求：本任务需累计观看 ${needMin} 分钟，交卷线已动态对齐`, 'info', true);
-                    }
-                } catch (e) { /* 雷达不可用时保持默认阈值 */ }
-            }
-            const submitLine = xyDocEffectiveSubmitSeconds();
-            if (playState.docReadTime >= submitLine) {
-                if (playState.lastDocSubmitTime === 0 || (playState.docReadTime - playState.lastDocSubmitTime >= DOC_READ.RETRY_GAP_SECONDS)) {
-                    let isDocRetry = playState.lastDocSubmitTime > 0;
-                    logMsg(isDocRetry ? `⏳ 文档未达标，周期性重试提交 (${playState.docReadTime}s)...` : `⏳ ${Math.floor(submitLine / 60)}分${submitLine % 60}秒已到，发起首次文档验证请求...`, 'info', true);
+        }
 
-                    const success = await autoSubmitCurrentTask();
-                    playState.lastDocSubmitTime = playState.docReadTime;
+        const needSeconds = isDoc ? xyDocEffectiveSubmitSeconds() : 0;
+        const verdict = xyEngineCheckCompletion(taskType, {
+            video: videoEl,
+            needSeconds,
+            readSeconds: playState.docReadTime
+        });
 
-                    if (success) {
-                        playState.isTaskCompleted = true;
-                        logMsg('✅ [API] 文档任务已获服务器成功确认！', 'success');
-                        updateCourseUI();
+        if (!verdict.done) {
+            /**
+             * 未达标：**不写状态栏**，直接返回。
+             *
+             * 状态栏（#xy-video-status / #xy-doc-status）的唯一写入者是 1s 主循环，
+             * 它掌握每 tick 的实时进度。本定时器是 5s 周期，若在此写文案会与
+             * 主循环交替覆盖同一元素，表现为「阅读中 / 阅读倒数」反复抢时间。
+             * 按「一个元素一个写入者」原则，展示层全部交由 1s 主循环。
+             */
+            return;
+        }
 
-                        await tryJumpToNext();
-                    } else {
-                        const forceLine = xyDocEffectiveForceSeconds();
-                        if (playState.docReadTime >= forceLine) {
-                            logMsg(`⚡ 超过 ${Math.round(forceLine / 60)} 分钟仍未达标，触发【强制提交放行】保护机制！`, 'warning', false);
-                            playState.isTaskCompleted = true;
-                            updateCourseUI();
+        const lastAttempt = isDoc ? playState.lastDocSubmitTime : playState.lastVideoSubmitTime;
+        const gap = DOC_READ.RETRY_GAP_SECONDS;
+        /** 节流基准与记账基准必须同源：文档看 docReadTime，视频看 videoWatchSeconds */
+        const nowTick = isDoc ? playState.docReadTime : (playState.videoWatchSeconds || 0);
+        const elapsedSince = lastAttempt > 0 ? (nowTick - lastAttempt) : Infinity;
+        if (elapsedSince < gap) return;   // 距上次尝试不足重试间隔，等下一轮
 
-                            await tryJumpToNext();
-                        } else {
-                            logMsg(`⚠️ 文档验证未通过，将在${DOC_READ.RETRY_GAP_SECONDS}秒后利用API重试 (当前${playState.docReadTime}s/${forceLine}s强行线)`, 'warning', false);
-                        }
-                    }
-                }
-            }
+        logMsg(isDoc
+            ? (lastAttempt > 0
+                ? `⏳ 文档未达标，周期性重试提交 (${playState.docReadTime}s)...`
+                : `⏳ ${Math.floor(needSeconds / 60)}分${needSeconds % 60}秒已到，发起首次文档验证请求...`)
+            : (lastAttempt > 0
+                ? `⏳ 视频未获放行，周期性重试提交 (${playState.videoWatchSeconds || 0}s)...`
+                : `⏳ 满足脚本进度，发起视频验证请求...`), 'info', true);
+
+        const ok = await xyEngineCompleteAndAdvance({ typeLabel });
+        /**
+         * 记录本次尝试时刻（两种类型统一记账，供上面的节流判定使用）。
+         * 仅当这次**确实发出过**提交才记账：被锁挡回（已在途）时 fired 为 false，
+         * 请求根本没发出，记进去会白等一个重试周期。
+         * fired 经返回值透传，不读共享状态，并发另一路无法污染。
+         *
+         * 两种类型各记各自的计时基准：文档用 docReadTime，视频用 videoWatchSeconds
+         * （docReadTime 在视频页不自增，用它会把账本永远记在 0 上）。
+         */
+        if (ok.fired) {
+            if (isDoc) playState.lastDocSubmitTime = playState.docReadTime;
+            else playState.lastVideoSubmitTime = playState.videoWatchSeconds || 0;
+        }
+
+        if (ok.ok) return;
+
+        /**
+         * 未获确认的统一兜底：**两种类型共用同一条强制放行线**。
+         * 原来只有文档有 forceLine 兜底，视频走「5秒后继续强交」而无上限，
+         * 会出现视频端点反复重试却永不放弃。现在统一：超过放行线即强制推进，
+         * 保证任何类型都不会无限卡死。
+         *
+         * 计时基准与上面记账一致：文档看 docReadTime，视频看 videoWatchSeconds。
+         */
+        const forceLine = xyDocEffectiveForceSeconds();
+        const elapsed = isDoc ? playState.docReadTime : (playState.videoWatchSeconds || 0);
+        if (elapsed >= forceLine) {
+            logMsg(`⚡ ${typeLabel}超过 ${Math.round(forceLine / 60)} 分钟仍未获确认，触发【强制提交放行】保护机制！`, 'warning', false);
+            await xyEngineCompleteAndAdvance({ forcePass: true, typeLabel });
+        } else {
+            logMsg(`⚠️ ${typeLabel}验证未通过，将在${gap}秒后重试 (当前${elapsed}s/${forceLine}s放行线)`, 'warning', false);
         }
     }, 5000, 10);
 
@@ -6663,7 +7324,7 @@
         if (!discState.discussionId || !discState.discGroupId) { showToast('未捕获到ID，请重刷页面获取截包！', 'warning'); return null; }
         try {
             const token = await getAuthToken(); 
-            const res = await fetch(`https://${domain}/api/jx-iresource/discussion/queryDiscussion?discussion_id=${discState.discussionId}&group_id=${discState.discGroupId}&sort_type=1&sort_way=desc&page_index=${pageIndex}&page_size=${pageSize}&channel=`, { headers: { "authorization": `Bearer ${token}` } });
+            const res = await xyFetch(`https://${domain}/api/jx-iresource/discussion/queryDiscussion?discussion_id=${discState.discussionId}&group_id=${discState.discGroupId}&sort_type=1&sort_way=desc&page_index=${pageIndex}&page_size=${pageSize}&channel=`, { headers: { "authorization": `Bearer ${token}` } });
             const data = await res.json();
             if (data.success && data.data) {
                 if (Array.isArray(data.data.list)) return data.data.list; if (Array.isArray(data.data.records)) return data.data.records; if (Array.isArray(data.data.points)) return data.data.points; if (Array.isArray(data.data)) return data.data;
@@ -6679,7 +7340,7 @@
      */
     async function fetchCurrentUsers() {
         if (playState.activeZone !== ZONE.DISC) return;
-        if(!discState.discussionId) { logMsg('未拦截到讨论区ID，请随便点击一下任意评论！', 'warning'); return; }
+        if(!discState.discussionId) { logMsg('未捕获到交流区ID，请随便点击一下任意评论！', 'warning'); return; }
         const btn = document.getElementById('xy-btn-fetch-users'); const originalText = btn ? btn.innerText : '';
         const stopBtn = document.getElementById('xy-btn-stop-scrape');
         if(btn) { btn.disabled = true; btn.innerText = "深潜抓取中..."; }
@@ -6754,7 +7415,7 @@
             let pageIndex = 1;
             
             while(true) {
-                btn.innerText = `检索点赞目标 (页${pageIndex})...`;
+                btn.innerText = `检索互动目标 (页${pageIndex})...`;
                 const list = await fetchDiscussions(20, pageIndex); 
                 if (!list || list.length === 0) break;
                 
@@ -6778,18 +7439,18 @@
             const uniqueTargets = []; const seenIds = new Set();
             for (const t of targets) { if (!seenIds.has(t.id)) { seenIds.add(t.id); uniqueTargets.push(t); } }
 
-            let successCount = 0; const token = await getAuthToken(); logMsg(`锁定 ${uniqueTargets.length} 个目标评论，准备就绪，开始自动点赞...`, 'info');
+            let successCount = 0; const token = await getAuthToken(); logMsg(`锁定 ${uniqueTargets.length} 个目标评论，准备就绪，开始批量互动...`, 'info');
             
-            btn.innerText = `点赞发射中...`;
+            btn.innerText = `互动处理中...`;
             for (let i = 0; i < uniqueTargets.length; i++) {
                 const item = uniqueTargets[i]; const payload = { discussion_id: discState.discussionId, group_id: discState.discGroupId, point_id: item.id, like: 1 };
                 try {
-                    const likeRes = await fetch(`https://${domain}/api/jx-iresource/discussion/like`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify(payload) });
+                    const likeRes = await xyFetch(`https://${domain}/api/jx-iresource/discussion/like`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify(payload) });
                     const likeData = await likeRes.json(); if (likeData.success || likeData.code === 200 || likeData.code === 0) { successCount++; }
-                } catch(e) { console.warn('[小雅] 讨论点赞失败', e); } await sleep(Math.floor(Math.random() * 700) + 800); 
+                } catch(e) { console.warn('[小雅] 互动处理失败', e); } await sleep(Math.floor(Math.random() * 700) + 800); 
             }
-            logMsg(`🎉 点赞任务结束！成功点赞 ${successCount} 次！即将刷新页面...`, 'success'); setTimeout(() => { window.location.reload(); }, 1500);
-        } catch (e) { logMsg('点赞异常', 'error'); } finally { btn.disabled = false; btn.innerText = originalText; }
+            logMsg(`🎉 互动任务结束！成功处理 ${successCount} 次！即将刷新页面...`, 'success'); setTimeout(() => { window.location.reload(); }, 1500);
+        } catch (e) { logMsg('互动异常', 'error'); } finally { btn.disabled = false; btn.innerText = originalText; }
     }
     /**
      * 回复文案选取：useCustomReply 开启且 customReplies 非空 → 随机取用户自定义
@@ -6905,7 +7566,7 @@
                 };
                 
                 try {
-                    const replyRes = await fetch(`https://${domain}/api/jx-iresource/discussion/comment`, { 
+                    const replyRes = await xyFetch(`https://${domain}/api/jx-iresource/discussion/comment`, { 
                         method: "POST", 
                         headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, 
                         body: JSON.stringify(payload) 
@@ -6927,55 +7588,38 @@
     
     
     const EMBEDDED_NOTICE = {
-        "title": "📄 小雅辅助工具 v3.7.3.5 发布 · 连播修复",
-        "version": "3.7.3.5",
-        "updatedAt": "2026-09-14",
+        "title": "📄 小雅辅助工具 v3.7.3.2 发布 · 统一导出版",
+        "version": "3.7.3.2",
+        "updatedAt": "2026-08-31",
         "items": [
             "🔮 更新链接：https://gitee.com/fieldlu/xy-script-assets",
             "🔒 隐私声明：本脚本不收集任何个人信息，数据仅存本地浏览器",
             "⚠️ 免责声明：本脚本按 GPL-3.0 协议开源，使用者自负风险",
             "",
-            "⏰ === v3.7.3.5 更新 ===",
-            "📢 v3.7.3.5 已发布（2026-09-14 12:30），为最新版本，请及时更新。",
-            "🛠️ 修复有些连播不显示当前任务：连播在新标签页或复制链接打开时会被误判为新会话、清空正在跑的队列。现改为心跳判定，跨标签页不再断连播。",
-            "🛡️ 标签页被浏览器冻结或电脑休眠后切回，不再把仍在运行的连播误判为残留；页面恢复可见时自动续期。",
-            "🚦 跳转连续失败 3 次自动暂停调度并提示，不再无限重跳；该计数跨页累计，跳过 / 停止 / 重启时清零。",
-            "⏯️ 暂停不再丢现场，停止后立刻重启也不会被误清理队列；心跳写入改为 10 秒一次，长时间挂机更省资源。",
-            "📅 跳转中状态补齐「第 N/M 项」序号；跳转失败时自动复位，不再卡在「正在跳转」。",
-            "🔀 三个连播入口共用同一套基础筛选与去重逻辑，去重口径一致，各入口原有能力不变。",
-            "💓 心跳上报加了超时保护与重试抖动，长时间挂机更稳。",
-            "",
-            "⏰ === v3.7.3.4 更新 ===",
-            "📄 脚本头部新增开源协议与第三方声明：注明 GPL-3.0 协议与引用项目（小雅爬爬爬、小雅做做做、小雅自动刷、小雅粘粘粘）的致谢归属。",
-            "🔗 元数据新增 @source 指向仓库地址；许可证全文见仓库 LICENSE / LICENSE-MIT / LICENSE-APACHE / THIRD_PARTY_NOTICES.md。",
-            "",
-            "⏰ === v3.7.3.3 更新 ===",
-            "🎯 任务名可点击跳转；时长任务提交时机动态对齐教师设置的最低观看时长。",
-            "",
             "⏰ === v3.7.3.2 更新 ===",
-            "📄 统一导出：「导出作答文档」与「手写归档」合并成一个面板，普通导出 / 笔记版手写导出自由切换。",
-            "✅ 内容自由组合：题目、标准答案、我的作答三项可勾选，导出前有实时预览。",
+            "📄 统一导出：「导出题目与批改结果」与「手写归档」合并成一个面板，普通导出 / 笔记版手写导出自由切换。",
+            "✅ 内容自由组合：题目、标准答案、我的记录三项可勾选，导出前有实时预览。",
             "🖼️ 图片全保留：题目图、选项图、手写上传图在 Word / PDF / 图片 / 笔记版里都完整嵌入。",
             "🧩 组合题识别：1.1、1.2 这类大题套小题的作业现在能完整识别并按子题导出，每道子题旁带题图。",
             "🛠️ 修复：长文本不再超出页面边缘、行与行不再重叠。",
             "",
             "⏰ === v3.7.3.1 更新 ===",
             "🧹 内部清理：移除 15 个废弃函数（反馈旧问卷、Google 表单配置、鼠标模拟/深度伪装手动开关、看门狗停止器等）。",
-            "✅ 功能零变化：雷达连播、安全循环、防休眠、保活、鼠标模拟、深度伪装、作业、手写归档全部照常运行。",
+            "✅ 功能零变化：雷达调度、安全循环、防休眠、保活、鼠标模拟、深度伪装、作业、手写归档全部照常运行。",
             "📏 脚本体积缩减，加载更快。",
             "",
             "⏰ === v3.7.3.0 更新 ===",
-            "✨ 新增「作业手写归档」：作业题目与作答一键生成手写版，导出 .hinote / PDF / JPG，手写作业免手抄。",
-            "🛡️ 修复「文件预览确认」弹窗卡住问题，挂机流程不再被拦截。",
+            "✨ 新增「作业手写归档」：作业题目与批改结果一键生成手写版，导出 .hinote / PDF / JPG，手写归档免手抄。",
+            "🛡️ 修复「文件预览确认」提示框卡住问题，挂机流程不再被拦截。",
             "📝 修复访问非本人课程时误显示学情概览的问题。",
-            "📝 作业区数据全面修复：适配平台新版接口，题目、作答记录与批改状态均可正常识别。",
+            "📝 作业区数据全面修复：适配平台新版接口，题目、我的记录与批改状态均可正常识别。",
             "🧹 面板精简：移除冗余开关，仅保留「强制静音」，各引擎默认开启。",
             "⚡ 作业自动拉取增加 10 秒冷却，避免请求过于频繁。",
             "",
             "⏰ === v3.7.2.6 更新 ===",
             "🎨 界面美化版：优化一处交互样式细节，视觉呈现更统一、更精致。",
             "⏰ === v3.7.2.5 更新 ===",
-            "🎬 新增视频(VOD)直链下载，课程视频自动换流出公网 mp4 保存",
+            "🎬 新增视频离线归档：课程视频可保存为本地 mp4 文件，便于离线复习",
             "📐 浮窗自由缩放：八方向拖拽调整宽高，双击右下角手柄复位",
             "https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js"
         ]
@@ -7205,8 +7849,8 @@
         if (playState.activeZone !== ZONE.DISC) return;
         const statusEl = document.getElementById('xy-disc-status');
         if (statusEl) {
-            if (discState.discussionId) { statusEl.innerHTML = `<span style="color:${T('#34d399','#065f46')};">✅ 已锁定讨论区：${discState.discussionId.substring(0,8)}...</span>`; statusEl.style.background = T('rgba(52,211,153,0.1)','#ecfdf5'); statusEl.style.borderColor = T('rgba(52,211,153,0.2)','#a7f3d0'); document.querySelectorAll('.xy-action-btn.disc-btn').forEach(b => b.style.opacity = '1'); }
-            else { statusEl.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">⚠️ 请在讨论区内刷新页面 (或随意点击评论) 触发网络包获取ID</span>`; statusEl.style.background = T('rgba(251,191,36,0.1)','#fffbeb'); statusEl.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a'); }
+            if (discState.discussionId) { statusEl.innerHTML = `<span style="color:${T('#34d399','#065f46')};">✅ 已锁定交流区：${discState.discussionId.substring(0,8)}...</span>`; statusEl.style.background = T('rgba(52,211,153,0.1)','#ecfdf5'); statusEl.style.borderColor = T('rgba(52,211,153,0.2)','#a7f3d0'); document.querySelectorAll('.xy-action-btn.disc-btn').forEach(b => b.style.opacity = '1'); }
+            else { statusEl.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">⚠️ 请在交流区内刷新页面 (或随意点击评论) 触发网络包获取ID</span>`; statusEl.style.background = T('rgba(251,191,36,0.1)','#fffbeb'); statusEl.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a'); }
         }
     }
 
@@ -7280,7 +7924,7 @@
             const token = await getAuthToken(); 
             
             
-            const res1 = await fetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { method: "GET", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" } }); 
+            const res1 = await xyFetch(`https://${domain}/api/jx-stat/group/task/un_finish`, { method: "GET", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" } }); 
             const data1 = await res1.json(); 
             let unfinishedTasks = [];
             if (data1.success && data1.data) {
@@ -7314,7 +7958,7 @@
 
             // 拉取全部学生课程，补齐 courseMap（调度/雷达显示所有课程）
             try {
-                const gr = await fetch(`https://${domain}/api/jx-iresource/group/student/groups?time_flag=1`, { headers: { "authorization": `Bearer ${token}` } });
+                const gr = await xyFetch(`https://${domain}/api/jx-iresource/group/student/groups?time_flag=1`, { headers: { "authorization": `Bearer ${token}` } });
                 const gj = await gr.json();
                 const gdata = gj && gj.data;
                 const garr = Array.isArray(gdata) ? gdata : (gdata && (Array.isArray(gdata.groups) ? gdata.groups : (Array.isArray(gdata.list) ? gdata.list : [])));
@@ -7332,7 +7976,7 @@
             if (groupIds.length > 0) {
                 const fetchPromises = groupIds.map(async (gId) => {
                     try {
-                        const r = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${gId}`, { headers: { "authorization": `Bearer ${token}` } });
+                        const r = await xyFetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${gId}`, { headers: { "authorization": `Bearer ${token}` } });
                         const d = await r.json();
                         return { gId, gName: courseMap[gId], data: d };
                     } catch (e) { console.warn('[小雅] 课程资源批量探测失败:', gId, e); return null; }
@@ -7406,7 +8050,7 @@
                 }
 
                 try {
-                    const response = await fetch(`https://${domain}/api/jx-iresource/resource/finishActivity`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify({ "group_id": task.group_id, "node_id": task.node_id, "task_id": task.task_id || task.id }) });
+                    const response = await xyFetch(`https://${domain}/api/jx-iresource/resource/finishActivity`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify({ "group_id": task.group_id, "node_id": task.node_id, "task_id": task.task_id || task.id }) });
                     const data = await response.json(); 
                     if (data.success) { 
                         logMsg(`✅ 任务提交成功：${task.name}`, 'success', true); 
@@ -7453,7 +8097,7 @@
             
             const finalSubmitBtn = document.getElementById('xy-batch-submit-btn');
             if (finalSubmitBtn) {
-                finalSubmitBtn.innerText = '🚀 一键提交勾选任务';
+                finalSubmitBtn.innerText = '🚀 完成确认选中任务';
                 finalSubmitBtn.disabled = false;
             }
 
@@ -7462,6 +8106,21 @@
             }
 
         } catch(e) { console.warn('[小雅] 全局任务执行失败', e); }
+        /**
+         * [R3-07] 按钮状态恢复必须在 finally 里。
+         *
+         * 旧实现只在正常路径末尾（循环之后）恢复，catch 里不复原地直接吞掉异常。
+         * 循环内 `fetchGlobalTasks()` / `renderGlobalDashboardContent()` 任一抛错
+         * 都会跳出循环进 catch —— 按钮永久停留在「🔄 正在同步雷达数据...」且
+         * disabled=true，用户只能刷新页面。
+         */
+        finally {
+            const restoreBtn = document.getElementById('xy-batch-submit-btn');
+            if (restoreBtn) {
+                restoreBtn.innerText = '🚀 完成确认选中任务';
+                restoreBtn.disabled = false;
+            }
+        }
     }
     /** 打开全局任务雷达面板：置 overlay 可见 → fetchGlobalTasks 拉数据 → renderGlobalDashboardContent 全量渲染。关闭按钮在面板内绑定。
      * [DEEP-DOC]
@@ -7479,7 +8138,7 @@
                     <div style="text-align:center; padding:60px; color:${T('#94a3b8','#64748b')}; font-size:18px; letter-spacing: 0.5px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描全局雷达与所有课程的已完成任务...</span></div>
                 </div>
                 <div id="xy-dashboard-footer" style="display:none; padding:20px 32px; background:${T('rgba(15,23,42,0.8)','#f8fafc')}; border-top:1px solid ${T('rgba(71,85,105,0.25)','#e2e8f0')}; flex-shrink: 0; justify-content:center; box-shadow: ${T('0 -4px 20px rgba(0,0,0,0.15)','none')};">
-                    <button id="xy-batch-submit-btn" style="width:100%; max-width:700px; background:linear-gradient(135deg, #6366f1, #4f46e5); color:white; border:none; padding:18px; border-radius:14px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow:0 8px 24px rgba(99,102,241,0.3); transition:all 0.2s; letter-spacing: 1px;" onmouseover="this.style.transform='translateY(-2px)';" onmouseout="this.style.transform='none';">🚀 一键提交勾选任务</button>
+                    <button id="xy-batch-submit-btn" style="width:100%; max-width:700px; background:linear-gradient(135deg, #6366f1, #4f46e5); color:white; border:none; padding:18px; border-radius:14px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow:0 8px 24px rgba(99,102,241,0.3); transition:all 0.2s; letter-spacing: 1px;" onmouseover="this.style.transform='translateY(-2px)';" onmouseout="this.style.transform='none';">🚀 完成确认选中任务</button>
                 </div>
             </div>
         `;
@@ -7493,7 +8152,7 @@
     async function fetchCourseResourcesForRadar(gid) {
         try {
             const token = await getAuthToken();
-            const res = await fetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${gid}`, { headers: { "authorization": `Bearer ${token}` } });
+            const res = await xyFetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${gid}`, { headers: { "authorization": `Bearer ${token}` } });
             const data = await res.json();
             if (data.success && data.data) return data.data;
         } catch(e) { console.warn('[小雅] 雷达课程资源请求失败:', gid, e); }
@@ -7541,7 +8200,7 @@
      * [DEEP-DOC]
      */
     function buildRadarTaskCard(task) {
-        window.xyGlobalTaskMap.set(task.task_id || task.id, task);
+        window.xyGlobalTaskMap.set(String(task.task_id || task.id), task);
         const now = new Date();
         const endTime = new Date(task.end_time);
         const startTime = new Date(task.start_time);
@@ -7560,7 +8219,7 @@
         const typeStr = {1:'👁️ 自主观看', 2:'✍️ 作业', 3:'📚 课堂练习', 4:'💯 测验', 5:'📋 问卷', 6:'💭 讨论'}[task.task_type] || '📌 未知';
         return `
             <div id="xy-global-task-card-${task.task_id || task.id}" style="background:${T('rgba(30,41,59,0.35)','#ffffff')}; border-radius:12px; padding:16px; display:flex; align-items:center; gap:20px; transition: all 0.3s; ${borderStyle}">
-                <input type="checkbox" class="xy-task-check" value="${task.task_id || task.id}" ${enableCheck?'':'disabled'} style="width:20px; height:20px; cursor:${enableCheck?'pointer':'not-allowed'}; accent-color:#818cf8; flex-shrink: 0;">
+                <input type="checkbox" class="xy-task-check" value="${escAttr(String(task.task_id || task.id))}" ${enableCheck?'':'disabled'} style="width:20px; height:20px; cursor:${enableCheck?'pointer':'not-allowed'}; accent-color:#818cf8; flex-shrink: 0;">
                 <div style="flex:1;">
                     <div style="font-size:15px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; margin-bottom:8px; display:flex; align-items:center; letter-spacing: 0.5px;">
                         ${escapeHtml(task.name) || '未知任务'} ${currentMark}
@@ -7643,7 +8302,7 @@
             html += `
                 <div style="background:${T('rgba(30,41,59,0.5)','#ffffff')}; border-radius:20px; border:1px solid ${T('rgba(71,85,105,0.25)','#e2e8f0')}; overflow:hidden; box-shadow:${T('0 6px 16px rgba(0,0,0,0.15)','0 1px 3px rgba(0,0,0,0.04)')}; margin-bottom: 16px;">
                     <div class="xy-global-group-header" data-target="${safeId}" style="background:${T('rgba(30,41,59,0.7)','#f8fafc')}; padding:16px 24px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; border-bottom:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none; transition:background 0.2s;">
-                        <span style="font-size:16px; letter-spacing: 0.5px;">📚 ${courseName || '未知课程'}</span>
+                        <span style="font-size:16px; letter-spacing: 0.5px;">📚 ${escAttr(courseName) || '未知课程'}</span>
                         <div style="display:flex; align-items:center; gap:12px;">
                             <span style="background:${T('rgba(99,102,241,0.15)','#e0e7ff')}; color:${T('#a5b4fc','#3730a3')}; padding:4px 12px; border-radius:12px; font-size:13px; font-weight:700;">${courseTasks.length} 个任务</span>
                             <span class="xy-global-group-arrow" style="transition: transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size: 12px;">▼</span>
@@ -7663,7 +8322,7 @@
                     const unitId = safeId + '-u' + ui++;
                     html += `
                         <div style="margin-bottom:12px;">
-                            <div class="xy-global-unit-header" data-target="${unitId}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; border:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')}; cursor:pointer; user-select:none;">
+                            <div class="xy-global-unit-header" data-target="${escAttr(String(unitId))}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; border:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')}; cursor:pointer; user-select:none;">
                                 <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📂 ${escapeHtml(unitName)}</span>
                                 <span style="background:${T('rgba(99,102,241,0.15)','#e0e7ff')}; color:${T('#a5b4fc','#3730a3')}; padding:2px 10px; border-radius:10px; font-size:12px; font-weight:700; white-space:nowrap;">${unitTasks.length} 个任务</span>
                                 <span class="xy-global-unit-arrow" style="transition:transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size:11px;">▼</span>
@@ -7724,7 +8383,8 @@
             const checkedNodes = Array.from(document.querySelectorAll('.xy-task-check:checked')).map(cb => cb.value);
             if (checkedNodes.length === 0) { showToast('未勾选任何提交目标', 'warning'); return; }
             submitBtn.innerText = '⏳ 正在批量提交任务...'; submitBtn.disabled = true;
-            batchSubmitGlobalTasks(checkedNodes.map(id => window.xyGlobalTaskMap.get(id)).filter(Boolean));
+            // [R3-03] Map 键统一为字符串：写入侧 String()，读取侧（cb.value 恒为字符串）亦显式 String() 保持对称
+    batchSubmitGlobalTasks(checkedNodes.map(id => window.xyGlobalTaskMap.get(String(id))).filter(Boolean));
         };
     }
     /**
@@ -7858,11 +8518,11 @@
      */
     async function oneClickRadarPlay() {
         if (xyScheduleState.isRunning) {
-            showToast('计划调度正在运行中，请先停止后再一键连播', 'warning');
+            showToast('计划调度正在运行中，请先停止后再启动', 'warning');
             return;
         }
 
-        logMsg('🔊 一键雷达连播：正在扫描全网未完成任务...', 'info', false);
+        logMsg('🔊 雷达调度：正在扫描全网未完成任务...', 'info', false);
         showToast('正在扫描全网任务...', 'info');
 
         const allTasks = await fetchGlobalTasks();
@@ -7878,7 +8538,7 @@
         });
 
         if (pendingTasks.length === 0) {
-            logMsg('🔊 一键连播：全网未发现可挂机的待完成任务', 'warning', false);
+            logMsg('🔊 顺序调度：全网未发现可挂机的待完成任务', 'warning', false);
             showToast('未发现待完成的视频/文档任务', 'warning');
             return;
         }
@@ -7913,8 +8573,8 @@
         saveScheduleState();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
 
-        logMsg(`🔊 一键连播：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
-        showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动连播`, 'success');
+        logMsg(`🔊 顺序调度：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
+        showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动顺序调度`, 'success');
 
         
         xyScheduleState.lastMode = playState.mode;
@@ -7923,7 +8583,6 @@
 
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
-        xyScheduleHeartbeat(true);
         saveScheduleState();
 
         updateCourseUI();
@@ -7934,7 +8593,7 @@
         const firstTask = xyScheduleState.queue[0];
         if (firstTask) {
             const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
-            logMsg(`🔊 一键连播：正在跳转至首个任务「${(firstTask.name||'未知').substring(0,12)}」...`, 'success', false);
+            logMsg(`🔊 顺序调度：正在跳转至首个任务「${(firstTask.name||'未知').substring(0,12)}」...`, 'success', false);
             setTimeout(() => {
                 window.location.href = `/app/jx-web/${pathPrefix}/${firstTask.groupId}/${firstTask.resourceId}/${firstTask.nodeId}`;
             }, 800);
@@ -7964,14 +8623,24 @@
             if (btn) { btn.innerText = '⚡ 秒交中...'; btn.disabled = true; }
             logMsg('⚡ 极速秒交：正在提交当前页面任务...', 'info', false);
 
-            const success = await autoSubmitCurrentTask();
+            /**
+             * ⚠️ autoSubmitCurrentTask 返回的是**结果对象** `{ok, skipped, confirmed}`，
+             * 不是裸布尔。曾写成 `if (success)` —— 对象恒为 truthy，
+             * 于是无论提交成功、失败还是被锁挡回，都会走进「秒交成功」分支，
+             * 并把 isTaskCompleted 无条件置 true（一次典型的「服务端没确认、
+             * 本地却宣告达标」的数据错误）。必须读 .ok。
+             */
+            const res = await autoSubmitCurrentTask();
 
-            if (success) {
+            if (res.ok) {
                 logMsg('✅ 极速秒交成功！当前任务已提交', 'success', false);
                 showToast('秒交成功！', 'success');
                 playState.isTaskCompleted = true;
                 updateCourseUI();
-        
+            } else if (res.skipped) {
+                // 被并发锁挡回：已有一次提交在途，这不是失败，只是时机不对
+                logMsg('⏳ 已有提交在途，请稍候再试', 'info', false);
+                showToast('已有提交在途', 'warning');
             } else {
                 logMsg('❌ 秒交失败：可能需要先挂机积累时长', 'warning', false);
                 showToast('秒交失败，请先挂机积累时长', 'warning');
@@ -8025,7 +8694,7 @@
                 let contentHtml = `
                     <div style="display:flex; align-items:center; gap:8px;">
                         <select class="xy-sch-strategy" data-uuid="${item.uuid}" style="padding:4px 8px; border-radius:6px; border:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; font-size:13px; outline:none; background:${T('rgba(15,23,42,0.5)','#ffffff')}; color:${T('#e2e8f0','#0f172a')};" ${isActive||isCompleted ? 'disabled' : ''}>
-                            <option value="until_done" ${item.strategy===STRATEGY.UNTIL_DONE?'selected':''}>🎯 达标即跳(连播)</option>
+                            <option value="until_done" ${item.strategy===STRATEGY.UNTIL_DONE?'selected':''}>🎯 达标即跳(顺序调度)</option>
                             <option value="duration" ${item.strategy===STRATEGY.FIXED_DURATION?'selected':''}>🕒 刷固定时长</option>
                             <option value="infinite" ${item.strategy===STRATEGY.INFINITE?'selected':''}>♾️ 无限挂机</option>
                         </select>
@@ -8196,7 +8865,7 @@
             };
 
             const buildSchLibCard = (task) => {
-                window.xyGlobalTaskMap.set(task.task_id || task.id, task);
+                window.xyGlobalTaskMap.set(String(task.task_id || task.id), task);
                 const isCompleted = task.finish === 2;
                 const name = (task.name || '').toLowerCase();
                 const isVideo = SHARED_PATTERNS.MEDIA.test(name);
@@ -8213,7 +8882,7 @@
                                 ${statusUI}
                             </div>
                         </div>
-                        <button class="xy-sch-add-btn" data-tid="${task.task_id || task.id}" style="background:linear-gradient(135deg, #6366f1, #4f46e5); color:white; border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:pointer; transform: translateY(0); transition:0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">+ 添加</button>
+                        <button class="xy-sch-add-btn" data-tid="${escAttr(String(task.task_id || task.id))}" style="background:linear-gradient(135deg, #6366f1, #4f46e5); color:white; border:none; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:bold; cursor:pointer; transform: translateY(0); transition:0.2s;" onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">+ 添加</button>
                     </div>`;
             };
 
@@ -8247,7 +8916,7 @@
 
                 html += `
                     <div class="xy-sch-group-header" data-idx="${groupIdx}" style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; padding:12px 16px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; margin: 16px 0 8px 0; font-size:14px; position:sticky; top:0; z-index:2; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; transition:background 0.2s;">
-                        <span>📚 ${courseName || '未知课程'} <span style="font-size:12px; color:${T('#94a3b8','#64748b')}; font-weight:normal; margin-left:6px;">(${validTasks.length}个节点)</span></span>
+                        <span>📚 ${escAttr(courseName) || '未知课程'} <span style="font-size:12px; color:${T('#94a3b8','#64748b')}; font-weight:normal; margin-left:6px;">(${validTasks.length}个节点)</span></span>
                         <span class="xy-sch-group-arrow" style="transition: transform 0.2s; font-size:12px; color:${T('#64748b','#94a3b8')};">▼</span>
                     </div>
                     <div class="xy-sch-group-content" id="xy-sch-group-${groupIdx}" style="display:flex; flex-direction:column; gap:8px;">
@@ -8267,7 +8936,7 @@
                         const unitId = 'xy-sch-group-' + groupIdx + '-u' + (ui++);
                         html += `
                             <div>
-                                <div class="xy-sch-unit-header" data-target="${unitId}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.45)','#f8fafc')}; border-radius:8px; border:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; cursor:pointer; user-select:none;">
+                                <div class="xy-sch-unit-header" data-target="${escAttr(String(unitId))}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.45)','#f8fafc')}; border-radius:8px; border:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; cursor:pointer; user-select:none;">
                                     <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📂 ${escapeHtml(unitName)}</span>
                                     <span style="font-size:11px; color:${T('#94a3b8','#64748b')}; white-space:nowrap;">${validUnitTasks.length} 个</span>
                                     <span class="xy-sch-unit-arrow" style="transition:transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size:10px;">▼</span>
@@ -8323,8 +8992,9 @@
 
             document.querySelectorAll('.xy-sch-add-btn').forEach(btn => {
                 btn.onclick = async (e) => {
-                    const tid = e.target.getAttribute('data-tid');
-                    const task = window.xyGlobalTaskMap.get(tid);
+const tid = e.target.getAttribute('data-tid');
+    // [R3-03] getAttribute 恒为字符串，与写入侧 String(...) 对齐，避免 number/string 键 miss
+    const task = window.xyGlobalTaskMap.get(String(tid));
                     if (task) {
                         const originalText = e.target.innerText;
                         e.target.innerText = '提取中...';
@@ -8481,7 +9151,6 @@
 
             xyScheduleState.isRunning = true;
             xyScheduleState.isPaused = false;
-            xyScheduleHeartbeat(true);
             saveScheduleState();
 
             updateCourseUI();
@@ -8509,8 +9178,6 @@
             xyScheduleState.isRunning = false;
             xyScheduleState.isPaused = false;
             xyScheduleHeartbeatClear();
-            xyJumpRetryReset();
-            playState.isJumping = false;
             try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
             playState.mode = xyScheduleState.lastMode || PLAY_MODE.SEQUENCE;
@@ -8626,7 +9293,6 @@
         GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
-        xyScheduleHeartbeat(true);
         saveScheduleState();
         updateCourseUI();
         updateSchCard();
@@ -8655,8 +9321,6 @@
         xyScheduleState.isRunning = false;
         xyScheduleState.isPaused = false;
         xyScheduleHeartbeatClear();
-        xyJumpRetryReset();
-        playState.isJumping = false;
         try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
         playState.mode = xyScheduleState.lastMode || PLAY_MODE.SEQUENCE;
         GM_setValue('xy_play_mode', playState.mode);
@@ -8668,27 +9332,12 @@
         logMsg('🛑 计划调度已强停', 'warning');
     };
 
-    /**
-     * 清空跳转重试计数（含跨页持久化）。
-     * 用户主动「跳过 / 停止 / 重新开始」时调用：这些动作代表用户已介入，
-     * 不应让上一个卡住任务的重试计数影响后续调度。
-     */
-    function xyJumpRetryReset() {
-        try {
-            playState.jumpRetryKey = '';
-            playState.jumpRetryCount = 0;
-            GM_setValue('xy_jump_retry_key', '');
-            GM_setValue('xy_jump_retry_count', 0);
-        } catch(e) {}
-    }
-
     window.xySchSkip = () => {
         if (!xyScheduleState.isRunning) return;
         const t = xyScheduleState.queue[xyScheduleState.currentIdx];
         if (t) { t.status = 'completed'; t.elapsedSec = t.elapsedSec || 0; }
         xyScheduleState.currentIdx++;
         playState.isJumping = false;
-        xyJumpRetryReset();
         saveScheduleState();
         updateCourseUI();
         updateSchCard();
@@ -8704,12 +9353,7 @@
         xyScheduleState.isPaused = false;
         xyScheduleState.lastMode = playState.mode;
         playState.mode = PLAY_MODE.MANUAL;
-        playState.isJumping = false;
-        xyJumpRetryReset();
         GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
-        // 重启需补心跳：停止/暂停路径会清心跳，若不补，重启后立刻刷新
-        // 会被判定为残留而清空刚恢复的队列。
-        xyScheduleHeartbeat(true);
         saveScheduleState();
         updateCourseUI();
         updateSchCard();
@@ -8732,8 +9376,6 @@
 
             xyScheduleState.isRunning = false;
             xyScheduleHeartbeatClear();
-            xyJumpRetryReset();
-            playState.isJumping = false;
             try { unsafeWindow._xyAntiThrottleStop?.(); } catch(e) {}
 
             
@@ -8758,6 +9400,14 @@
 
         if (currentTask.status === 'completed') {
             xyScheduleState.currentIdx++;
+            /**
+             * 切下一项前清空上一项的达标标志与计数 —— 走共用清场函数。
+             * 调度切任务不经过路由钩子（同一 SPA 内路由可能不触发重置），
+             * 若不清空，下一项会在第 6 秒被上一项残留的 isTaskCompleted 直接判达标
+             * 而跳过——「任务飞速跳过」的观感即源于此。
+             * 字段清单见 xyResetTaskProgress 的注释（含视频侧节流记账）。
+             */
+            xyResetTaskProgress();
             saveScheduleState();
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
             return;
@@ -8782,11 +9432,9 @@
                     playState.jumpRetryCount = 0;
                 }
                 playState.jumpRetryCount = (playState.jumpRetryCount || 0) + 1;
-                // 计数持久化：整页导航后 playState 重建，靠 GM 存储跨页累计。
-                try {
-                    GM_setValue('xy_jump_retry_key', playState.jumpRetryKey);
-                    GM_setValue('xy_jump_retry_count', playState.jumpRetryCount);
-                } catch(e) {}
+        // 跨页持久化：整页导航后计数不丢，才能在「落在错误节点」时跨页累计并触发暂停
+        GM_setValue('xy_jump_retry_key', playState.jumpRetryKey);
+        GM_setValue('xy_jump_retry_count', playState.jumpRetryCount);
 
                 if (playState.jumpRetryCount > 3) {
                     /**
@@ -8797,14 +9445,12 @@
                      *     用户被锁死（只能先「跳过」该任务才能恢复）。
                      * 复位后「继续」即从第 1 次重新尝试，行为可预期。
                      */
-                    playState.isJumping = false;
-                    playState.jumpRetryCount = 0;
-                    playState.jumpRetryKey = '';
-                    try {
-                        GM_setValue('xy_jump_retry_key', '');
-                        GM_setValue('xy_jump_retry_count', 0);
-                    } catch(e) {}
-                    xyScheduleState.isPaused = true;
+            playState.isJumping = false;
+            playState.jumpRetryCount = 0;
+            playState.jumpRetryKey = '';
+            GM_setValue('xy_jump_retry_key', '');
+            GM_setValue('xy_jump_retry_count', 0);
+            xyScheduleState.isPaused = true;
                     GM_setValue('xy_schedule_paused', true);
                     xyScheduleHeartbeatClear();
                     saveScheduleState();
@@ -8841,14 +9487,12 @@
             return;
         }
 
-        // 节点已对齐：跳转成功，复位重试计数（含跨页持久化），允许下一个任务重新计数。
+        // 节点已对齐：跳转成功，复位重试计数，允许下一个任务重新计数。
         if (playState.jumpRetryCount) {
             playState.jumpRetryCount = 0;
             playState.jumpRetryKey = '';
-            try {
-                GM_setValue('xy_jump_retry_key', '');
-                GM_setValue('xy_jump_retry_count', 0);
-            } catch(e) {}
+            GM_setValue('xy_jump_retry_key', '');
+            GM_setValue('xy_jump_retry_count', 0);
         }
 
         
@@ -8860,11 +9504,34 @@
             GM_setValue('xy_play_mode', desiredMode);
             updateCourseUI();
         }
+
+        /**
+         * 调度进任务后主动对齐达标时长（每个任务只做一次）。
+         * 调度切任务时 playState 未重置（只有路由钩子会重置），所以这里用
+         * actionDone 作为「本任务已对齐」的一次性闸门，避免重复发请求。
+         */
+        if (!currentTask.actionDone) {
+            currentTask.actionDone = true;
+            await xySyncWatchMinutesForCurrentNode();
+            saveScheduleState();
+        }
         
         currentTask.elapsedSec = (currentTask.elapsedSec || 0) + 1;
         
-        
-        watchdogLastActiveTime = Date.now();
+        /**
+         * ⚠️ 喂狗必须加条件，不能无条件刷。
+         *
+         * 旧写法是每拍无条件 `watchdogLastActiveTime = Date.now()` —— 后果是当任务**已达标**
+         * 但引擎因故未推进跳转（跳转条件被堵 / 下一页异常循环）时，看门狗时钟被持续刷新，
+         * 1s 循环里 `Date.now() - watchdogLastActiveTime > timeoutLimit` 永不成立 →
+         * 180s 防死锁重载**永不触发** → 页面卡在达标态空转、**没有任何自愈路径**。
+         *
+         * 保留喂狗的场景：① 任务尚未达标（还在等）；② 调度本身在跑（有自己的 elapsedSec
+         * 推进语义）。仅在「非调度态 + 已达标」时停止喂狗，把自愈权交还给看门狗。
+         */
+        if (!playState.isTaskCompleted || xyScheduleState.isRunning) {
+            watchdogLastActiveTime = Date.now();
+        }
 
         xyScheduleHeartbeat();
 
@@ -8878,20 +9545,35 @@
         let isDone = false;
         
         if (currentTask.strategy === STRATEGY.UNTIL_DONE) {
-            
+            /**
+             * 达标判定与两套引擎**完全同源**：唯一依据是 playState.isTaskCompleted
+             * （由 xyEngineCompleteAndAdvance 在获得服务端确认后写入）。
+             * elapsedSec > 5 仅作抖动保护，防止刚进页面时误读残留状态。
+             */
             if (playState.isTaskCompleted && currentTask.elapsedSec > 5) {
                 isDone = true;
             }
         } else if (currentTask.strategy === STRATEGY.FIXED_DURATION) {
-            
+            // 保留兼容：手动选「挂满固定时长」的任务仍按手填分钟数计时
             if (currentTask.elapsedSec >= currentTask.duration * 60) {
                 isDone = true;
             }
         }
+        /**
+         * ⚠️ STRATEGY.INFINITE（♾️ 无限挂机）在此**故意不设分支**，isDone 恒为 false。
+         * 这不是遗漏，是该策略的语义本身——「无限」就意味着本项永不结束、队列不推进。
+         * 显式写明以免后来者按「分支缺失」处理（误加 isDone = true 会让无限挂机被
+         * 1 秒后立即跳过）。若将来需要「无限挂机 N 分钟后跳过」，应新增独立策略枚举，
+         * 而不是改写 INFINITE 的语义。
+         */
         
 
         if (isDone) {
-            logMsg(`✅ 计划调度：任务【${(currentTask.name||'未知').substring(0,8)}...】已达标！即将进行下一项。`, 'success', false);
+            /**
+             * 日志口径与两套引擎统一：同为「已获服务器确认达标」。
+             * 调度只负责切项，不再复述引擎已经报过的话，避免同一事实两处措辞。
+             */
+            logMsg(`✅ 计划调度：【${(currentTask.name||'未知').substring(0,8)}...】已获服务器确认达标，切换下一项`, 'success', false);
             currentTask.status = 'completed';
             saveScheduleState();
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
@@ -9027,7 +9709,7 @@
      * [DEEP-DOC]
      */
     function hwFormatChoice(qData,answer) {
-        const ids=hwNormalizeAnswerIds(answer);if(!ids.length)return'未作答';
+        const ids=hwNormalizeAnswerIds(answer);if(!ids.length)return'无记录';
         return ids.map(id=>{const o=qData.options?.find(x=>String(x.id)===String(id));if(!o)return id;const t=o.text?' '+o.text:'';return o.letter+'.'+t}).join('；');
     }
     /** 填空题格式化：sItems 序号对应答案数组逐空展示「空N：内容」，缺答显示空位。
@@ -9035,32 +9717,32 @@
      */
     function hwFormatFill(qData,answer) {
         const p=hwMaybeParse(answer);
-        if(!p||typeof p!=='object'||Array.isArray(p)){const t=hwExtractPlainText(answer);return t||'未作答';}
+        if(!p||typeof p!=='object'||Array.isArray(p)){const t=hwExtractPlainText(answer);return t||'无记录';}
         const parts=(qData.sItems||[]).map((it,i)=>{const v=hwExtractPlainText(p[it.id]);return'空'+(i+1)+'：'+(v||'未填')});
-        return parts.length?parts.join('；'):'未作答';
+        return parts.length?parts.join('；'):'无记录';
     }
     /** 匹配题格式化：左右项按 id 配对输出「左项 → 右项」行序列。
      * [DEEP-DOC]
      */
     function hwFormatMatching(qData,answer) {
         const p=hwMaybeParse(answer);const l=qData.matchingLeftItems||[],r=qData.matchingRightItems||[];
-        if(!p||typeof p!=='object'||Array.isArray(p)){const t=hwExtractPlainText(answer);return t||'未作答';}
+        if(!p||typeof p!=='object'||Array.isArray(p)){const t=hwExtractPlainText(answer);return t||'无记录';}
         const rm=new Map(r.map(x=>[String(x.id),x]));let has=false;
         const lines=l.map(li=>{const rv=p[li.id]??p[String(li.id)];const rids=hwNormalizeAnswerIds(rv);if(!rids.length)return li.letter+'. '+(li.text||'')+' => 未匹配';has=true;const rt=rids.map(id=>{const ri=rm.get(String(id));return ri?ri.letter+'. '+(ri.text||''):id}).join('、');return li.letter+'. '+(li.text||'')+' => '+rt});
-        return has?lines.join('\n'):'未作答';
+        return has?lines.join('\n'):'无记录';
     }
     /** 作答内容总分发：按 qData.type 路由到 choice(1,2,5)/fill(4)/matching(13)/
      * rich(6)/附件(7 占位)；未知类型显示原始 JSON 截断。
      * [DEEP-DOC]
      */
     function hwFormatAnswer(qData,answer) {
-        if(!qData)return hwExtractPlainText(answer)||'未作答';
+        if(!qData)return hwExtractPlainText(answer)||'无记录';
         if(qData.type===1||qData.type===2||qData.type===5)return hwFormatChoice(qData,answer);
         if(qData.type===4)return hwFormatFill(qData,answer);
-        if(qData.type===6)return hwExtractRichDisplay(answer)||'未作答';
+        if(qData.type===6)return hwExtractRichDisplay(answer)||'无记录';
         if(qData.type===7)return'附件题';
         if(qData.type===13)return hwFormatMatching(qData,answer);
-        return hwExtractPlainText(answer)||'未作答';
+        return hwExtractPlainText(answer)||'无记录';
     }
     /** 标准答案提取（仅平台发布答案后下发）：优先 question.std_answer，兼容 answer 字段。
      * [DEEP-DOC]
@@ -9079,7 +9761,7 @@
      * [DEEP-DOC]
      */
     function hwGetResultState(a,qd) {
-        if(!a)return{label:'未作答',tone:'muted'};
+        if(!a)return{label:'无记录',tone:'muted'};
         const s=hwToNum(a.score),c=hwToNum(a.correct),fs=hwToNum(qd?.score);
         if(c===2||(s!==null&&fs!==null&&fs>0&&s>=fs))return{label:'正确',tone:'ok'};
         if(s!==null&&s>0)return{label:'部分得分',tone:'partial'};
@@ -9096,7 +9778,7 @@
     function hwBuildSubmissionResult(pd) {
         const ar=pd?.answer_record,answers=ar?.answers;
         if(!ar||!Array.isArray(answers)||!answers.length)return{state:hwQuestionsData.length?'not_submitted':'waiting',message:hwQuestionsData.length?'未检测到已提交作业记录。':'等待题目数据加载...'};
-        if(Number(ar.status)!==2)return{state:'not_submitted',message:'检测到作答记录，但当前任务尚未提交。'};
+        if(Number(ar.status)!==2)return{state:'not_submitted',message:'检测到作答记录，但当前任务尚未确认。'};
         const canShow=pd?.publish_record?.is_show_answer===true;
         const am=new Map(answers.map(a=>[String(a.question_id),a]));
         const qrs=hwQuestionsData.map(qd=>{const a=am.get(String(qd.id));const rs=hwGetResultState(a,qd);const s=hwToNum(a?.score),fs=hwToNum(qd.score);const st=s!==null?`${s} / ${fs!==null?fs:'-'} 分`:`- / ${fs!==null?fs:'-'} 分`;return{index:qd.index,id:qd.id,type:qd.type,typeLabel:hwTypeLabel(qd.type),title:qd.titleText,stateLabel:rs.label,tone:rs.tone,scoreText:st,userAnswer:hwFormatAnswer(qd,a?.answer),rawUserAnswer:a?.answer,standardAnswer:hwGetStdAnswer(qd,canShow)}});
@@ -9138,7 +9820,7 @@
      *   3. 元数据补齐：paper/group/node/record 四 ID 就位（已有值不覆盖）；
      *   4. 逐题清洗 forEach：题型分流——选择类分配字母、填空计空数、匹配题
      *      左右分列、附件标记免答；每题走 ParseRichContent 三元组解析 + 图片收集；
-     *      同时拼 AI 提示词模板 tpl（含作答格式说明头）；
+     *      同时拼 AI 提示词模板 tpl（含内容格式说明头）；
      *   5. 收尾：hwActiveTaskKey 固化 → BuildSubmissionResult → 非 dashboard
      *      钉住场景自动切作业区 → hwUpdateUI 全量刷新。
      *
@@ -9161,7 +9843,7 @@
         hwRecordId=hwRecordId||hwExtractRecordId(json.data);
         const qs=json.data.questions;
         hwQuestionsData=[];hwImageAssets=[];hwPdfQuestions=[];
-        let tpl='📌 答题任务单\n按下列题目作答，只输出答案本身，不要附带解析或任何说明文字。\n【答案格式】\n单选/判断 → 题号 => 大写字母（如 1 => A）\n多选 → 题号 => 字母，逗号分隔（如 2 => A,C）\n填空 → 题号 => 各空用竖线分隔（如 3 => const | let）\n简答 → 题号 => 完整文字\n匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）\n附件题无需作答。\n\n════════════════════\n以下为题目内容：\n════════════════════\n';
+        let tpl='📌 学习任务单\n按下列题目整理要点，只输出内容本身，不要附带解析或任何说明文字。\n【答案格式】\n单选/判断 → 题号 => 大写字母（如 1 => A）\n多选 → 题号 => 字母，逗号分隔（如 2 => A,C）\n填空 → 题号 => 各空用竖线分隔（如 3 => const | let）\n简答 → 题号 => 完整文字\n匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）\n附件题无作答内容。\n\n════════════════════\n以下为题目内容：\n════════════════════\n';
         qs.forEach((q,idx)=>{
             /* 组合题（type 9）：大题干 + subQuestions[] 子题，作答记录按子题 id 拍平。
                按用户约定展开为 1.1 / 1.2 独立条目；大题干并入每道子题标题前，保证
@@ -9288,7 +9970,7 @@
                          一次拿全 questions + answer_record（批改状态） */
                     const resUrl = `https://${domain}/api/jx-iresource/resource/queryResource/v3?node_id=${encodeURIComponent(paperId)}`;
                     console.log('[小雅辅助·作业区] resource 页面用 queryResource/v3');
-                    const res = await _hw_nativeFetch(resUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+                    const res = await xyNativeFetch(resUrl, { headers: { 'Authorization': `Bearer ${token}` } }, 30000);
                     const data = await res.json();
                     if (data && data.success && data.data && data.data.resource && Array.isArray(data.data.resource.questions)) {
                         const questions = data.data.resource.questions;
@@ -9300,7 +9982,7 @@
                         // 优先走正式试卷接口：题目+作答记录一次拿全（queryResource/v3 无 answer_record）
                         try {
                             const stuUrl = `https://${domain}/api/jx-iresource/survey/course/queryStuPaper/v2?paper_id=${encodeURIComponent(paperIdFromRes)}&group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(paperId)}`;
-                            const stuRes = await _hw_nativeFetch(stuUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+                            const stuRes = await xyNativeFetch(stuUrl, { headers: { 'Authorization': `Bearer ${token}` } }, 45000);
                             const stuData = await stuRes.json();
                             if (stuData && stuData.success && stuData.data && Array.isArray(stuData.data.questions)) {
                                 console.log('[小雅辅助·作业区] survey/course/queryStuPaper/v2 获取到完整试卷数据');
@@ -9362,7 +10044,7 @@
                 try {
                 const url = `https://${domain}/api/jx-iresource/survey/course/queryStuPaper/v2?paper_id=${encodeURIComponent(paperId)}&group_id=${encodeURIComponent(groupId)}&node_id=${encodeURIComponent(nodeId)}`;
 
-                    const res = await window.fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+                    const res = await xyFetch(url, { headers: { 'Authorization': `Bearer ${token}` } }, 45000);
                     if (!res.ok) console.warn(`[小雅辅助·作业区] 试卷接口返回异常状态 ${res.status}(第${attempt + 1}次)`);
                 } catch(e) { console.warn(`[小雅辅助·作业区] 试卷接口请求失败(第${attempt + 1}次):`, e); }
                 if (hwQuestionsData.length > 0) { data = true; break; } 
@@ -9397,11 +10079,11 @@
      */
     async function hwFetchImageBlob(src){var s=String(src||'').trim();if(!s)throw new Error("图片地址为空");
       if(s.startsWith("data:")){var m=/^data:[^,]*,([\s\S]*)$/.exec(s);if(!m)throw new Error("无法解析 data URI");var payload=m[1];var bytes;if(/;base64/i.test(s.slice(0,s.indexOf(',')))){var bin=atob(payload);bytes=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i)}else{bytes=new TextEncoder().encode(decodeURIComponent(payload))}return bytes.buffer}
-      if(s.startsWith("http")||s.startsWith("/")){var rd=await fetch(s,{method:"GET"});if(!rd.ok)throw new Error("图片请求失败:"+rd.status);return await rd.arrayBuffer()}
+      if(s.startsWith("http")||s.startsWith("/")){var rd=await xyFetch(s,{method:"GET"},45000);if(!rd.ok)throw new Error("图片请求失败:"+rd.status);return await rd.arrayBuffer()}
       var p=s.indexOf("file_access/");if(p===-1)throw new Error("无法解析图片ID");
       var id=s.substring(p+12).split(/[?/]/)[0];
       var url=window.location.origin+"/api/jx-oresource/cloud/file_access/"+id+"?random="+Date.now();
-      var r=await fetch(url,{method:"GET"});if(!r.ok)throw new Error("图片请求失败:"+r.status);return await r.arrayBuffer()}
+      var r=await xyFetch(url,{method:"GET"},45000);if(!r.ok)throw new Error("图片请求失败:"+r.status);return await r.arrayBuffer()}
     /** 并发受限映射（与 xyCourseDashboardMapLimit 同构）：固定 worker 池共享游标，保序输出。图片下载限制 3 路防打爆接口。
      * [DEEP-DOC]
      */
@@ -9437,12 +10119,12 @@
     if((pq.type===1||pq.type===2||pq.type===5)&&pq.options.length){pq.options.forEach(opt=>{blk.push(new Paragraph({children:[new TextRun({text:opt.letter+'.',bold:true,size:S})],spacing:{before:60,after:20},indent:{left:240}}));blk.push(...hwRenderSegments(opt.segments,imMap,1,S))})}
     if(pq.type===4){blk.push(new Paragraph({children:[new TextRun({text:'（共 '+pq.blankCount+' 个填空）',size:sm,color:'#6b7280'})],spacing:{before:60,after:40},indent:{left:240}}))}
     if(pq.type===13){blk.push(new Paragraph({children:[new TextRun({text:'左侧：',bold:true,size:S})],spacing:{before:80,after:40}}));(pq.matchingLeftItems||[]).forEach(it=>{blk.push(new Paragraph({children:[new TextRun({text:it.letter+'.',bold:true,size:S})],spacing:{before:40,after:20},indent:{left:240}}));blk.push(...hwRenderSegments(it.segments,imMap,1,S))});blk.push(new Paragraph({children:[new TextRun({text:'右侧候选：',bold:true,size:S})],spacing:{before:80,after:40}}));(pq.matchingRightItems||[]).forEach(it=>{blk.push(new Paragraph({children:[new TextRun({text:it.letter+'.',bold:true,size:S})],spacing:{before:40,after:20},indent:{left:240}}));blk.push(...hwRenderSegments(it.segments,imMap,1,S))})}
-    if(pq.type===7)blk.push(new Paragraph({children:[new TextRun({text:'附件题，无需作答。',size:sm,italics:true,color:'#b45309'})],spacing:{before:60,after:40}}));
+    if(pq.type===7)blk.push(new Paragraph({children:[new TextRun({text:'附件题，无作答内容。',size:sm,italics:true,color:'#b45309'})],spacing:{before:60,after:40}}));
     }
     if(scope===undefined||scope.mine!==false){
     blk.push(new Paragraph({children:[new TextRun({text:'我的答案：',bold:true,size:S})],spacing:{before:120,after:40}}));
     let uSegs=null;if(ri&&ri.rawUserAnswer!=null){const raw=ri.rawUserAnswer;if(typeof raw==='string'&&(raw.includes('"blocks"')||raw.includes('"dist"'))){const p=hwParseRichContent(raw);if(p.segments&&p.segments.length)uSegs=p.segments}}
-    if(uSegs){blk.push(...hwRenderSegments(uSegs,imMap,0,S))}else{let ua=ri?ri.userAnswer:(qd?hwFormatAnswer(qd,null):'');if(qd&&qd.options&&qd.options.length&&/^\d{8,}$/.test(String(ua||'').trim())){const o=qd.options.find(o=>String(o.id)===String(ua).trim());if(o)ua=o.letter+'. '+(o.text||'')}blk.push(new Paragraph({children:[new TextRun({text:hwSafeText(ua||'未作答'),size:S})],spacing:{before:20,after:40}}))}
+    if(uSegs){blk.push(...hwRenderSegments(uSegs,imMap,0,S))}else{let ua=ri?ri.userAnswer:(qd?hwFormatAnswer(qd,null):'');if(qd&&qd.options&&qd.options.length&&/^\d{8,}$/.test(String(ua||'').trim())){const o=qd.options.find(o=>String(o.id)===String(ua).trim());if(o)ua=o.letter+'. '+(o.text||'')}blk.push(new Paragraph({children:[new TextRun({text:hwSafeText(ua||'无记录'),size:S})],spacing:{before:20,after:40}}))}
     if(ri){blk.push(new Paragraph({children:[new TextRun({text:(ri.stateLabel||'')+'  '+(ri.scoreText||''),size:sm,color:'#6b7280',italics:true})],spacing:{before:40,after:60}}))}
     }
     if(scope===undefined||scope.std!==false){
@@ -9475,19 +10157,19 @@
         const okC=Array.from(imMap.values()).filter(r=>r.ok).length,failC=Array.from(imMap.values()).filter(r=>!r.ok).length;
         console.log('[小雅辅助] docx图片: '+imMap.size+' URL, '+okC+' 成功, '+failC+' 失败');
         logMsg('正在生成.docx文件...','info');
-        const dc=[];dc.push(new Paragraph({text:'小雅辅助工具 作答文档',heading:HeadingLevel.TITLE,alignment:AlignmentType.CENTER,spacing:{after:200}}));dc.push(new Paragraph({text:'导出时间：'+new Date().toLocaleString(),alignment:AlignmentType.CENTER,spacing:{after:300}}));
+        const dc=[];dc.push(new Paragraph({text:'小雅辅助工具 题目与批改结果',heading:HeadingLevel.TITLE,alignment:AlignmentType.CENTER,spacing:{after:200}}));dc.push(new Paragraph({text:'导出时间：'+new Date().toLocaleString(),alignment:AlignmentType.CENTER,spacing:{after:300}}));
         if(res&&res.state==='submitted'&&(scope===undefined||scope.mine!==false)){const wc=qrs.filter(r=>r.tone==='bad').length,pc=qrs.filter(r=>r.tone==='pending').length;dc.push(new Paragraph({children:[new TextRun({text:String(res.actualScore??'-'),size:S+22,bold:true}),new TextRun({text:' / '+(res.totalScore??'-')+' 分',size:S+6,color:'#6b7280'})],alignment:AlignmentType.CENTER,spacing:{after:120}}));dc.push(new Paragraph({children:[new TextRun({text:(res.correctNum??'-')+' 正确 · '+wc+' 错误 · '+pc+' 待批改',size:S,color:'#4b5563'})],alignment:AlignmentType.CENTER,spacing:{after:300}}))}
         for(let i=0;i<hwPdfQuestions.length;i++){const pq=hwPdfQuestions[i],qd=hwQuestionsData[i],ri=qd?rm.get(String(qd.id)):null;dc.push(...hwBuildQuestionContent(pq,qd,ri,imMap,scope,S))}
-        const doc=new Document({creator:'小雅辅助工具',description:'作答文档导出',title:'小雅辅助工具 作答文档',styles:{paragraphStyles:[{id:'Normal',name:'Normal',run:{font:'Microsoft YaHei',size:S},paragraph:{spacing:{line:360,before:0,after:0}}}]},sections:[{properties:{},children:dc}]});
-        const blob=await Packer.toBlob(doc);const now=new Date(),pad=v=>String(v).padStart(2,'0');const stamp=now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());saveAs(blob,'小雅辅助_作答文档_'+stamp+'.docx');
-        logMsg('✅ .docx 作答文档已导出','success');
+        const doc=new Document({creator:'小雅辅助工具',description:'题目与批改结果导出',title:'小雅辅助工具 题目与批改结果',styles:{paragraphStyles:[{id:'Normal',name:'Normal',run:{font:'Microsoft YaHei',size:S},paragraph:{spacing:{line:360,before:0,after:0}}}]},sections:[{properties:{},children:dc}]});
+        const blob=await Packer.toBlob(doc);const now=new Date(),pad=v=>String(v).padStart(2,'0');const stamp=now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());saveAs(blob,'小雅辅助_题目与批改结果_'+stamp+'.docx');
+        logMsg('✅ .docx 题目与批改结果已导出','success');
     }
-    /** 组装最终 AI 提示词：hwExtractedText 模板（含作答格式规范）为基底，用户在
+    /** 组装最终 AI 提示词：hwExtractedText 模板（含内容格式规范）为基底，用户在
      * 输入框追加的补充指令非空时附加到头部。返回纯文本串供复制。
      * [DEEP-DOC]
      */
     function hwBuildAiPrompt() {
-        const lines = ['📌 答题任务单','按下列题目作答，只输出答案本身，不要附带解析或任何说明文字。','【答案格式】','单选/判断 → 题号 => 大写字母（如 1 => A）','多选 → 题号 => 字母，逗号分隔（如 2 => A,C）','填空 → 题号 => 各空用竖线分隔（如 3 => const | let）','简答 → 题号 => 完整文字','匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）','附件题无需作答。','','════════════════════','以下为题目内容：','════════════════════',''];
+        const lines = ['📌 学习任务单','按下列题目整理要点，只输出内容本身，不要附带解析或任何说明文字。','【答案格式】','单选/判断 → 题号 => 大写字母（如 1 => A）','多选 → 题号 => 字母，逗号分隔（如 2 => A,C）','填空 → 题号 => 各空用竖线分隔（如 3 => const | let）','简答 → 题号 => 完整文字','匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）','附件题无作答内容。','','════════════════════','以下为题目内容：','════════════════════',''];
         hwQuestionsData.forEach(q => {
             lines.push(`${q.index}. ${q.titleText} ${hwTypeLabel(q.type)}`);
             if (q.type === 1 || q.type === 2 || q.type === 5) {
@@ -9512,12 +10194,21 @@
      * @returns {Promise<boolean>} 是否成功
      * [DEEP-DOC]
      */
-    function hwCopyText(text) {
-        const val = String(text || '');
-        if (!val) return false;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            try { navigator.clipboard.writeText(val); return true; } catch(e) {}
-        }
+    /**
+     * [R3-09] 改为 async 并 await writeText。
+     *
+     * 旧写法 `try { navigator.clipboard.writeText(val); return true; } catch(e) {}`：
+     * writeText 返回的是 Promise，同步 try/catch 抓不到它的拒绝，函数立刻
+     * return true —— 于是 (1) 复制实际失败却弹「✅ 已复制」，用户拿到空剪贴板；
+     * (2) 下方的 execCommand 回退分支永远不可达；(3) 每次产生一个未处理的
+     * Promise rejection。改为 await，失败时自然落入回退分支。
+     */
+    async function hwCopyText(text) {
+    const val = String(text || '');
+    if (!val) return false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(val); return true; } catch(e) {}
+    }
         const ta = document.createElement('textarea');
         ta.value = val;
         ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
@@ -9532,12 +10223,14 @@
      * 「复制失败请手动全选」。
      * [DEEP-DOC]
      */
-    function hwCopyAiPrompt() {
-        if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法复制','error'); return; }
-        const text = hwBuildAiPrompt();
-        hwExtractedText = text;
-        if (hwCopyText(text)) { logMsg(`✅ 已复制 ${hwQuestionsData.length} 道题给 AI，去聊天窗口粘贴吧`,'success'); showToast('📋 题目模板已复制', 'success'); }
-        else { logMsg('复制失败，请手动复制','error'); showToast('复制失败，请手动复制', 'error'); }
+    /** [R3-09] hwCopyText 现为 async，调用点相应改为 await */
+    async function hwCopyAiPrompt() {
+    if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法复制','error'); return; }
+    const text = hwBuildAiPrompt();
+    hwExtractedText = text;
+    const copied = await hwCopyText(text);
+    if (copied) { logMsg(`✅ 已复制 ${hwQuestionsData.length} 道题给 AI，去聊天窗口粘贴吧`,'success'); showToast('📋 题目模板已复制', 'success'); }
+    else { logMsg('复制失败，请手动复制','error'); showToast('复制失败，请手动复制', 'error'); }
     }
     /**
      * 作答记录 ID 多形态提取：直取 answer_record.id / answer_record_id /
@@ -9567,7 +10260,7 @@
         const token = getCookie();
         if (!token) throw new Error('未获取到登录 Token');
         const url = `${window.location.origin}/api/jx-iresource/survey/course/task/flow/v2?node_id=${encodeURIComponent(hwNodeId)}&group_id=${encodeURIComponent(hwGroupId)}`;
-        const res = await _hw_nativeFetch(url, { headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' }, credentials: 'include' });
+        const res = await xyNativeFetch(url, { headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' }, credentials: 'include' });
         if (!res.ok) throw new Error(`Record ID 请求失败：${res.status}`);
         const data = await res.json();
         const recordId=data?.success&&data.data?hwExtractRecordId(data.data):'';
@@ -9667,16 +10360,26 @@
         if (!hwPaperId) throw new Error('未获取到 paper_id');
         const token = getCookie();
         if (!token) throw new Error('未获取到登录 Token');
-        const res = await _hw_nativeFetch(`${window.location.origin}/api/jx-iresource/survey/answer`, {
+        const res = await xyNativeFetch(`${window.location.origin}/api/jx-iresource/survey/answer`, /* [C-P2] 提交可能携带整卷数据，给 45s */ {
             method: 'POST',
             headers: { 'accept': '*/*', 'authorization': `Bearer ${token}`, 'content-type': 'application/json; charset=UTF-8' },
             credentials: 'include',
             body: JSON.stringify({ record_id: hwRecordId, question_id: qd.id, answer: payload, ext_answer: '', group_id: hwGroupId, paper_id: hwPaperId, is_try: 0 })
         });
         let data = null;
-        try { data = await res.json(); } catch(e) { console.warn('[小雅辅助·作业区] 作答保存响应非 JSON:', e); }
-        if (!res.ok || (data && data.success === false)) {
-            const msg = (data && (data.message || data.error)) || `保存作答失败：${res.status}`;
+        try { data = await res.json(); } catch(e) { console.warn('[小雅辅助·作业区] 保存响应非 JSON:', e); }
+        /**
+         * [R3-14] 成功判定收紧：必须拿到可解析的 JSON 业务体。
+         *
+         * 旧条件 `!res.ok || (data && data.success === false)` 存在漏网：
+         * 网关返回 200 + HTML（登录失效跳转页）、或空 body 时 data 为 null，
+         * `data && ...` 短路为 falsy → 不抛错 → 上层 ok++ 计入「成功 N 题」。
+         * 实际作答根本没落库；若所有题都这样，还会触发保存后的整页刷新，
+         * 用户刚粘贴的文本丢失且看不到任何失败提示。
+         * 改为：非 2xx、无 JSON 体、或业务 success 为 false，一律视为失败。
+         */
+        if (!res.ok || !data || data.success === false) {
+            const msg = (data && (data.message || data.error)) || `保存失败：${res.status}`;
             throw new Error(msg);
         }
         return data;
@@ -9696,7 +10399,7 @@
         for (let attempt = 0; attempt < 5; attempt++) {
             try {
 
-                await window.fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+                await xyFetch(url, { headers: { 'Authorization': `Bearer ${token}` } }, 45000);
             } catch(e) { console.warn('[小雅辅助·作业区] 刷新试卷请求失败(第' + (attempt + 1) + '次):', e); }
             if (hwSubmissionResult.state === 'submitted') return true;
             if (attempt < 4) await sleep(400 * (attempt + 1));
@@ -9727,7 +10430,7 @@
      * [DEEP-DOC]
      */
     async function hwSaveAnswers(aiText) {
-        if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存作答','error'); return; }
+        if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存','error'); return; }
         if (!String(aiText || '').trim()) { logMsg('请先粘贴 AI 返回的答案','error'); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
         logMsg('正在初始化提交参数...','info');
         try {
@@ -9748,7 +10451,7 @@
             try {
                 await hwSubmitAnswer(qd, payload);
                 ok++;
-                logMsg(`第 ${block.index} 题作答已保存`,'success',true);
+                logMsg(`第 ${block.index} 题已保存`,'success',true);
             } catch(e) {
                 fail++;
                 logMsg(`第 ${block.index} 题保存失败：${e.message}`,'error');
@@ -9760,9 +10463,9 @@
             hwActiveTab = 'result';
             const refreshed = await hwRefreshPaperData();
             hwUpdateUI();
-            logMsg(`✅ 保存作答完成：成功 ${ok} 题，失败 ${fail} 题，跳过 ${skip} 题`,'success');
+            logMsg(`✅ 保存完成：成功 ${ok} 题，失败 ${fail} 题，跳过 ${skip} 题`,'success');
             const shouldReload=hwShouldReloadAfterSave(ok,fail,skip);
-            showToast(shouldReload ? `✅ 已保存 ${ok} 道题作答，正在刷新页面…` : `✅ 已保存 ${ok} 道题作答` + (refreshed ? '，结果已刷新' : ''), 'success');
+            showToast(shouldReload ? `✅ 已保存 ${ok} 道题，正在刷新页面…` : `✅ 已保存 ${ok} 道题` + (refreshed ? '，结果已刷新' : ''), 'success');
             if(shouldReload){
                 logMsg('全部答案已保存，1 秒后刷新页面同步状态','success');
                 hwSchedulePageReload();
@@ -9791,7 +10494,7 @@
             if (show) {
                 const el = document.createElement('div');
                 el.style.cssText = `font-size:11px;color:${T('#94a3b8','#64748b')};text-align:center;padding:12px;border:1px dashed ${T('rgba(71,85,105,0.3)','#e2e8f0')};border-radius:10px;`;
-                el.textContent = (result && result.message) || '尚未检测到已提交的作答记录，保存作答后自动展示。';
+                el.textContent = (result && result.message) || '尚未检测到已确认的记录，保存后自动展示。';
                 box.appendChild(el);
             }
             return;
@@ -9857,7 +10560,7 @@
                 if (r.title) html += `<div style="font-size:11px;color:${T('#cbd5e1','#334155')};margin-top:6px;line-height:1.5;overflow-wrap:anywhere;">${escapeHtml(r.title)}</div>`;
                 const ansLine = (label, value, color) => `<div style="display:flex;gap:6px;font-size:11px;line-height:1.5;margin-top:4px;">
                     <span style="flex-shrink:0;color:${T('#64748b','#94a3b8')};font-size:10px;margin-top:1px;">${label}</span>
-                    <span style="flex:1;min-width:0;overflow-wrap:anywhere;color:${color};">${escapeHtml(value || '未作答')}</span>
+                    <span style="flex:1;min-width:0;overflow-wrap:anywhere;color:${color};">${escapeHtml(value || '无记录')}</span>
                 </div>`;
                 html += ansLine('我的答案', r.userAnswer, T('#cbd5e1','#334155'));
                 if (r.standardAnswer) html += ansLine('标准答案', r.standardAnswer, T('#6ee7b7','#15803d'));
@@ -11439,7 +12142,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     const o = qd.options.find(o => String(o.id) === String(ua).trim());
                     if (o) ua = o.letter + '. ' + (o.text || '');
                 }
-                it.mineText = ua || '未作答';
+                it.mineText = ua || '无记录';
             }
             if (ri && ri.standardAnswer && qd && qd.sItems) {
                 if (qd.type === 6 && qd.sItems[0] && qd.sItems[0].answer) {
@@ -11525,16 +12228,16 @@ var XYExport = (function (Hinote) {  'use strict';
                     if (hasImg) it.options.forEach(o => { L.push(o.letter + '. ' + (o.text || '')); emitSegs(o.segments); });
                     else L.push(it.options.map(o => o.letter + '. ' + (o.text || '')).join('   '));
                 }
-                if (it.isAttach) L.push('附件题，无需作答。');
+                if (it.isAttach) L.push('附件题，无作答内容。');
             }
             if (scope.mine !== false) {
                 if (it.isAttach) {
-                    L.push('我的答案：附件题无需作答');
+                    L.push('我的答案：附件题无作答内容');
                 } else if (it.mineSegs) {
                     L.push('我的答案：');
                     emitSegs(it.mineSegs);
                 } else {
-                    L.push('我的答案：' + (it.mineText || '未作答'));
+                    L.push('我的答案：' + (it.mineText || '无记录'));
                 }
                 if (it.scoreLine) L.push('得分：' + it.scoreLine);
             }
@@ -11705,7 +12408,7 @@ var XYExport = (function (Hinote) {  'use strict';
         newPage();
         // 文档头
         g.font = font(true, Math.round(fpx * 1.5));
-        const title = '小雅辅助工具 作答文档';
+        const title = '小雅辅助工具 题目与批改结果';
         g.fillText(title, mL + Math.round((cw - g.measureText(title).width) / 2), y + Math.round(fpx * 1.5 * 0.82));
         y += Math.round(fpx * 2.4);
         g.font = font(false, Math.max(10, Math.round(fpx * 0.85)));
@@ -11745,12 +12448,12 @@ var XYExport = (function (Hinote) {  'use strict';
                         else wrapText(o.letter + '. ' + (o.text || ''), fpx, true);
                     }
                 }
-                if (it.isAttach) { blank(lineH(fpx) * 0.25); wrapText('附件题，无需作答。', Math.max(10, fpx - 1), false, '#b45309'); }
+                if (it.isAttach) { blank(lineH(fpx) * 0.25); wrapText('附件题，无作答内容。', Math.max(10, fpx - 1), false, '#b45309'); }
             }
             if (scope.mine !== false) {
                 blank(lineH(fpx) * 0.3);
                 if (it.mineSegs) { wrapText('我的答案：', fpx, true); await emitSegs(it.mineSegs, fpx); }
-                else wrapText('我的答案：' + (it.mineText || '未作答'), fpx, false);
+                else wrapText('我的答案：' + (it.mineText || '无记录'), fpx, false);
                 if (it.scoreLine) { blank(lineH(fpx) * 0.2); wrapText(it.scoreLine, Math.max(10, fpx - 1), false, '#6b7280'); }
             }
             if (scope.std !== false && (it.stdSegs || it.stdText)) {
@@ -11805,7 +12508,7 @@ var XYExport = (function (Hinote) {  'use strict';
         const imMap = srcs.length ? await hwHydrateImageMap(srcs, 1000, false) : new Map();
         const pages = await xyTypedRenderPages(items, imMap, { dpi: 150, fontPt: xyExpCfg.fontPt, scope: scope });
         if (!pages.length) throw new Error('排版未产出页面');
-        const title = '小雅辅助_作答文档_' + xyHWStamp();
+        const title = '小雅辅助_题目与批改结果_' + xyHWStamp();
         if (fmt === 'pdf') {
             const jpegs = await Promise.all(pages.map(p => xyExpCanvasToJPEG(p, 0.92)));
             const pdf = XYExport.makePDF(jpegs, 595.28, 841.89);
@@ -11818,7 +12521,7 @@ var XYExport = (function (Hinote) {  'use strict';
             }
             showToast('✅ 已导出图片（' + pages.length + ' 页）', 'success');
         }
-        logMsg('📄 作答文档已导出：' + items.length + ' 题 / ' + pages.length + ' 页 / ' + fmt + (imMap.size ? ' / 图 ' + imMap.size + ' 张' : ''), 'success');
+        logMsg('📄 题目与批改结果已导出：' + items.length + ' 题 / ' + pages.length + ' 页 / ' + fmt + (imMap.size ? ' / 图 ' + imMap.size + ' 张' : ''), 'success');
     }
 
     /** 笔记版导出：.hinote（纯笔迹，图片以占位注明）/ PDF / 图片（JPG 分页）。 */
@@ -11927,7 +12630,7 @@ var XYExport = (function (Hinote) {  'use strict';
         ['全部', { q: true, std: true, mine: true }],
         ['仅题目', { q: true, std: false, mine: false }],
         ['题目+标准答案', { q: true, std: true, mine: false }],
-        ['仅我的作答', { q: false, std: false, mine: true }]
+        ['仅我的记录', { q: false, std: false, mine: true }]
     ];
 
     /** 统一导出面板 HTML —— 插入作业区「作答」面板底部（默认收起）。 */
@@ -11945,7 +12648,7 @@ var XYExport = (function (Hinote) {  'use strict';
             `<div style="font-size:11.5px; font-weight:700; margin-top:2px;">${label}</div>` +
             `<div style="font-size:9px; color:${tx2}; margin-top:2px; line-height:1.35;">${note}</div></button>`;
         return `
-        <button class="xy-action-btn" id="xy-exp-toggle" style="width:100%; min-height:36px; margin-top:8px; font-size:12px; background:${T('rgba(6,182,212,0.1)','#e0f2fe')}; border-color:${T('rgba(6,182,212,0.28)','#bae6fd')}; color:${T('#67e8f9','#0e7490')};">📄 导出（作答文档 / 手写归档）</button>
+        <button class="xy-action-btn" id="xy-exp-toggle" style="width:100%; min-height:36px; margin-top:8px; font-size:12px; background:${T('rgba(6,182,212,0.1)','#e0f2fe')}; border-color:${T('rgba(6,182,212,0.28)','#bae6fd')}; color:${T('#67e8f9','#0e7490')};">📄 导出（题目与批改结果 / 手写归档）</button>
         <div id="xy-exp-panel" style="display:none; margin-top:8px; padding:11px; border:1px solid ${bd}; border-radius:11px; background:${bg};">
             <div style="${sec}">① 导出模式</div>
             <div style="display:flex; gap:7px;">
@@ -11956,7 +12659,7 @@ var XYExport = (function (Hinote) {  'use strict';
             <div style="display:flex; gap:12px; font-size:11.5px; color:${tx};">
                 <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="xy-exp-scope-q" style="${ck}" ${xyExpCfg.scope.q ? 'checked' : ''}/>题目</label>
                 <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="xy-exp-scope-std" style="${ck}" ${xyExpCfg.scope.std ? 'checked' : ''}/>标准答案</label>
-                <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="xy-exp-scope-mine" style="${ck}" ${xyExpCfg.scope.mine ? 'checked' : ''}/>我的作答</label>
+                <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="xy-exp-scope-mine" style="${ck}" ${xyExpCfg.scope.mine ? 'checked' : ''}/>我的记录</label>
             </div>
             <div id="xy-exp-presets" style="display:flex; gap:5px; margin-top:7px; flex-wrap:wrap;"></div>
             <div style="${sec}">③ 格式与字体</div>
@@ -12023,7 +12726,7 @@ var XYExport = (function (Hinote) {  'use strict';
         toggle.addEventListener('click', () => {
             const open = panel.style.display === 'none';
             panel.style.display = open ? 'block' : 'none';
-            toggle.textContent = open ? '📄 收起导出' : '📄 导出（作答文档 / 手写归档）';
+            toggle.textContent = open ? '📄 收起导出' : '📄 导出（题目与批改结果 / 手写归档）';
             if (open) xyExpRenderPreview();
         });
 
@@ -12242,7 +12945,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 #xy-super-console .xy-overview-heading { flex:1; min-width:0; }
                 #xy-super-console .xy-overview-heading strong { display:block; overflow:hidden; color:var(--xy-text); font-size:13px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
                 #xy-super-console .xy-overview-updated { display:block; margin-top:2px; color:var(--xy-text-muted); font-size:9.5px; }
-                #xy-super-console .xy-overview-content { flex:1 1 auto; min-height:0; padding:10px; overflow-y:auto; scrollbar-gutter:stable; background:color-mix(in srgb, var(--xy-surface2) 46%, transparent); }
+                #xy-super-console .xy-overview-content { flex:1 1 auto; min-height:0; padding:10px; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; background:color-mix(in srgb, var(--xy-surface2) 46%, transparent); }
                 #xy-super-console .xy-overview-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
                 #xy-super-console .xy-overview-panel { min-width:0; margin-bottom:8px; padding:10px; overflow:hidden; border:1px solid var(--xy-border); border-radius:10px; background:var(--xy-surface2); box-shadow:0 1px 2px rgba(15,23,42,0.08); }
                 #xy-super-console .xy-overview-grid .xy-overview-panel { margin-bottom:0; }
@@ -12500,7 +13203,7 @@ var XYExport = (function (Hinote) {  'use strict';
                         <span id="xy-dir-status" style="margin-left:auto; font-size:10px; color:${T('#94a3b8','#64748b')};">读取中...</span>
                     </div>
                     <div style="display:flex; gap:8px; margin-bottom:10px;">
-                        <button class="xy-action-btn" id="xy-dir-play" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(16,185,129,0.12)','#ecfdf5')}; border-color:${T('rgba(16,185,129,0.25)','#a7f3d0')}; color:${T('#34d399','#059669')};">▶️ 一键连播</button>
+                        <button class="xy-action-btn" id="xy-dir-play" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(16,185,129,0.12)','#ecfdf5')}; border-color:${T('rgba(16,185,129,0.25)','#a7f3d0')}; color:${T('#34d399','#059669')};">▶️ 一键调度</button>
                         <button class="xy-action-btn" id="xy-dir-download" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(52,211,153,0.12)','#d1fae5')}; border-color:${T('rgba(52,211,153,0.25)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">📥 下载区</button>
                         <button class="xy-action-btn" id="xy-dir-refresh" style="flex:1; min-height:36px; font-size:12px;">🔄 刷新</button>
                     </div>
@@ -12516,7 +13219,7 @@ var XYExport = (function (Hinote) {  'use strict';
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
                             <button class="xy-mode-btn" id="btn-mode-man">手动休眠</button>
                             <button class="xy-mode-btn" id="btn-mode-loop">安全循环</button>
-                            <button class="xy-mode-btn" id="btn-mode-seq">雷达连播</button>
+                            <button class="xy-mode-btn" id="btn-mode-seq">雷达调度</button>
                         </div>
                     </div>
 
@@ -12604,7 +13307,7 @@ var XYExport = (function (Hinote) {  'use strict';
 
                     <div style="display:flex; gap:8px; margin-bottom: 8px;">
                         <button class="xy-action-btn disc-btn" id="xy-btn-like" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1; font-size:12px;">👍 全局盲赞</button>
-                        <button class="xy-action-btn disc-btn" id="xy-btn-target-like" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1.5; font-size:12px;">⚡ 点赞选中</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-target-like" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1.5; font-size:12px;">⚡ 互动选中</button>
                     </div>
                     <div style="display:flex; gap:8px;">
                         <button class="xy-action-btn disc-btn" id="xy-btn-reply" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1; font-size:12px;">💬 全局盲回</button>
@@ -12679,15 +13382,15 @@ var XYExport = (function (Hinote) {  'use strict';
                 <!-- 顶部状态条 -->
                 <div style="display:flex; align-items:center; gap:9px; padding:11px 14px; border-radius:10px; background: ${T('rgba(6,182,212,0.07)','#f0f9ff')}; border: 1px solid ${T('rgba(6,182,212,0.18)','#bae6fd')}; margin-bottom:10px;">
                     <span style="width:8px; height:8px; border-radius:99px; background:#22d3ee; box-shadow:0 0 10px rgba(34,211,238,.6); flex-shrink:0;"></span>
-                    <span style="font-size:12.5px; font-weight:700; color:${T('#e2e8f0','#0f172a')};">作业答题台</span>
+                    <span style="font-size:12.5px; font-weight:700; color:${T('#e2e8f0','#0f172a')};">作业查看台</span>
                     <span id="xy-hw-status" style="margin-left:auto; font-size:10px; color:${T('#94a3b8','#64748b')};">等待题目数据...</span>
                 </div>
-                <!-- 分段切换：作答 / 结果 -->
+                <!-- 分段切换：题目与批改 / 结果 -->
                 <div style="display:flex; gap:4px; padding:4px; border-radius:10px; background:${T('rgba(15,23,42,0.4)','#eef2f7')}; border:1px solid ${T('rgba(71,85,105,0.25)','#dbe4ee')}; margin-bottom:10px;">
-                    <button id="xy-hw-tab-answer" type="button" style="flex:1; border:none; background:${T('#0e7490','#0ea5e9')}; color:#fff; font-size:12px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer;">✍️ 作答</button>
+                    <button id="xy-hw-tab-answer" type="button" style="flex:1; border:none; background:${T('#0e7490','#0ea5e9')}; color:#fff; font-size:12px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer;">📋 题目与批改</button>
                     <button id="xy-hw-tab-result" type="button" style="flex:1; border:none; background:transparent; color:${T('#94a3b8','#64748b')}; font-size:12px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer;">📊 结果</button>
                 </div>
-                <!-- 作答面板 -->
+                <!-- 题目与批改面板 -->
                 <div id="xy-hw-pane-answer">
                     <div style="border:1px solid ${T('rgba(71,85,105,0.25)','#dbe4ee')}; border-radius:11px; background:${T('rgba(15,23,42,0.45)','#ffffff')}; overflow:hidden;">
                         <div style="display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-bottom:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')};">
@@ -12818,6 +13521,26 @@ var XYExport = (function (Hinote) {  'use strict';
  * [DEEP-DOC]
  */
     function xyBindPanelEvents(ctx) {
+    /**
+     * [R3-15] 元素取不到时返回一次性空对象兜底。
+     *
+     * 不能用可选链写法（el 问号点 onclick = fn）—— 可选链不能作为赋值左侧，
+     * 那是 SyntaxError。所以用空对象兜底。
+     *
+     * 背景：本函数原有 25 处 getElementById(id).onclick = ... 没有 null 守卫，
+     * 任一 ID 缺失即抛 TypeError；而此时 wrapper 已经插入 DOM，
+     * ensureUI 的 getElementById('xy-super-console') 判定为「面板已存在」，
+     * 于是永远不再重建 —— 留下一个部分按钮无响应且无法自我修复的面板，
+     * 用户只能刷新页面。用空对象兜底可让装配完整跑完，缺失的控件静默跳过。
+     */
+    const _xyNoopEl = {};
+    // [R4-P3] 取不到时打 warn：空对象兜底让装配跑完，但也掩盖了模板与绑定不同步的
+    // 维护漂移（旧实现至少抛 TypeError 留痕）。保留一条可检索的日志避免静默失效。
+    const xySafeEl = (id) => {
+        const el = document.getElementById(id);
+        if (!el) console.warn('[小雅] 面板控件缺失，已跳过绑定:', id);
+        return el || _xyNoopEl;
+    };
         const uiDocumentListenerOptions = ctx.listenerOptions;
         const qqBadge = document.getElementById('xy-seg-qq');
         if (qqBadge) {
@@ -13018,10 +13741,10 @@ var XYExport = (function (Hinote) {  'use strict';
             };
         }
 
-        document.getElementById('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
-        document.getElementById('btn-clear-progress').onclick = () => { recState.recordCount = 0; recState.totalTime = 0; recState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
+        xySafeEl('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
+        xySafeEl('btn-clear-progress').onclick = () => { recState.recordCount = 0; recState.totalTime = 0; recState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
 
-        document.getElementById('btn-mode-man').onclick = () => {
+        xySafeEl('btn-mode-man').onclick = () => {
             if (xyScheduleState.isRunning) { xySchStop(); }
             playState.mode = PLAY_MODE.MANUAL;
             GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
@@ -13029,17 +13752,17 @@ var XYExport = (function (Hinote) {  'use strict';
             logMsg('已暂停，且已强制停止所有重载任务', 'success');
             updateCourseUI();
         };
-        document.getElementById('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg('安全刷时长模式开启，恢复经典无限循环', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
-        document.getElementById('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
+        xySafeEl('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg('安全循环模式开启', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
+        xySafeEl('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
 
         // 防休眠/后台保活/鼠标模拟/深度伪装 UI 已删除——引擎按默认状态自动运行，无手动开关
         document.getElementById('xy-btn-guard')?.remove();
         
         if (guardState.mouseSimActive) { scheduleMouseSim(); }
-        document.getElementById('xy-btn-dashboard').onclick = openGlobalTaskDashboard;
-        document.getElementById('xy-btn-schedule').onclick = openScheduleDashboard;
-        document.getElementById('xy-btn-download-zone').onclick = () => enterDownloadZone();
-        document.getElementById('xy-btn-quick-kill').onclick = () => {
+        xySafeEl('xy-btn-dashboard').onclick = openGlobalTaskDashboard;
+        xySafeEl('xy-btn-schedule').onclick = openScheduleDashboard;
+        xySafeEl('xy-btn-download-zone').onclick = () => enterDownloadZone();
+        xySafeEl('xy-btn-quick-kill').onclick = () => {
             quickKillCurrentTask();
         };
 
@@ -13077,15 +13800,16 @@ var XYExport = (function (Hinote) {  'use strict';
         if (hwTabR) hwTabR.onclick = () => { hwActiveTab = 'result'; hwUpdateTabs(); };
 
         const hwCopyBtn = document.getElementById('xy-hw-copy-btn');
-        if (hwCopyBtn) hwCopyBtn.onclick = () => hwCopyAiPrompt();
+        // [R3-09] hwCopyAiPrompt 现为 async，补 catch 避免产生未处理的 Promise rejection
+    if (hwCopyBtn) hwCopyBtn.onclick = () => { hwCopyAiPrompt().catch(e => console.warn('[小雅] 复制题目失败', e)); };
 
         const hwSaveBtn = document.getElementById('xy-hw-save-btn');
         if (hwSaveBtn) hwSaveBtn.onclick = async () => {
-            if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存作答','error'); return; }
+            if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存','error'); return; }
             const aiText = document.getElementById('xy-hw-ai-input')?.value || '';
             if (!aiText.trim()) { logMsg('请先在下方输入 AI 返回的答案','warning'); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
             hwSaveBtn.disabled = true; hwSaveBtn.textContent = '⏳ 正在保存...';
-            try { await hwSaveAnswers(aiText); } catch(e) { logMsg('保存作答异常：'+e.message,'error'); }
+            try { await hwSaveAnswers(aiText); } catch(e) { logMsg('保存异常：'+e.message,'error'); }
             hwSaveBtn.disabled = false; hwSaveBtn.textContent = '🚀 提交并保存';
         };
 
@@ -13140,7 +13864,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 renderDownloadList();
             };
         }
-        document.getElementById('xy-dl-select-all').onclick = () => {
+        xySafeEl('xy-dl-select-all').onclick = () => {
             const keyword = (dlState.downloadSearchKeyword || '').toLowerCase().trim();
             const targets = keyword
                 ? dlState.downloadFiles.filter(f => f.name.toLowerCase().includes(keyword))
@@ -13151,21 +13875,21 @@ var XYExport = (function (Hinote) {  'use strict';
             });
             renderDownloadList();
         };
-        document.getElementById('xy-dl-deselect-all').onclick = () => {
+        xySafeEl('xy-dl-deselect-all').onclick = () => {
             dlState.downloadSelectedIds.clear();
             renderDownloadList();
         };
-        document.getElementById('xy-dl-batch-download').onclick = () => batchDownloadSelected();
-        document.getElementById('xy-dl-stop').onclick = () => stopBatchDownload();
-        document.getElementById('xy-dl-pause').onclick = () => {
+        xySafeEl('xy-dl-batch-download').onclick = () => batchDownloadSelected();
+        xySafeEl('xy-dl-stop').onclick = () => stopBatchDownload();
+        xySafeEl('xy-dl-pause').onclick = () => {
             dlState.downloadPaused = !dlState.downloadPaused;
             setDownloadButtonsState(true, dlState.downloadPaused);
             logMsg(dlState.downloadPaused ? '⏸️ 下载已暂停' : '▶️ 下载已继续', 'info', true);
         };
-        document.getElementById('xy-dl-back').onclick = () => {
+        xySafeEl('xy-dl-back').onclick = () => {
             switchToZone(playState.prevZone || ZONE.COURSE);
         };
-        document.getElementById('xy-dl-refresh').onclick = () => {
+        xySafeEl('xy-dl-refresh').onclick = () => {
             const gid = getCourseGroupId();
             if (gid) {
                 void loadDownloadPanel(gid).catch(e => {
@@ -13203,21 +13927,21 @@ var XYExport = (function (Hinote) {  'use strict';
             });
         }
 
-        document.getElementById('xy-btn-like').onclick = () => autoLikeAction(false);
-        document.getElementById('xy-btn-target-like').onclick = () => autoLikeAction(true);
-        document.getElementById('xy-btn-reply').onclick = () => autoReplyAction(false);
-        document.getElementById('xy-btn-target-reply').onclick = () => autoReplyAction(true);
-        document.getElementById('xy-btn-select-all').onclick = () => { 
+        xySafeEl('xy-btn-like').onclick = () => autoLikeAction(false);
+        xySafeEl('xy-btn-target-like').onclick = () => autoLikeAction(true);
+        xySafeEl('xy-btn-reply').onclick = () => autoReplyAction(false);
+        xySafeEl('xy-btn-target-reply').onclick = () => autoReplyAction(true);
+        xySafeEl('xy-btn-select-all').onclick = () => { 
             discState.selectedNames.clear();
             for(let i = 0; i < Math.min(discState.targetNames.length, 15); i++) { discState.selectedNames.add(discState.targetNames[i]); }
             renderTargetList(document.getElementById('xy-name-search')?.value || '');
             showToast('已智能全选前15名 (安全限制上限)', 'success');
-            logMsg('已全选（触发点赞安全人数限制：最多15人）', 'silent', true); 
+            logMsg('已全选（触发互动安全人数限制：最多15人）', 'silent', true); 
         };
-        document.getElementById('xy-btn-deselect-all').onclick = () => { 
+        xySafeEl('xy-btn-deselect-all').onclick = () => { 
             discState.selectedNames.clear(); renderTargetList(document.getElementById('xy-name-search')?.value || ''); logMsg('已清空勾选', 'silent', true); 
         };
-        document.getElementById('xy-btn-copy-names').onclick = async () => {
+        xySafeEl('xy-btn-copy-names').onclick = async () => {
             const names = Array.from(discState.selectedNames).join('\n');
             if (!names) { showToast('当前未选择任何目标', 'warning'); return; }
             try {
@@ -13225,10 +13949,10 @@ var XYExport = (function (Hinote) {  'use strict';
                 showToast(`成功复制 ${discState.selectedNames.size} 个人名到剪贴板！`, 'success');
             } catch(e) { showToast('复制失败，可能是浏览器限制', 'error'); }
         };
-        document.getElementById('xy-btn-fetch-users').onclick = fetchCurrentUsers;
+        xySafeEl('xy-btn-fetch-users').onclick = fetchCurrentUsers;
         const stopScrapeBtn = document.getElementById('xy-btn-stop-scrape');
         if (stopScrapeBtn) stopScrapeBtn.onclick = () => { playState.discScrapeAbort = true; stopScrapeBtn.disabled = true; };
-        document.getElementById('xy-btn-clear-names').onclick = () => { 
+        xySafeEl('xy-btn-clear-names').onclick = () => { 
             discState.targetNames = []; discState.selectedNames.clear();
             GM_setValue('xy_target_names', JSON.stringify([])); 
             renderTargetList(document.getElementById('xy-name-search')?.value || ''); 
@@ -13253,7 +13977,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     if(e.target.checked) {
                         if (discState.selectedNames.size >= 15) {
                             e.target.checked = false;
-                            showToast('为防风控，最多只允许勾选15个点赞目标！', 'warning');
+                            showToast('为防风控，最多只允许勾选15个互动目标！', 'warning');
                         } else { discState.selectedNames.add(e.target.value); }
                     } else { discState.selectedNames.delete(e.target.value); }
                     updateCheckedCount();
@@ -13428,7 +14152,23 @@ var XYExport = (function (Hinote) {  'use strict';
         setTimeout(() => syncHardwareMute(), 100);
         fetchCloudIntelligence();
         setTimeout(() => xyUpdateAutoCheck(), 2500);
-        playState.isTaskCompleted = false;
+        /* 注：此处**不再**无条件复位 isTaskCompleted。
+         *
+         * 曾有一版写成 `playState.isTaskCompleted = false;`，理由是「面板中途被重建时避免
+         * 新面板沿用旧达标态」。经审查该理由不成立，且代码有害：
+         *
+         *  1) 不可达：本函数开头有幂等守卫
+         *     `if (document.getElementById('xy-super-console')) { _uiCreating = false; return; }`
+         *     面板已存在即返回，而本行位于函数**尾部**——正常路径永远走不到这里。
+         *  2) 空操作：若真能走到，说明面板此前不存在（首次构建），isTaskCompleted 本就是
+         *     初值 false，复位没有意义。
+         *  3) 有害：若在「引擎已确认达标」后被执行，引擎所有入口都有
+         *     `if (!playState.isTaskCompleted)` 门不会被重新触发，而调度 tick 读同一字段
+         *     判 isDone → **调度永久卡在当前项**。与已修复的「预置达标」缺陷同类。
+         *
+         * 若将来确需处理 UI/引擎达标态错位，应在引擎侧以服务端确认为唯一真源对齐，
+         * 而不是在 UI 构建路径上单方面复位。
+         */
         applyThemeClasses();
         _uiCreating = false;
     }

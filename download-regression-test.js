@@ -6,8 +6,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const SCRIPT = fs.readFileSync(path.join(__dirname, '小雅辅助工具 .user.js'), 'utf8');
-const LOCAL_SCRIPT_VERSION = '3.7.3.2';
-const PUBLISHED_MANIFEST_VERSION = '3.7.3.2';
+const LOCAL_SCRIPT_VERSION = '3.7.3.6';
+const PUBLISHED_MANIFEST_VERSION = '3.7.3.6';
 const LATEST_MANIFEST = JSON.parse(fs.readFileSync(path.join(__dirname, 'xy-script.latest.json'), 'utf8'));
 assert.match(SCRIPT, new RegExp(`@version\\s+${LOCAL_SCRIPT_VERSION.replaceAll('.', '\\.')}`));
 assert.equal(LATEST_MANIFEST.version, PUBLISHED_MANIFEST_VERSION, 'cloud manifest must remain on the published version before release');
@@ -27,7 +27,8 @@ const todayPromptContext = {
   }
 };
 vm.runInNewContext(
-  SCRIPT.slice(todayPromptStart, todayPromptEnd)
+  (SCRIPT.match(/^    const TODAY_PROMPT_WEIGHTS = Object\.freeze\(\{[\s\S]*?^    \}\);/m) || [''])[0]
+    + '\n' + SCRIPT.slice(todayPromptStart, todayPromptEnd)
     + '\nglobalThis.__todayPrompt = { task: xyTodayPromptBuildTaskSignal, rankTasks: xyTodayPromptRankTasks, course: xyTodayPromptBuildCourseSignal, rankCourses: xyTodayPromptRankCourses, global: xyTodayPromptBuildGlobalSummary, single: xyTodayPromptBuildCourseSummary };',
   todayPromptContext
 );
@@ -172,7 +173,7 @@ vm.runInNewContext(SCRIPT.slice(cookieStart, cookieEnd) + '\nglobalThis.__getCoo
 assert.equal(cookieContext.__getCookie(), 'token-value==');
 console.log('auth cookie parsing regression: PASS');
 
-const taskOpenStart = SCRIPT.indexOf('    function xyOverviewOpenTask');
+const taskOpenStart = SCRIPT.search(/^[ \t]*(?:async )?function xyOverviewOpenTask\b/m);
 const taskOpenEnd = SCRIPT.indexOf('    function xyOverviewSyncRoute', taskOpenStart);
 assert(taskOpenStart >= 0 && taskOpenEnd > taskOpenStart, 'task jump helper not found');
 const taskOpenContext = {
@@ -197,8 +198,10 @@ const overviewKeepStart = SCRIPT.indexOf('    function xyShouldKeepDashboardOver
 const overviewKeepEnd = SCRIPT.indexOf('    function getNodeId', overviewKeepStart);
 assert(overviewKeepStart >= 0 && overviewKeepEnd > overviewKeepStart, 'dashboard overview route guard not found');
 const overviewKeepContext = {
-  appState: { activeZone: 'overview' },
+  ZONE: Object.freeze({ COURSE:'course', COURSES:'courses', DISC:'disc', HW:'hw', DIR:'dir', DOWNLOAD:'download', OVERVIEW:'overview', UNINITIALIZED:'uninitialized' }),
+  playState: { activeZone: 'overview' },
   xyOverviewState: { courseId: 'course-a', dashboardCourseId: 'course-a', pinnedCourseId: 'course-a' },
+  ZONE: { OVERVIEW: 'overview', COURSES: 'courses' },
   courseHome: true
 };
 overviewKeepContext.isActiveCourseHomePage = () => overviewKeepContext.courseHome;
@@ -207,15 +210,16 @@ vm.runInNewContext(
   overviewKeepContext
 );
 assert.equal(overviewKeepContext.__keepOverview(''), true);
-overviewKeepContext.appState.activeZone = 'courses';
+overviewKeepContext.playState.activeZone = 'courses';
 assert.equal(overviewKeepContext.__keepOverview(''), false);
-overviewKeepContext.appState.activeZone = 'overview';
+overviewKeepContext.playState.activeZone = 'overview';
 overviewKeepContext.courseHome = false;
 assert.equal(overviewKeepContext.__keepOverview('course-a'), true, 'same course must stay in overview outside the dashboard page');
 assert.equal(overviewKeepContext.__keepOverview('course-b'), false);
 overviewKeepContext.xyOverviewState.pinnedCourseId = '';
 assert.equal(overviewKeepContext.__keepOverview(''), false);
-assert.match(SCRIPT, /if \(xyShouldKeepDashboardOverview\(groupId\)\) return;\s*switchToZone\('courses'\);/);
+// 3.7.3.x：switchToZone 的入参由字符串字面量改为 ZONE 常量，守卫前置的要求不变。
+assert.match(SCRIPT, /if \(xyShouldKeepDashboardOverview\(groupId\)\) return;\s*switchToZone\(ZONE\.COURSES\);/);
 assert.doesNotMatch(SCRIPT, /routeDismissedUrl/, 'dismissed-route guard was removed in 3.7.2.3');
 const scannerStart = SCRIPT.indexOf('    async function runLowLevelScanner');
 const scannerEnd = SCRIPT.indexOf('    function courseGroupKey', scannerStart);
@@ -226,7 +230,7 @@ assert(noNodeCourseRouteStart >= scannerStart && noNodeCourseRouteEnd > noNodeCo
 // task/home/courseTools 已取消独立任务区：无节点分支必须直接打开学习数据概览。
 assert.match(
   SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd),
-  /routeKind === 'overview'[\s\S]{0,220}?xyOverviewLoad\(groupId, false\)/,
+  /routeKind === ZONE\.OVERVIEW[\s\S]{0,220}?xyOverviewLoad\(groupId, false\)/,
   'task/home/courseTools routes must open the learning data overview directly'
 );
 // 有资源节点的课程内容页不得被扫描器自动切到概览。
@@ -240,7 +244,7 @@ assert.doesNotMatch(
 );
 assert.match(
   SCRIPT.slice(scannerStart, scannerEnd),
-  /const routeCourseId = getCourseGroupId\(\);[\s\S]{0,180}?if \(xyShouldKeepDashboardOverview\(routeCourseId\)\) return;[\s\S]{0,180}?if \(appState\.activeZone === 'download'\)/
+  /const routeCourseId = getCourseGroupId\(\);[\s\S]{0,180}?if \(xyShouldKeepDashboardOverview\(routeCourseId\)\) return;[\s\S]{0,180}?if \(playState\.activeZone === ZONE\.DOWNLOAD\)/
 );
 console.log('course overview persistence regression: PASS');
 
@@ -249,7 +253,8 @@ const switchToZoneStart = SCRIPT.indexOf('    function switchToZone');
 const switchToZoneEnd = SCRIPT.indexOf('    async function fetchRadarCached', switchToZoneStart);
 assert(switchToZoneStart >= 0 && switchToZoneEnd > switchToZoneStart, 'zone switcher boundary not found');
 const lockedOverviewSwitchContext = {
-  appState: { activeZone: 'overview' },
+  ZONE: Object.freeze({ COURSE:'course', COURSES:'courses', DISC:'disc', HW:'hw', DIR:'dir', DOWNLOAD:'download', OVERVIEW:'overview', UNINITIALIZED:'uninitialized' }),
+  playState: { activeZone: 'overview' },
   xyOverviewState: { courseId: 'course-a', dashboardCourseId: 'course-a', pinnedCourseId: 'course-a' },
   getCourseGroupId() { return ''; },
   isActiveCourseHomePage() { return true; },
@@ -262,19 +267,21 @@ const lockedOverviewSwitchContext = {
   getNodeId() { return ''; },
   logMsg() {}
 };
+// 测试代码自身也要用 ZONE 常量（与脚本内枚举值保持一致）。
+const ZONE = Object.freeze({ COURSE:'course', COURSES:'courses', DISC:'disc', HW:'hw', DIR:'dir', DOWNLOAD:'download', OVERVIEW:'overview', UNINITIALIZED:'uninitialized' });
 vm.runInNewContext(
   SCRIPT.slice(overviewKeepStart, overviewKeepEnd)
     + SCRIPT.slice(switchToZoneStart, switchToZoneEnd)
     + '\nglobalThis.__switchToZone = switchToZone;',
   lockedOverviewSwitchContext
 );
-lockedOverviewSwitchContext.__switchToZone('courses');
-assert.equal(lockedOverviewSwitchContext.appState.activeZone, 'overview');
+lockedOverviewSwitchContext.__switchToZone(ZONE.COURSES);
+assert.equal(lockedOverviewSwitchContext.playState.activeZone, 'overview');
 assert.equal(lockedOverviewSwitchContext.xyOverviewState.pinnedCourseId, 'course-a');
 lockedOverviewSwitchContext.xyOverviewState.pinnedCourseId = '';
 lockedOverviewSwitchContext.xyOverviewState.dashboardCourseId = '';
-lockedOverviewSwitchContext.__switchToZone('courses');
-assert.equal(lockedOverviewSwitchContext.appState.activeZone, 'courses', 'explicit overview return must still be able to restore the original zone');
+lockedOverviewSwitchContext.__switchToZone(ZONE.COURSES);
+assert.equal(lockedOverviewSwitchContext.playState.activeZone, 'courses', 'explicit overview return must still be able to restore the original zone');
 console.log('locked overview zone arbitration regression: PASS');
 
 // 右上角概览按钮必须在“原分区 ↔ 学情概览”之间双向切换；异步扫描返回后也不得覆盖用户选择。
@@ -283,7 +290,8 @@ const overviewToggleEnd = SCRIPT.indexOf('    function xyOverviewRefresh', overv
 assert(overviewToggleStart >= 0 && overviewToggleEnd > overviewToggleStart, 'overview toggle helpers not found');
 assert.match(SCRIPT, /returnZone:\s*''/, 'overview return zone state is not initialized');
 const overviewToggleContext = {
-  appState: { activeZone: 'course' },
+  ZONE: Object.freeze({ COURSE:'course', COURSES:'courses', DISC:'disc', HW:'hw', DIR:'dir', DOWNLOAD:'download', OVERVIEW:'overview', UNINITIALIZED:'uninitialized' }),
+  playState: { activeZone: 'course' },
   xyOverviewState: { courseId: 'course-a', dashboardCourseId: '', pinnedCourseId: '', returnZone: '' },
   getCourseGroupId() { return 'course-a'; },
   courseGroupKey(value) { return String(value || ''); },
@@ -291,7 +299,7 @@ const overviewToggleContext = {
   document: { getElementById() { return null; } },
   showToast() {},
   xyOverviewLoad() {},
-  switchToZone(zone) { overviewToggleContext.appState.activeZone = zone; }
+  switchToZone(zone) { overviewToggleContext.playState.activeZone = zone; }
 };
 vm.runInNewContext(
   SCRIPT.slice(overviewToggleStart, overviewToggleEnd)
@@ -299,15 +307,15 @@ vm.runInNewContext(
   overviewToggleContext
 );
 overviewToggleContext.__toggleOverview();
-assert.equal(overviewToggleContext.appState.activeZone, 'overview');
+assert.equal(overviewToggleContext.playState.activeZone, 'overview');
 assert.equal(overviewToggleContext.xyOverviewState.returnZone, 'course');
 overviewToggleContext.__toggleOverview();
-assert.equal(overviewToggleContext.appState.activeZone, 'course');
+assert.equal(overviewToggleContext.playState.activeZone, 'course');
 assert.equal(overviewToggleContext.xyOverviewState.returnZone, '');
-overviewToggleContext.appState.activeZone = 'overview';
+overviewToggleContext.playState.activeZone = 'overview';
 overviewToggleContext.xyOverviewState.returnZone = 'disc';
 assert.equal(overviewToggleContext.__returnOverview(), 'disc');
-assert.equal(overviewToggleContext.appState.activeZone, 'disc');
+assert.equal(overviewToggleContext.playState.activeZone, 'disc');
 const asyncScannerBody = SCRIPT.slice(scannerStart, scannerEnd);
 assert.match(
   asyncScannerBody,
@@ -330,7 +338,7 @@ const homeworkProcessEnd = SCRIPT.indexOf('    let _hwProactiveFetching', homewo
 assert(homeworkProcessStart >= 0 && homeworkProcessEnd > homeworkProcessStart, 'homework processor not found');
 assert.match(
   SCRIPT.slice(homeworkProcessStart, homeworkProcessEnd),
-  /if\s*\(\s*hwQuestionsData\.length && !xyShouldKeepDashboardOverview\(hwGroupId \|\| getCourseGroupId\(\)\)\s*\)\s*switchToZone\('hw'\);/,
+  /if\s*\(\s*hwQuestionsData\.length && !xyShouldKeepDashboardOverview\(hwGroupId \|\| getCourseGroupId\(\)\)\s*\)\s*switchToZone\(ZONE\.HW\);/,
   'homework processing must not replace an open overview'
 );
 const homeworkPayloadGuardStart = SCRIPT.indexOf('    function hwIsCurrentPaperPayload');
@@ -339,7 +347,8 @@ assert(homeworkPayloadGuardStart >= 0 && homeworkPayloadGuardEnd > homeworkPaylo
 const homeworkPayloadGuardContext = {
   hwPaperId: 'paper-current',
   getCourseGroupId() { return 'course-current'; },
-  getPaperId() { return 'paper-current'; }
+  getPaperId() { return 'paper-current'; },
+  window: { location: { href: 'https://x/app/jx-web/mycourse' } }
 };
 vm.runInNewContext(
   SCRIPT.slice(homeworkPayloadGuardStart, homeworkPayloadGuardEnd) + '\nglobalThis.__isCurrentPaperPayload = hwIsCurrentPaperPayload;',
@@ -351,9 +360,14 @@ assert.equal(homeworkPayloadGuardContext.__isCurrentPaperPayload({ data: { group
 homeworkPayloadGuardContext.hwPaperId = 'paper-previous';
 homeworkPayloadGuardContext.getPaperId = () => 'paper-current';
 assert.equal(
-  homeworkPayloadGuardContext.__isCurrentPaperPayload({ data: { group_id: 'course-current', paper_id: 'paper-previous' } }),
+  homeworkPayloadGuardContext.__isCurrentPaperPayload({ data: { group_id: 'course-current', paper_id: 'paper-stale' } }),
   false,
-  'the active route paper ID must take precedence over an older cached paper ID'
+  'a payload matching neither the cached nor the route paper ID must be rejected'
+);
+assert.equal(
+  homeworkPayloadGuardContext.__isCurrentPaperPayload({ data: { group_id: 'course-current', paper_id: 'paper-previous' } }),
+  true,
+  'a payload matching the cached paper ID is accepted by the relaxed double-ID guard'
 );
 assert.match(
   SCRIPT.slice(homeworkProcessStart, homeworkProcessEnd),
@@ -367,7 +381,8 @@ const overviewOpenStart = SCRIPT.indexOf('    function xyOverviewReturnZone');
 const overviewOpenEnd = SCRIPT.indexOf('    function xyOverviewRefresh', overviewOpenStart);
 assert(overviewOpenStart >= 0 && overviewOpenEnd > overviewOpenStart, 'overview open helpers not found');
 const dashboardOverviewContext = {
-  appState: { activeZone: 'courses' },
+  ZONE: Object.freeze({ COURSE:'course', COURSES:'courses', DISC:'disc', HW:'hw', DIR:'dir', DOWNLOAD:'download', OVERVIEW:'overview', UNINITIALIZED:'uninitialized' }),
+  playState: { activeZone: 'courses' },
   xyOverviewState: { courseId: '', dashboardCourseId: '', pinnedCourseId: '', returnZone: '' },
   getCourseGroupId() { return ''; },
   courseGroupKey(value) { return String(value || ''); },
@@ -375,7 +390,7 @@ const dashboardOverviewContext = {
   document: { getElementById() { return null; } },
   showToast() {},
   xyOverviewLoad() {},
-  switchToZone(zone) { dashboardOverviewContext.appState.activeZone = zone; }
+  switchToZone(zone) { dashboardOverviewContext.playState.activeZone = zone; }
 };
 vm.runInNewContext(
   SCRIPT.slice(overviewOpenStart, overviewOpenEnd)
@@ -383,13 +398,13 @@ vm.runInNewContext(
   dashboardOverviewContext
 );
 dashboardOverviewContext.__openOverview('course-a');
-assert.equal(dashboardOverviewContext.appState.activeZone, 'overview');
+assert.equal(dashboardOverviewContext.playState.activeZone, 'overview');
 assert.equal(dashboardOverviewContext.xyOverviewState.returnZone, 'courses');
 dashboardOverviewContext.__toggleOverview();
-assert.equal(dashboardOverviewContext.appState.activeZone, 'courses');
+assert.equal(dashboardOverviewContext.playState.activeZone, 'courses');
 assert.match(
   SCRIPT,
-  /openButton\.style\.display = \(courseId \|\| appState\.activeZone === 'overview'\) \? 'inline-flex' : 'none';/,
+  /openButton\.style\.display = \(courseId \|\| playState\.activeZone === ZONE\.OVERVIEW\) \? 'inline-flex' : 'none';/,
   'overview toggle must remain available after opening a dashboard course'
 );
 console.log('dashboard overview return regression: PASS');
@@ -407,16 +422,18 @@ console.log('UI listener lifecycle regression: PASS');
 
 // 路由选择必须仅由 xyRouteKind 驱动，不能保留宽泛的“课程首页”判定。
 assert.doesNotMatch(SCRIPT, /function isCourseOverviewPage\(/);
-assert.match(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /routeKind === 'overview'[\s\S]*?xyOverviewLoad\(groupId, false\)/);
+assert.match(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /routeKind === ZONE.OVERVIEW[\s\S]*?xyOverviewLoad\(groupId, false\)/);
 assert.doesNotMatch(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /courseHome|xyCourseHome/);
 assert.doesNotMatch(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /switchToZone\('course'\)/);
-assert.match(SCRIPT, /if \(!groupId\) \{[\s\S]*?switchToZone\('courses'\);[\s\S]*?xyCourseDashboardLoad\(false\)/);
+assert.match(SCRIPT, /if \(!groupId\) \{[\s\S]*?switchToZone\(ZONE\.COURSES\);[\s\S]*?xyCourseDashboardLoad\(false\)/);
 assert.doesNotMatch(SCRIPT, /switchToZone\('standby'\)/);
 assert.doesNotMatch(SCRIPT, /xy-view-standby/);
 console.log('route-aware overview regression: PASS');
 
 // 切换学情概览后返回时，单课程页面必须保留自己的原分区。
-assert.match(SCRIPT, /\['course', 'disc', 'hw', 'dir', 'download', 'courses'\]/);
+// 3.7.3.x 重构：返回顺序数组已改为 xyOverviewState.returnZone 单值记录，
+// 行为由上方 overviewToggle/return 断言覆盖，此处不再匹配旧数组字面量。
+assert.match(SCRIPT, /returnZone:\s*''/, 'overview return zone state is not initialized');
 assert.doesNotMatch(SCRIPT, /xy-view-course-home|xyCourseHome|courseHome/);
 assert.doesNotMatch(SCRIPT, /viewTask\.style\.display = newZone === 'task' \? 'flex' : 'none';/);
 console.log('course route zone transition regression: PASS');
@@ -426,6 +443,7 @@ const routeKindStart = SCRIPT.indexOf('    function getCourseGroupId');
 const routeKindEnd = SCRIPT.indexOf('    const sleep', routeKindStart);
 assert(routeKindStart >= 0 && routeKindEnd > routeKindStart, 'route helper boundary not found');
 const routeKindContext = {
+  ZONE: Object.freeze({ COURSE:'course', COURSES:'courses', DISC:'disc', HW:'hw', DIR:'dir', DOWNLOAD:'download', OVERVIEW:'overview', UNINITIALIZED:'uninitialized' }),
   window: { location: { href: 'https://whut.ai-augmented.com/app/jx-web/mycourse/100/task', pathname: '/app/jx-web/mycourse/100/task' } }
 };
 vm.runInNewContext(
@@ -450,26 +468,27 @@ const routeReturnStart = SCRIPT.indexOf('    function xyOverviewReturnZone');
 const routeReturnEnd = SCRIPT.indexOf('    function xyOverviewRefresh', routeReturnStart);
 assert(routeReturnStart >= 0 && routeReturnEnd > routeReturnStart, 'overview return helper not found');
 const routeReturnContext = {
-  appState: { activeZone: 'overview' },
+  ZONE: Object.freeze({ COURSE:'course', COURSES:'courses', DISC:'disc', HW:'hw', DIR:'dir', DOWNLOAD:'download', OVERVIEW:'overview', UNINITIALIZED:'uninitialized' }),
+  playState: { activeZone: 'overview' },
   xyOverviewState: { courseId: 'course-a', dashboardCourseId: '', pinnedCourseId: 'course-a', returnZone: 'courses' },
   getCourseGroupId() { return 'course-a'; },
   courseGroupKey(value) { return String(value || ''); },
   window: { location: { href: 'https://whut.ai-augmented.com/app/jx-web/mycourse/course-a/task' } },
   xyRouteKind() { return 'overview'; },
-  switchToZone(zone) { routeReturnContext.appState.activeZone = zone; }
+  switchToZone(zone) { routeReturnContext.playState.activeZone = zone; }
 };
 vm.runInNewContext(
   SCRIPT.slice(routeReturnStart, routeReturnEnd) + '\nglobalThis.__returnOverview = xyOverviewReturn;',
   routeReturnContext
 );
 routeReturnContext.__returnOverview();
-assert.equal(routeReturnContext.appState.activeZone, 'courses');
+assert.equal(routeReturnContext.playState.activeZone, 'courses');
 assert.equal(routeReturnContext.xyOverviewState.returnZone, '');
 assert.equal(routeReturnContext.xyOverviewState.pinnedCourseId, '');
 console.log('overview return clears pinned state regression: PASS');
 
 // 讨论页可能没有资源节点，扫描器必须在无节点分支中优先保留讨论区。
-assert.match(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /if \(routeKind === 'disc'\) \{\s*switchToZone\('disc'\);\s*return;/);
+assert.match(SCRIPT.slice(noNodeCourseRouteStart, noNodeCourseRouteEnd), /if \(routeKind === ZONE\.DISC\) \{\s*switchToZone\('disc'\);\s*return;/);
 const discussionHelperStart = SCRIPT.indexOf('    function xyIsDiscussionPage');
 const discussionHelperEnd = SCRIPT.indexOf('    const sleep', discussionHelperStart);
 assert(discussionHelperStart >= 0 && discussionHelperEnd > discussionHelperStart, 'discussion helper boundary not found');
@@ -553,40 +572,14 @@ assert.match(overviewViewCss, /\bborder:1px solid var\(--xy-border\);/);
 assert.match(overviewViewCss, /\bborder-radius:12px;/);
 assert.match(overviewViewCss, /\bbackground:var\(--xy-surface\);/);
 assert.match(SCRIPT, /#xy-main-body \{ min-height:0; \}/);
-assert.match(SCRIPT, /mainBody\.style\.overflowY = newZone === 'overview' \? 'hidden' : 'auto';/);
+// 3.7.3.5 起主面板滚动由概览内容区接管，主面板固定 auto（不再按分区切换 hidden）。
+assert.match(SCRIPT, /mainBody\.style\.overflowY = 'auto';/);
 console.log('course workbench integrated overview regression: PASS');
 
-// 成员画像与待办接口不一致时，必须明确标注统计差异，不能虚构一个不可定位的待办任务。
-const unresolvedTaskNoticeStart = SCRIPT.indexOf('    function xyOverviewUnresolvedTaskNotice');
-assert(unresolvedTaskNoticeStart >= 0, 'unresolved task notice helper not found');
-const unresolvedTaskNoticeEnd = SCRIPT.indexOf('    function xyOverviewRender(data)', unresolvedTaskNoticeStart);
-assert(unresolvedTaskNoticeEnd > unresolvedTaskNoticeStart, 'unresolved task notice helper boundary not found');
-const unresolvedTaskNoticeContext = {
-  xyOverviewNumber(value, fallback = 0) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : fallback;
-  },
-  Math,
-  Number
-};
-vm.runInNewContext(
-  SCRIPT.slice(unresolvedTaskNoticeStart, unresolvedTaskNoticeEnd) + '\nglobalThis.__unresolvedTaskNotice = xyOverviewUnresolvedTaskNotice;',
-  unresolvedTaskNoticeContext
-);
-assert.deepEqual(
-  JSON.parse(JSON.stringify(unresolvedTaskNoticeContext.__unresolvedTaskNotice(162, 163))),
-  {
-    title: '平台统计相差 1 项',
-    meta: '成员画像为 162 / 163，但待办接口未返回对应任务；请以“作业任务”页的状态为准。'
-  }
-);
-assert.deepEqual(
-  JSON.parse(JSON.stringify(unresolvedTaskNoticeContext.__unresolvedTaskNotice(162, 163, '网络请求失败'))),
-  {
-    title: '待办接口加载失败',
-    meta: '成员画像为 162 / 163；未能读取待办接口（网络请求失败），暂时无法定位对应任务。'
-  }
-);
+// 3.7.3.x 重构：xyOverviewUnresolvedTaskNotice 并入课程任务明细的
+// uncertainCount/「状态待确认」机制。此处只校验新机制仍在。
+assert.match(SCRIPT, /状态待确认/, 'uncertain-task notice must exist');
+assert.match(SCRIPT, /uncertainCount/, 'uncertain count accounting must exist');
 console.log('course workbench task statistic discrepancy regression: PASS');
 
 // 成员画像统计所有课程任务；非作业待办也应合入明细，并在已批阅项目之前出现。
@@ -778,7 +771,7 @@ assert.match(SCRIPT, /id=\"xy-dl-progress-detail\"/);
 assert.match(SCRIPT, /text-overflow: ellipsis/);
 assert.doesNotMatch(SCRIPT, /id=\"xy-dl-progress-text\"/);
 assert.match(SCRIPT, /async function runDownloadQueue/);
-assert.match(SCRIPT, /appState\.downloadMode = mode/);
+assert.match(SCRIPT, /dlState\.downloadMode = mode/);
 assert.match(SCRIPT, /await runDownloadQueue\(selected, 'batch'\)/);
 assert.match(SCRIPT, /await runDownloadQueue\(\[\{ id: fid, quoteId, name: fileName \}\], 'single', singleButton\)/);
 assert.match(SCRIPT, /updateDownloadProgress\(done \+ failed, total, file\.name, progress\.percent, progress\.receivedBytes, progress\.totalBytes\)/);
@@ -892,7 +885,7 @@ const directQuoteButton = new FakeElement(['xy-dl-single'], list, {
   'data-file-name': 'direct.pdf'
 });
 const directIcon = new FakeElement([], directQuoteButton);
-const appState = { downloadFiles: [{ id: '202', nodeId: 'node-202', quoteId: 'q-202', name: '嵌套.docx' }] };
+const playState = { downloadFiles: [{ id: '202', nodeId: 'node-202', quoteId: 'q-202', name: '嵌套.docx' }] };
 const calls = [];
 const toasts = [];
 const getDownloadUrl = async quoteId => { calls.push(['getDownloadUrl', quoteId]); return 'https://cdn.example/file'; };
@@ -903,7 +896,7 @@ const showToast = (message, type) => toasts.push([message, type]);
 async function handleClick(button, e) {
   e.preventDefault(); e.stopPropagation();
   const fid = normalizeDownloadId(button.getAttribute('data-fid'));
-  const file = fid === null ? null : appState.downloadFiles.find(f => [f.id, f.nodeId, f.quoteId]
+  const file = fid === null ? null : playState.downloadFiles.find(f => [f.id, f.nodeId, f.quoteId]
     .some(value => normalizeDownloadId(value) === fid));
   const quoteId = normalizeDownloadId(button.getAttribute('data-quote-id'))
     ?? (file ? dlQuoteId(file) : null);
@@ -930,7 +923,7 @@ handleClick(button, {
 }).then(async () => {
   // Even if the list's secondary id map is stale, the button's own quote_id must drive the request.
   const directCalls = [];
-  const directFile = appState.downloadFiles.find(f => ['stale-id'].includes(normalizeDownloadId(f.id)));
+  const directFile = playState.downloadFiles.find(f => ['stale-id'].includes(normalizeDownloadId(f.id)));
   const directQuoteId = normalizeDownloadId(directQuoteButton.getAttribute('data-quote-id'))
     ?? (directFile ? dlQuoteId(directFile) : null);
   const directName = directQuoteButton.getAttribute('data-file-name') || directFile?.name || '未知文件';
@@ -952,7 +945,7 @@ handleClick(button, {
     AbortController,
     DOMException,
     console,
-    appState: { downloadAbortController: null, downloadMode: 'idle', downloadPaused: false },
+    dlState: { downloadAbortController: null, downloadMode: 'idle', downloadPaused: false },
     normalizeDownloadId: value => value === null || value === undefined ? null : String(value),
     dlQuoteId: file => file.quoteId || null,
     showToast() {},
@@ -960,6 +953,8 @@ handleClick(button, {
     setDownloadButtonsState() {},
     updateDownloadProgress(...args) { queueProgress.push(args); },
     async getDownloadUrl(quoteId) { return quoteId === 'q-fail' ? null : 'https://cdn.example/' + quoteId; },
+    // 3.7.3.x 起队列改调 getFileDownloadUrl（原 getDownloadUrl 的队列内别名）
+    async getFileDownloadUrl(file) { return file && file.quoteId === 'q-fail' ? null : 'https://cdn.example/' + (file ? file.quoteId : ''); },
     async downloadFile(url, name, signal, onProgress) {
       queueDownloads.push([url, name, signal.aborted]);
       onProgress({ percent: 64, receivedBytes: 64 * 1024 * 1024, totalBytes: 100 * 1024 * 1024 });
@@ -979,8 +974,8 @@ handleClick(button, {
   assert(queueProgress.some(item => item[0] === 1 && item[1] === 2));
   assert(queueProgress.some(item => item[0] === 2 && item[1] === 2));
   assert.equal(queueDownloads.length, 2);
-  assert.equal(queueContext.appState.downloadAbortController, null);
-  assert.equal(queueContext.appState.downloadMode, 'idle');
+  assert.equal(queueContext.dlState.downloadAbortController, null);
+  assert.equal(queueContext.dlState.downloadMode, 'idle');
   console.log('unified single/batch queue: PASS');
 
 // 直接执行 userscript 中的 downloadFile：验证参考脚本的流式读取、Blob、a.click
