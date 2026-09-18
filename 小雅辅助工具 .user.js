@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.6
-// @description  小雅平台浏览器用户脚本：视频与文档处理、课件批量下载、作业统一导出（作答文档/手写归档，题目·答案·我的作答自由组合）与AI作答保存、讨论区互动等常用功能集成
+// @version      3.7.3.7
+// @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
 // @source       https://gitee.com/fieldlu/xy-script-assets
@@ -5236,6 +5236,20 @@
         });
     }
     /**
+     * 下载区可见文件过滤（单一事实来源）：类型白名单 + 文件名关键词双重过滤，
+     * 与 renderDownloadList 的展示范围保持同一套判定。列表渲染与「全选」共用，
+     * 保证全选勾选的范围 = 界面当前实际可见的条目。
+     * [DL-SELECT-ALL-SCOPED]
+     */
+    function dlGetVisibleFiles() {
+        const keyword = (dlState.downloadSearchKeyword || '').toLowerCase().trim();
+        const typeSet = dlState.downloadTypeFilter;
+        return (dlState.downloadFiles || []).filter(f => {
+            if (typeSet && typeSet.size > 0 && !typeSet.has(dlFileType(f.name))) return false;
+            return !keyword || String(f.name || '').toLowerCase().includes(keyword);
+        });
+    }
+    /**
      * 下载文件列表主渲染管线。
      *
      * 空列表早退（0 个文件文案）；否则四段流水线：类型集 + 关键词双重过滤 →
@@ -5256,10 +5270,7 @@
         }
         const keyword = (dlState.downloadSearchKeyword || '').toLowerCase().trim();
         const typeSet = dlState.downloadTypeFilter;
-        const filtered = dlState.downloadFiles.filter(f => {
-            if (typeSet && typeSet.size > 0 && !typeSet.has(dlFileType(f.name))) return false;
-            return !keyword || f.name.toLowerCase().includes(keyword);
-        });
+        const filtered = dlGetVisibleFiles();
         
         const mode = dlState.downloadSortMode;
         filtered.sort((a, b) => {
@@ -13865,11 +13876,12 @@ var XYExport = (function (Hinote) {  'use strict';
             };
         }
         xySafeEl('xy-dl-select-all').onclick = () => {
-            const keyword = (dlState.downloadSearchKeyword || '').toLowerCase().trim();
-            const targets = keyword
-                ? dlState.downloadFiles.filter(f => f.name.toLowerCase().includes(keyword))
-                : dlState.downloadFiles;
-            targets.forEach(f => {
+            // [DL-SELECT-ALL-SCOPED] 全选范围 = 当前筛选（类型 + 文件名）下可见的文件，
+            // 整组替换勾选集：切换类型或修改搜索后再次全选，勾选范围随之收敛为
+            // 当前可见项，不残留被过滤掉的旧勾选。ID 归一化与单个勾选、批量下载
+            // 共用 normalizeDownloadId，勾选集 ↔ 复选框回显 ↔ 下载队列保持一致。
+            dlState.downloadSelectedIds.clear();
+            dlGetVisibleFiles().forEach(f => {
                 const id = normalizeDownloadId(f.id);
                 if (id !== null) dlState.downloadSelectedIds.add(id);
             });
