@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.7
+// @version      3.7.3.8
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -1268,10 +1268,30 @@
      * 路由前缀自适应：平台同时存在 /course/{id}（新版）与 /mycourse/{id}
      * （旧版）两种路径形态。检测 pathname 是否匹配 /course/\d+ 决定拼接
      * 跳转链接时沿用哪种前缀，避免跳到旧版路由导致 404。
+     *
+     * [JUMP-HOME-FIX] 增加前缀记忆。原实现只看当前 URL，一旦当前页面没有课程
+     * 上下文（课程首页 /app/jx-web/mycourse、总览页），判定必然回落到旧版
+     * mycourse —— 账号若在用新版路由，拼出的跳转链接会被平台当成无效路由并
+     * 重定向回首页，表现为「跳到首页后不再跳转」。现在：在课程上下文里按实际
+     * URL 判定并记忆（GM 持久化，跨页有效），离开课程上下文后沿用记忆值，
+     * 从未进过课程上下文时才回落到 mycourse。
      * @returns {'course'|'mycourse'}
      * [DEEP-DOC]
      */
-    function xyCourseRoutePrefix() { return /\/course\/\d+(?:\/|$)/.test(window.location.pathname) ? 'course' : 'mycourse'; }
+    let xyRoutePrefixMemo = '';
+    try { xyRoutePrefixMemo = String(GM_getValue('xy_route_prefix', '') || ''); } catch(e) { xyRoutePrefixMemo = ''; }
+    function xyCourseRoutePrefix() {
+        const mark = prefix => {
+            if (xyRoutePrefixMemo !== prefix) {
+                xyRoutePrefixMemo = prefix;
+                try { GM_setValue('xy_route_prefix', prefix); } catch(e) {}
+            }
+            return prefix;
+        };
+        if (/\/course\/\d+(?:\/|$)/.test(window.location.pathname)) return mark('course');
+        if (/\/mycourse\/\d+(?:\/|$)/.test(window.location.pathname)) return mark('mycourse');
+        return xyRoutePrefixMemo === 'course' ? 'course' : 'mycourse';
+    }
     /** 我的课程首页检测：pathname 精确匹配 ^/app/jx-web/mycourse/?$（允许尾斜杠）。
      * [DEEP-DOC]
      */
@@ -4158,7 +4178,7 @@
     function dirResourceUrl(r) {
         const groupId = getCourseGroupId();
         if (!groupId || !r) return '';
-        const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
+        const pathPrefix = xyCourseRoutePrefix();
         const selfId = normalizeDownloadId(r.id) ?? normalizeDownloadId(r.resource_id);
         if (selfId === null) return '';
         if (dirIsUnit(r)) {
@@ -6197,7 +6217,7 @@
 
                 logMsg(`⏭️ 雷达锁定目标：${targetTask.name}，执行跨节点跳转！`, 'success', false);
 
-                const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
+                const pathPrefix = xyCourseRoutePrefix();
 
                 playState.jumpFailCount = 0; 
                 setTimeout(() => { 
@@ -8595,6 +8615,8 @@
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
         saveScheduleState();
+        // [JUMP-HOME-FIX] 启动即补心跳（兜底跨页存活判定），确保首跳落地页不会把本场调度当残留清空
+        xyScheduleHeartbeat(true);
 
         updateCourseUI();
         updateSchCard();
@@ -8603,10 +8625,23 @@
         
         const firstTask = xyScheduleState.queue[0];
         if (firstTask) {
-            const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
+            const pathPrefix = xyCourseRoutePrefix();
             logMsg(`🔊 顺序调度：正在跳转至首个任务「${(firstTask.name||'未知').substring(0,12)}」...`, 'success', false);
             setTimeout(() => {
-                window.location.href = `/app/jx-web/${pathPrefix}/${firstTask.groupId}/${firstTask.resourceId}/${firstTask.nodeId}`;
+                /**
+                 * [JUMP-HOME-FIX] 首跳 URL 必须与调度 tick 同形（含 resource 段）：
+                 *   /app/jx-web/{prefix}/{gid}/resource/{resId}/{nodeId}
+                 * 原实现漏掉了 `resource/`，拼出 /{gid}/{resId}/{nodeId} —— 平台
+                 * 路由表里不存在这种形态，SPA 会回落到课程首页，于是「一键调度」
+                 * 第一次跳转就把浏览器扔到 home 页，后续跳转全部失去上下文。
+                 *
+                 * 同时补跳转标记：落地页靠 sessionStorage 的 xy_sch_jumping 识别
+                 * 「这是正在跑的调度的一次跨页跳转」，缺了它就会触发残留清理、
+                 * 把刚启动的队列整个清空（isRunning 置 false），也就是
+                 * 「跳到首页后彻底不再跳转」的直接原因。
+                 */
+                try { sessionStorage.setItem('xy_sch_jumping', '1'); } catch(e) {}
+                window.location.href = `/app/jx-web/${pathPrefix}/${firstTask.groupId}/resource/${firstTask.resourceId}/${firstTask.nodeId}`;
             }, 800);
         }
     }
@@ -9305,6 +9340,8 @@ const tid = e.target.getAttribute('data-tid');
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
         saveScheduleState();
+        // [JUMP-HOME-FIX] 启动即补心跳：否则「启动后立刻刷新/被平台重定向」会把刚启动的队列当残留清空
+        xyScheduleHeartbeat(true);
         updateCourseUI();
         updateSchCard();
         try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
@@ -9366,6 +9403,8 @@ const tid = e.target.getAttribute('data-tid');
         playState.mode = PLAY_MODE.MANUAL;
         GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
         saveScheduleState();
+        // [JUMP-HOME-FIX] 同 xySchStart：启动即补心跳，避免落地页残留清理把刚重启的队列误杀
+        xyScheduleHeartbeat(true);
         updateCourseUI();
         updateSchCard();
         try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
@@ -9426,7 +9465,7 @@ const tid = e.target.getAttribute('data-tid');
 
         const currentGroupId = getCourseGroupId();
         const currentNodeId = getNodeId();
-        const pathPrefix = window.location.href.includes('/course/') ? 'course' : 'mycourse';
+        const pathPrefix = xyCourseRoutePrefix();
 
         
         if (currentGroupId != currentTask.groupId || currentNodeId != currentTask.nodeId) {
