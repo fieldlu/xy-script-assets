@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.8
+// @version      3.7.3.9
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -3806,7 +3806,15 @@
 
             playState.docSubmitSeconds = needMin;
             playState.docForceSeconds = Math.max(DOC_READ.FORCE_SECONDS, needMin * 60 + 10 + 170);
-            logMsg(`⏱ 检测到时长要求：本任务需累计观看 ${needMin} 分钟，交卷线已动态对齐`, 'info', true);
+            /**
+             * 日志措辞必须对两种类型都成立。
+             *
+             * 本函数按类型无关的方式同步（视频页也会走到这里：该值供 LOOP 兜底重载阈值
+             * 与统一强制放行线使用），旧文案「本任务需累计观看 N 分钟」在视频页是**错误宣称**
+             * —— 视频的达标条件是「看完」，用户会以为看够 N 分钟就行。
+             * [WATCH-DISPLAY]
+             */
+            logMsg(`⏱ 检测到时长要求：${needMin} 分钟（文档按此对齐交卷线 · 视频以播完为准）`, 'info', true);
             return needMin;
         } catch (e) {
             // 雷达不可用时保持默认阈值，不阻断主循环
@@ -6990,12 +6998,27 @@
                         if (statusEl) {
                             if (video.ended || (hasDuration && playState.videoScriptProgress >= duration)) {
                                 statusEl.innerText = '已播完, 验证中...';
-                            } else if (playState.docSubmitSeconds > 0) {
-                                // 教师设有时长要求时，同时给出观看分钟数便于对照
-                                const wMin = Math.floor(playState.docReadTime / 60);
-                                statusEl.innerText = `播放 ${scriptProgressPct.toFixed(0)}% · 已看 ${wMin}/${playState.docSubmitSeconds} 分`;
                             } else {
-                                statusEl.innerText = `脚本进度 ${scriptProgressPct.toFixed(1)}%`;
+                                /**
+                                 * 状态文案两段拼装，缺项自动省略：
+                                 *   「播放 X%」     —— 脚本记账的播放进度
+                                 *   「mm:ss/mm:ss」 —— 播放位置 / 片长（元数据未就绪时省略）
+                                 *
+                                 * ⚠️ 视频侧**不显示分钟要求** —— 这里曾显示「已看 N/5 分(要求)」，是错的：
+                                 *   教师后台对视频只有「看完视频」一个设置，达标条件 = 播放进度到达片长；
+                                 *   任务数据里的 watch_min_minutes 是**文档式**分钟要求，对视频不适用。
+                                 *   显示它会让用户以为「看够 5 分钟就行」，而引擎实际必须等播完 ——
+                                 *   文案与判定内核自相矛盾。
+                                 *   （该字段仍被 LOOP 模式的兜底重载阈值复用，见下方
+                                 *     xyDocEffectiveForceSeconds —— 那是最后手段的安全网，不是达标宣告。）
+                                 *
+                                 * 另一个曾踩的坑：这里读过 docReadTime 充当「已看」，
+                                 * 而它只在文档分支自增、视频页恒为 0 → 整行永远停在 0。
+                                 * [WATCH-DISPLAY]
+                                 */
+                                const parts = [`播放 ${scriptProgressPct.toFixed(0)}%`];
+                                if (hasDuration) parts.push(`${xyClock(video.currentTime)}/${xyClock(duration)}`);
+                                statusEl.innerText = parts.join(' · ');
                             }
                         }
                         
@@ -7007,11 +7030,25 @@
                         const progress = loopDur > 0 ? (video.currentTime / loopDur) * 100 : 0;
                         const statusEl = document.getElementById('xy-video-status');
                         if (statusEl) {
-                             if (playState.mode === PLAY_MODE.LOOP && playState.isTaskCompleted) {
-                                  statusEl.innerText = `[循环] 进度 ${progress.toFixed(1)}%`;
-                             } else {
-                                  statusEl.innerText = video.ended ? '已播完, 验证中...' : `进度 ${progress.toFixed(1)}%`;
-                             }
+                            /**
+                             * 与 SEQUENCE 分支同一套两段拼装（缺项自动省略），两个模式的
+                             * 状态栏口径保持一致：进度百分比 + 播放位置/片长。视频侧同样
+                             * **不显示分钟要求**，理由见 SEQUENCE 分支注释（视频的达标条件
+                             * 是播完，不是累计 N 分钟）。
+                             * 分支优先级沿用原实现：循环达标态优先于「已播完」提示。
+                             * [WATCH-DISPLAY]
+                             */
+                            if (playState.mode === PLAY_MODE.LOOP && playState.isTaskCompleted) {
+                                const parts = [`[循环] 播放 ${progress.toFixed(0)}%`];
+                                if (loopDur > 0) parts.push(`${xyClock(video.currentTime)}/${xyClock(loopDur)}`);
+                                statusEl.innerText = parts.join(' · ');
+                            } else if (video.ended) {
+                                statusEl.innerText = '已播完, 验证中...';
+                            } else {
+                                const parts = [`播放 ${progress.toFixed(0)}%`];
+                                if (loopDur > 0) parts.push(`${xyClock(video.currentTime)}/${xyClock(loopDur)}`);
+                                statusEl.innerText = parts.join(' · ');
+                            }
                         }
                         
                         if (video.currentTime > 0 && !video.paused) isMakingProgress = true;
@@ -7109,19 +7146,30 @@
                      * 表现为「阅读中 / 阅读倒数」反复抢时间。
                      *
                      * 文案分三阶段，与判定内核 xyEngineCheckCompletion 的语义对齐：
-                     *   未到交卷线   → 「阅读 m/n 分 (xx%)」
+                     *   未到交卷线   → 「阅读 m/n 分(要求) · xx%」（无平台要求时省去分母）
                      *   已交卷待确认 → 「验证重试中」
                      *   超过放行线   → 「强制提交阶段」
                      */
                     const submitLine = xyDocEffectiveSubmitSeconds();
                     const forceLine = xyDocEffectiveForceSeconds();
-                    const reqMin = playState.docSubmitSeconds > 0 ? playState.docSubmitSeconds : Math.round(submitLine / 60);
                     const doneMin = Math.floor(playState.docReadTime / 60);
                     const progress = Math.min((playState.docReadTime / submitLine) * 100, 100);
                     const statusEl = document.getElementById('xy-doc-status'), progressEl = document.getElementById('xy-doc-progress');
                     if (statusEl) {
                         if (playState.docReadTime < submitLine) {
-                            statusEl.innerText = `阅读 ${doneMin}/${reqMin} 分 (${progress.toFixed(0)}%)`;
+                            /**
+                             * 分母只在平台确有要求（docSubmitSeconds > 0）时展示，并显式标注
+                             * 「(要求)」：无要求时 submitLine 是脚本默认线
+                             * （DOC_READ.SUBMIT_SECONDS = 130s），换算成分会渲染出
+                             * 「阅读 0/2 分」，让人误以为教师设了「至少 2 分钟」。
+                             * 绝大多数未完成任务都带要求，这条回落路径极少命中，删掉更诚实。
+                             * 与视频侧同一套拼装规则，两侧不再不对称。
+                             * [WATCH-DISPLAY]
+                             */
+                            const readPart = playState.docSubmitSeconds > 0
+                                ? `阅读 ${doneMin}/${playState.docSubmitSeconds} 分(要求)`
+                                : `阅读 ${doneMin} 分`;
+                            statusEl.innerText = `${readPart} · ${progress.toFixed(0)}%`;
                         } else if (playState.docReadTime < forceLine) {
                             statusEl.innerText = `验证重试中: ${playState.docReadTime}s`;
                         } else {
@@ -7741,6 +7789,19 @@
      * [DEEP-DOC]
      */
     function formatTime(s) { const h = Math.floor(s/3600), m = Math.floor((s%3600)/60).toString().padStart(2,'0'), sec = (s%60).toString().padStart(2,'0'); return h > 0 ? `${h}h ${m}m ${sec}s` : `${m}m ${sec}s`; }
+    /**
+     * 秒 → 紧凑播放时钟串（mm:ss；满 1 小时带小时位 h:mm:ss）。
+     *
+     * 供引擎状态栏把「播放位置 / 片长」并排展示（原来只给百分比，看不出
+     * 视频本身多长、播到哪儿了）。负数与 NaN 一律归零，避免直接显示 -1:59。
+     * [WATCH-DISPLAY]
+     */
+    function xyClock(seconds) {
+        const total = Math.max(0, Math.floor(Number(seconds) || 0));
+        const pad = v => String(v).padStart(2, '0');
+        const m = Math.floor((total % 3600) / 60), s = total % 60, h = Math.floor(total / 3600);
+        return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+    }
     /**
      * 刷课区 UI 状态机总渲染：横幅六态（调度暂停/调度中/手动休眠/深度休眠倒计时/
      * 循环挂机/连播进行）决定 banner 文案与配色；联动引擎指示灯透明度、
