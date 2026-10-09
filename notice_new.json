@@ -1,10 +1,11 @@
 {
-  "title": "🎉 v3.7.4.0 发布 · 新增课件一键转 PDF 与 Markdown 转 Word/PDF",
+  "title": "🎉 v3.7.4.1 发布 · 新增课件一键转 PDF 与 Markdown 转 Word/PDF",
   "items": [
-    "📎 一键安装/更新 3.7.4.0：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
-    "🕗 本版于 2026-10-09 发布，为功能性大版本更新，建议所有用户升级。",
+    "📎 一键安装/更新 3.7.4.1：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
+    "🕗 本版于 2026-10-09 发布，为功能性大版本更新（含公式转换修复），建议所有用户升级。",
     "🖥 课件一键转 PDF（本次主打）：下载区勾选任意多个 PPT / Word 课件，点「🖥 转 PDF」即可逐个自动转换为 PDF 并下载；不勾选时转换当前正在预览的课件。转换在平台 Office 预览服务端完成、浏览器内自动取回 —— 无需安装任何本机软件，所有用户开箱即用。",
     "📝 Markdown 转 Word / PDF：下载区与作业答题区双入口。Word 支持 $公式$ 转原生可编辑公式（OMML）、图片自动嵌入；PDF 由浏览器打印引擎输出矢量文字，可选中可搜索。首次使用按需加载转换引擎，之后有缓存。",
+    "🛠 公式修复：AI 生成的 Markdown 中 $\\(x\\)$ 双重定界、\\boldsymbol 写法此前会导致公式红字报错或内容丢失，现已全链路修复。",
     "🔮 更新日志：https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
   ]
 }
