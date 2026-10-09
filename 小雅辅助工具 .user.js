@@ -14631,16 +14631,29 @@ var XYExport = (function (Hinote) {  'use strict';
         });
 
         async function xyOw365PrintToPdf() {
-            /* WAC 就绪等待：桥服务端可能被注入到刚创建的隐藏 iframe（多选批量
-             * 场景），需等主预览 URL 重定向至 pv.aspx 且 WAC 命名空间初始化完成。 */
+            /* 双模式就绪等待：
+             * A) PPTe 就绪（ppt / pptx 的 WAC 编辑器）→ 合成 Ctrl+P 走打印链；
+             * B) PDFViewerApplication 就绪（doc / docx 预览 = OW365 服务端已把
+             *    Word 转成 PDF，内嵌 PDF.js 渲染）→ 直接 fetch 其数据源直链。 */
+            let mode = '';
             const t0 = Date.now();
-            let ready = false;
             while (Date.now() - t0 < 20000) {
-                try { ready = (typeof PPTe !== 'undefined') && !!PPTe['$1O'] && (typeof PPTe['$1O'].$eR === 'function'); } catch (e) { ready = false; }
-                if (ready) break;
+                try {
+                    if (typeof PPTe !== 'undefined' && PPTe['$1O'] && typeof PPTe['$1O'].$eR === 'function') { mode = 'wac'; break; }
+                    const A = (typeof PDFViewerApplication !== 'undefined') ? PDFViewerApplication : null;
+                    if (A && A.pdfDocument && A.url) { mode = 'pdfjs'; break; }
+                } catch (e) {}
                 await new Promise(r => setTimeout(r, 500));
             }
-            if (!ready) throw new Error('OW365 会话初始化超时（20s）');
+            if (!mode) throw new Error('OW365 会话初始化超时（20s）');
+            if (mode === 'pdfjs') {
+                const u = new URL(PDFViewerApplication.url, location.href).href;
+                const resp = await fetch(u, { credentials: 'include' });
+                if (!resp.ok) throw new Error('PDF 下载 HTTP ' + resp.status);
+                const ab = await resp.arrayBuffer();
+                if (new TextDecoder('latin1').decode(ab.slice(0, 5)).indexOf('%PDF') !== 0) throw new Error('服务端未返回有效 PDF');
+                return ab;
+            }
             const mk = t => new KeyboardEvent(t, { key: 'p', code: 'KeyP', keyCode: 80, which: 80, ctrlKey: true, bubbles: true, cancelable: true });
             (document.activeElement || document.body).dispatchEvent(mk('keydown'));
             document.dispatchEvent(mk('keydown'));
@@ -14797,7 +14810,8 @@ var XYExport = (function (Hinote) {  'use strict';
     }
 
     /** 多选批量转 PDF 主流程（「🖥 转 PDF」按钮）：勾选 Office 课件 → 逐个隐藏
-     * iframe 开 OW365 会话服务端转换 → PDF 逐个落盘。无勾选时退化为转当前预览。
+     * iframe 开 OW365 会话服务端转换 → PDF 逐个落盘；勾选 PDF → 不进桥，直接
+     * 签发下载直链原样下载（目标格式就是它本身）。无勾选时退化为转当前预览。
      * 全程浏览器内完成，零本地依赖，任何用户可用。 [DEEP-DOC]
      */
     async function xyPreviewToPdf() {
@@ -14811,27 +14825,38 @@ var XYExport = (function (Hinote) {  'use strict';
             } catch (e) { return []; }
         })();
         const officeRe = /\.(pptx?|docx?|doc|wps)$/i;
-        const targets = selected.filter(f => officeRe.test(String(f.name || '')));
+        const pdfRe = /\.pdf$/i;
+        const targets = selected.filter(f => officeRe.test(String(f.name || '')) || pdfRe.test(String(f.name || '')));
         if (btn) { btn.disabled = true; }
         try {
             if (targets.length) {
-                /* 批量模式：勾选文件逐个隐藏 iframe 转换下载 */
+                /* 批量模式：勾选文件逐个处理（Office 走 OW365 桥转 PDF；PDF 直下） */
                 const _saveAs = (typeof saveAs === 'function') ? saveAs : window.saveAs;
                 if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
                 let okCnt = 0, failCnt = 0;
                 for (let i = 0; i < targets.length; i++) {
                     const f = targets[i];
-                    if (btn) btn.textContent = '⏳ 转换 ' + (i + 1) + '/' + targets.length + '…';
-                    logMsg('🖥 (' + (i + 1) + '/' + targets.length + ') 正在转换: ' + f.name, 'info', true);
+                    const isPdf = pdfRe.test(String(f.name || ''));
+                    if (btn) btn.textContent = '⏳ ' + (isPdf ? '下载 ' : '转换 ') + (i + 1) + '/' + targets.length + '…';
+                    logMsg('🖥 (' + (i + 1) + '/' + targets.length + ') ' + (isPdf ? 'PDF 直下: ' : '正在转换: ') + f.name, 'info', true);
                     try {
-                        const r = await xyOw365ConvertOne(f);
-                        const name = String(f.name || '课件').replace(/\.[^.]+$/, '') + '.pdf';
-                        _saveAs(new Blob([r.buf], { type: 'application/pdf' }), name);
-                        okCnt++;
-                        logMsg('✅ 已转 PDF: ' + name, 'success', true);
+                        if (isPdf) {
+                            /* PDF 本身就是目标格式：走既有下载链（签发直链 + 落盘），原文件保存 */
+                            const u = await getFileDownloadUrl(f, null);
+                            if (!u) throw new Error('下载地址签发失败');
+                            await downloadFile(u, f.name, null);
+                            okCnt++;
+                            logMsg('✅ PDF 已下载: ' + f.name, 'success', true);
+                        } else {
+                            const r = await xyOw365ConvertOne(f);
+                            const name = String(f.name || '课件').replace(/\.[^.]+$/, '') + '.pdf';
+                            _saveAs(new Blob([r.buf], { type: 'application/pdf' }), name);
+                            okCnt++;
+                            logMsg('✅ 已转 PDF: ' + name, 'success', true);
+                        }
                     } catch (e) {
                         failCnt++;
-                        logMsg('❌ 转换失败: ' + f.name + ' (' + (e.message || e) + ')', 'error', true);
+                        logMsg('❌ ' + (isPdf ? '下载失败: ' : '转换失败: ') + f.name + ' (' + (e.message || e) + ')', 'error', true);
                     }
                     await sleep(800);
                 }
@@ -14917,7 +14942,7 @@ var XYExport = (function (Hinote) {  'use strict';
             b.id = 'xy-preview-to-pdf'; b.className = 'xy-action-btn'; b.type = 'button';
             b.style.cssText = 'flex:1.5; background:' + T('rgba(6,182,212,0.12)', '#e0f2fe') + '; border-color:' + T('rgba(6,182,212,0.3)', '#bae6fd') + '; color:' + T('#67e8f9', '#0e7490') + ';';
             b.textContent = '🖥 转 PDF';
-            b.title = '多选课件后点击：逐个自动转 PDF 下载（纯前端走 OW365 服务端转换，无需安装任何东西）；未勾选时转换当前预览的课件';
+            b.title = '多选 ppt/doc/docx/pptx 后点击：逐个自动转 PDF 下载；勾选 PDF 则直接原样下载（纯前端，走 OW365 服务端转换，无需安装任何东西）；未勾选时转换当前预览的课件';
             b.addEventListener('click', () => { void xyPreviewToPdf(); });
             batchBtn.parentNode.appendChild(b);
         }
