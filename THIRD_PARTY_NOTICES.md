@@ -59,8 +59,3 @@
 - 作者：101arrowz
 - 许可证：MIT License
 - 用途：课件 ZIP 打包（转 PDF 打包功能）
-
-### xy-convert-server.py（本机伴随服务，可选）
-
-- 归属：本仓库原创，按 GPL-3.0 随 `tools/` 目录分发
-- 用途：调用本机 LibreOffice（headless）或 MS Office / WPS COM 组件将 Office 文档转 PDF，供脚本下载区「转 PDF 打包」调用；服务仅监听 127.0.0.1

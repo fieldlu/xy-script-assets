@@ -1,15 +1,13 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.3.9
-// @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、学情总览等常用学习辅助功能集成
+// @version      3.7.4.0
+// @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word/PDF、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
 // @source       https://gitee.com/fieldlu/xy-script-assets
-// @updateURL    https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
-// @downloadURL  https://gitee.com/fieldlu/xy-script-assets/raw/main/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7%20.user.js
 // @match        https://*.ai-augmented.com/*
-// @noframes
+// @match        https://x1.ow365.cn/*
 // @run-at       document-start
 // @connect      gitee.com
 // @connect      *
@@ -39,6 +37,14 @@
  * 许可证全文及详细声明见仓库内 LICENSE-MIT / LICENSE-APACHE /
  * THIRD_PARTY_NOTICES.md。署名或标注有误请提交 Issue。
  *
+ * Markdown 转换功能（§16 xyMd）额外引用了以下 MIT 协议开源库：
+ *   - remark-docx (FrankLiu007 fork)  LaTeX→OMML 公式链路      MIT License
+ *   - docx (dolanmiu)                 OOXML 文档生成            MIT License
+ *   - KaTeX                           数学公式排版              MIT License
+ *   - marked                          Markdown 渲染（打印窗口）  MIT License
+ *   - pdf-lib                         图片转 PDF                MIT License
+ *   - fflate                          ZIP 打包                  MIT License
+ *
  * 本脚本按「原样」提供，不附带任何明示或暗示的担保；
  * 使用产生的一切后果由使用者自行承担，请遵守所在学校、平台及当地法律法规。
  */
@@ -49,7 +55,9 @@
     /* ================================================================
      * 小雅辅助工具 (Xiaoya Assistant) — 架构总览
      * ================================================================
-     * 运行环境：Tampermonkey / 油猴，@run-at document-start，@noframes
+     * 运行环境：Tampermonkey / 脚本猫，@run-at document-start；注入
+     *   ai-augmented.com（主逻辑，仅顶级页）与 x1.ow365.cn（OW365 打印桥，
+     *   v3.7.5 起 @noframes 移除改为代码内域路由）
      * 目标平台：whut.ai-augmented.com（武汉理工「理工智课」教学平台）
      *
      * 整体结构（单 IIFE，内部按模块分区）：
@@ -103,6 +111,14 @@
     const SCRIPT_VERSION = typeof GM_info !== 'undefined' ? GM_info.script.version : '未知';
 
     const domain = window.location.hostname;
+
+    /* v3.7.5 域路由（替代原 @noframes）：
+     *   - ow365.cn 域（含小雅页内跨域 iframe）→ 仅安装 OW365 打印桥服务，
+     *     不执行任何主逻辑，随即退出 IIFE；
+     *   - 小雅域 iframe 内 → 与原 @noframes 行为一致，静默跳过；
+     *   - 小雅域顶级页 → 正常初始化全部功能。 */
+    if (/(^|\.)ow365\.cn$/i.test(domain)) { xyOw365BridgeInstall(); return; }
+    try { if (window.self !== window.top) return; } catch (e) { return; }
 
     /* ================================================================
      * 脚本更新模块
@@ -14412,6 +14428,502 @@ var XYExport = (function (Hinote) {  'use strict';
         window.addEventListener('hashchange', () => { hwHandleRouteChange(); scheduleEnsureUI(100); });
     }
     hwInstallRouteWatcher();
+
+    /* ================================================================
+     * §16 Markdown 转换模块（xyMd 系）
+     * ================================================================
+     * A. Markdown→Word：remark-docx fork 引擎（esbuild IIFE bundle，懒加载
+     *    自 Gitee 资产库），LaTeX 公式转 Word 原生 OMML，图片走 GM 特权抓取
+     *    （复用 §11 hwFetchImageBlob）；
+     * B. Markdown→PDF：marked + KaTeX 全部在打印窗口内 CDN 加载，主页面零
+     *    依赖零污染，浏览器打印引擎出矢量 PDF（文字可选中、链接可点击）；
+     *    转换面板双入口：下载区尾部 + 作业查看台（答题区）尾部（id 后缀隔离）；
+     * D. 「🖥 预览转 PDF」（v3.7.5 纯前端，课件转 PDF 唯一入口）：桥接当前
+     *    OW365 预览 iframe，合成 Ctrl+P 触发永中服务端转换 → 抓 printhandler
+     *    链接取回 PDF，跨域 postMessage 传 ArrayBuffer，零本地依赖。
+     * [DEEP-DOC]
+     * ================================================================ */
+    const XYMD = Object.freeze({
+        BUNDLE_URL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/dist/xy-md2docx.bundle.min.js',
+        MARKED_URL: 'https://cdn.jsdmirror.com/npm/marked@12.0.2/marked.min.js',
+        KATEX_URL: 'https://cdn.jsdmirror.com/npm/katex@0.16.11/dist/katex.min.js',
+        KATEX_AUTO_URL: 'https://cdn.jsdmirror.com/npm/katex@0.16.11/dist/contrib/auto-render.min.js',
+        KATEX_CSS_URL: 'https://cdn.jsdmirror.com/npm/katex@0.16.11/dist/katex.min.css'
+    });
+
+    const xyMdLibs = new Map();
+    /** 外部库懒加载器：GM 特权拉取文本 → 隔离作用域执行 → 多目标扫描挂载结果。失败不缓存，可重试。
+     * 执行策略：new Function 屏蔽 module/exports/define（防 UMD 误走 CJS/AMD 分支），Function 被拦时降级
+     * 间接 eval；挂载检测扫描 window/globalThis/self/unsafeWindow（脚本猫等沙箱中执行域全局与 window
+     * 代理可能不是同一对象，只查 window 会漏检 —— UMD 的 IIFE 普通调用 this 恒为执行域全局）。
+     * [DEEP-DOC]
+     */
+    function xyMdLoadLib(url, globalName) {
+        if (xyMdLibs.has(url)) return xyMdLibs.get(url);
+        const p = new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET', url, timeout: 45000,
+                onload: r => {
+                    if (r.status !== 200 || !r.responseText) { xyMdLibs.delete(url); return reject(new Error('资源加载 HTTP ' + r.status)); }
+                    try {
+                        try {
+                            const runner = new Function('module', 'exports', 'define', r.responseText);
+                            runner.call(window, undefined, undefined, undefined);
+                        } catch (fe) { (0, eval)(r.responseText); }
+                        let lib = null;
+                        const targets = [window, (typeof globalThis !== 'undefined' ? globalThis : null), (typeof self !== 'undefined' ? self : null)];
+                        try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) targets.push(unsafeWindow); } catch (e) {}
+                        for (const t of targets) { try { if (t && t[globalName]) { lib = t[globalName]; break; } } catch (e) {} }
+                        if (lib) return resolve(lib);
+                        xyMdLibs.delete(url);
+                        reject(new Error(globalName + ' 未挂载（' + r.responseText.length + 'B 已执行但未注册全局）'));
+                    } catch (e) { xyMdLibs.delete(url); reject(new Error('库代码执行失败: ' + (e.message || e))); }
+                },
+                onerror: () => { xyMdLibs.delete(url); reject(new Error('网络错误（检查代理/网络）')); },
+                ontimeout: () => { xyMdLibs.delete(url); reject(new Error('加载超时')); }
+            });
+        });
+        xyMdLibs.set(url, p);
+        return p;
+    }
+
+    function xyMdSetStatus(text, color, sfx) {
+        const el = document.getElementById('xy-md-status' + (sfx || ''));
+        if (el) { el.textContent = text || ''; el.style.color = color || T('#94a3b8', '#64748b'); }
+    }
+
+    function xyMdFname(sfx) {
+        const raw = (document.getElementById('xy-md-fname' + (sfx || ''))?.value || '').trim();
+        return (raw || 'Markdown 导出').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+    }
+
+    function xyMdMeasureImage(bytes) {
+        return new Promise(resolve => {
+            try {
+                const url = URL.createObjectURL(new Blob([bytes]));
+                const img = new Image();
+                img.onload = () => { const d = { width: img.naturalWidth || img.width || 100, height: img.naturalHeight || img.height || 100 }; URL.revokeObjectURL(url); resolve(d); };
+                img.onerror = () => { URL.revokeObjectURL(url); resolve({ width: 100, height: 100 }); };
+                img.src = url;
+            } catch (e) { resolve({ width: 100, height: 100 }); }
+        });
+    }
+
+    /** docx imageResolver 适配：复用 §11 hwFetchImageBlob 的 GM 特权抓图链路（带平台凭证），测尺寸后交引擎嵌入。
+     * [DEEP-DOC]
+     */
+    async function xyMdImageResolver(url) {
+        const blob = await hwFetchImageBlob(url);
+        const ab = await blob.arrayBuffer();
+        const dim = await xyMdMeasureImage(ab);
+        return { image: new Uint8Array(ab), width: dim.width, height: dim.height };
+    }
+
+    /** Markdown → Word：懒加载 remark-docx bundle → md2docx（OMML 公式 + 图片嵌入）→ FileSaver 落盘。
+     * [DEEP-DOC]
+     */
+    async function xyMdToDocx(sfx) {
+        sfx = sfx || '';
+        const md = document.getElementById('xy-md-input' + sfx)?.value || '';
+        if (!md.trim()) { showToast('请先粘贴 Markdown 内容', 'warning'); return; }
+        const btn = document.getElementById('xy-md-to-docx' + sfx);
+        const fname = xyMdFname(sfx);
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ 转换中…'; }
+        xyMdSetStatus('正在加载转换引擎（首次约 1MB，之后有缓存）…', null, sfx);
+        try {
+            const E = await xyMdLoadLib(XYMD.BUNDLE_URL, 'XyMdEngine');
+            xyMdSetStatus('正在生成 Word 文档…', null, sfx);
+            const blob = await E.md2docx(md, { output: 'blob', title: fname, creator: '小雅辅助工具', imageResolver: xyMdImageResolver });
+            const _saveAs = (typeof saveAs === 'function') ? saveAs : window.saveAs;
+            if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
+            _saveAs(blob, fname + '.docx');
+            xyMdSetStatus('✅ Word 已导出：' + fname + '.docx', T('#6ee7b7', '#059669'), sfx);
+            logMsg('📄 Markdown 已导出 Word: ' + fname + '.docx', 'success', true);
+        } catch (e) {
+            console.warn('[小雅] MD→Word 失败:', e);
+            xyMdSetStatus('❌ Word 导出失败：' + (e.message || e), T('#f87171', '#dc2626'), sfx);
+            showToast('Word 导出失败：' + (e.message || e), 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '📄 导出 Word'; }
+        }
+    }
+
+    /** Markdown → PDF（打印窗口）：marked 渲染 + KaTeX 公式均在窗口内加载，打开后自动弹出打印对话框。
+     * [DEEP-DOC]
+     */
+    async function xyMdToPdf(sfx) {
+        sfx = sfx || '';
+        const md = document.getElementById('xy-md-input' + sfx)?.value || '';
+        if (!md.trim()) { showToast('请先粘贴 Markdown 内容', 'warning'); return; }
+        const btn = document.getElementById('xy-md-to-pdf' + sfx);
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ 渲染中…'; }
+        try {
+            const markedLib = await xyMdLoadLib(XYMD.MARKED_URL, 'marked');
+            const bodyHtml = (markedLib.parse || markedLib)(md);
+            const fname = xyMdFname(sfx);
+            const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+            const w = window.open('', '_blank');
+            if (!w) { showToast('弹窗被浏览器拦截，请允许本站弹窗后重试', 'error'); return; }
+            w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(fname) + '</title>' +
+                '<link rel="stylesheet" href="' + XYMD.KATEX_CSS_URL + '">' +
+                '<style>' +
+                'body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;font-size:13px;line-height:1.75;color:#1f2937;max-width:820px;margin:0 auto;padding:30px 22px;}' +
+                'h1,h2,h3,h4{line-height:1.35;margin:1.25em 0 .5em;} h1{font-size:1.7em;border-bottom:2px solid #e5e7eb;padding-bottom:.25em;} h2{font-size:1.4em;} h3{font-size:1.18em;}' +
+                'table{border-collapse:collapse;width:100%;margin:1em 0;font-size:12.5px;} th,td{border:1px solid #d1d5db;padding:6px 9px;} th{background:#f3f4f6;}' +
+                'pre{background:#f6f8fa;border:1px solid #e5e7eb;border-radius:6px;padding:10px 12px;overflow:auto;font-size:12px;}' +
+                'code{background:#f3f4f6;border-radius:4px;padding:1px 4px;font-size:.92em;} pre code{background:none;padding:0;}' +
+                'blockquote{border-left:4px solid #9ca3af;margin:1em 0;padding:.2em 1em;color:#4b5563;background:#f9fafb;}' +
+                'img{max-width:100%;} hr{border:none;border-top:2px solid #e5e7eb;margin:1.6em 0;}' +
+                '.katex-display{margin:.9em 0;}' +
+                '@media print{ .print-tip{display:none;} tr,pre,blockquote,img,.katex-display{page-break-inside:avoid;break-inside:avoid;} h1,h2,h3,h4{page-break-after:avoid;break-after:avoid;} thead{display:table-header-group;} body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} }' +
+                '</style></head><body>' +
+                '<div class="print-tip">🖨 打印设置：目标选「另存为 PDF」→ 勾选「背景图形」→ 页眉页脚可取消勾选</div>' +
+                bodyHtml +
+                '<script src="' + XYMD.KATEX_URL + '"><\/script>' +
+                '<script src="' + XYMD.KATEX_AUTO_URL + '"><\/script>' +
+                '<script>(function(){function go(){try{renderMathInElement(document.body,{delimiters:[{left:"$$",right:"$$",display:true},{left:"$",right:"$",display:false}],throwOnError:false});}catch(e){}setTimeout(function(){window.print();},700);}if(window.renderMathInElement){go();}else{window.addEventListener("load",function(){setTimeout(go,400);});}})();<\/script>' +
+                '</body></html>');
+            w.document.close();
+            xyMdSetStatus('🖨 已打开打印窗口：目标选「另存为 PDF」并勾选「背景图形」', T('#67e8f9', '#0e7490'), sfx);
+            logMsg('🖨 Markdown 已打开 PDF 打印窗口: ' + fname, 'info', true);
+        } catch (e) {
+            console.warn('[小雅] MD→PDF 失败:', e);
+            xyMdSetStatus('❌ PDF 导出失败：' + (e.message || e), T('#f87171', '#dc2626'), sfx);
+            showToast('PDF 导出失败：' + (e.message || e), 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '🖨 导出 PDF（打印）'; }
+        }
+    }
+
+    /* ================================================================
+     * OW365 打印桥（v3.7.5 纯前端课件转 PDF，零本地依赖）
+     * ----------------------------------------------------------------
+     * 背景：小雅课件（pptx 等）预览由永中 OW365 渲染（x1.ow365.cn，
+     * pv.aspx 阅读视图）。该视图 UI 无任何打印入口（Jewel 文件菜单
+     * 被 hidden），但 WAC 内部保留完整打印链路：
+     *   合成 Ctrl+P（WAC 不校验 isTrusted）→ PPTe.$1O.$eR(presentationId)
+     *   → 服务端转换 → WACDialogPanel 弹出 → 链接 href =
+     *   printhandler.ashx?PV=0&Pid=<WOPIsrc 编码串> → 同域 fetch 即得 PDF。
+     * 关键发现：presentationId = "WOPIsrc=" + urlencode(WOPISrc)（含动态
+     *   vId/z 签名），并非文件 ID —— 传文件 ID 会被服务端拒绝。
+     * 架构：脚本同时注入 ow365.cn（桥服务端，响应 postMessage 请求）
+     *   与小雅域（桥客户端）。跨域 iframe 以 postMessage 通信，PDF
+     *   ArrayBuffer 以 transferable 回传主页面落盘。
+     * ================================================================ */
+
+    /** OW365 域桥服务端：监听小雅主页面消息，执行「Ctrl+P → 抓
+     * printhandler 链接 → 同域 fetch PDF」链路并回传 ArrayBuffer。
+     * [DEEP-DOC]
+     */
+    function xyOw365BridgeInstall() {
+        let busy = false;
+        window.addEventListener('message', ev => {
+            if (!ev.origin || String(ev.origin).indexOf('ai-augmented.com') === -1) return;
+            const d = ev.data || {};
+            if (d.type !== 'XY_PRINT_PDF_REQ') return;
+            const reply = (ok, payload, transfer) => {
+                try { (ev.source || window.parent).postMessage(Object.assign({ type: 'XY_PRINT_PDF_RES', reqId: d.reqId, ok }, payload || {}), '*', transfer || []); } catch (e) {}
+            };
+            if (busy) return; /* 串行批量下客户端可能重发同 reqId 请求：忽略即可，首个照常处理 */
+            busy = true;
+            xyOw365PrintToPdf().then(ab => { busy = false; reply(true, { name: xyOw365DocTitle(), buf: ab }, [ab]); })
+                .catch(e => { busy = false; reply(false, { err: String((e && e.message) || e) }); });
+        });
+
+        async function xyOw365PrintToPdf() {
+            /* WAC 就绪等待：桥服务端可能被注入到刚创建的隐藏 iframe（多选批量
+             * 场景），需等主预览 URL 重定向至 pv.aspx 且 WAC 命名空间初始化完成。 */
+            const t0 = Date.now();
+            let ready = false;
+            while (Date.now() - t0 < 20000) {
+                try { ready = (typeof PPTe !== 'undefined') && !!PPTe['$1O'] && (typeof PPTe['$1O'].$eR === 'function'); } catch (e) { ready = false; }
+                if (ready) break;
+                await new Promise(r => setTimeout(r, 500));
+            }
+            if (!ready) throw new Error('OW365 会话初始化超时（20s）');
+            const mk = t => new KeyboardEvent(t, { key: 'p', code: 'KeyP', keyCode: 80, which: 80, ctrlKey: true, bubbles: true, cancelable: true });
+            (document.activeElement || document.body).dispatchEvent(mk('keydown'));
+            document.dispatchEvent(mk('keydown'));
+            const ts = Date.now();
+            while (Date.now() - ts < 25000) {
+                await new Promise(r => setTimeout(r, 600));
+                const a = document.querySelector('#WACDialogBodyContent a[href*="printhandler"]');
+                if (a && a.href) {
+                    const resp = await fetch(a.href, { credentials: 'include' });
+                    if (!resp.ok) throw new Error('PDF 下载 HTTP ' + resp.status);
+                    const ab = await resp.arrayBuffer();
+                    if (new TextDecoder('latin1').decode(ab.slice(0, 5)).indexOf('%PDF') !== 0) throw new Error('服务端未返回有效 PDF');
+                    return ab;
+                }
+                const body = document.getElementById('WACDialogBodyContent');
+                if (body && body.getClientRects().length > 0) {
+                    const txt = (body.innerText || '').trim();
+                    if (txt && !body.querySelector('a')) throw new Error('OW365 对话框：' + txt.slice(0, 90));
+                }
+            }
+            throw new Error('等待打印对话框超时（25s）');
+        }
+
+        function xyOw365DocTitle() {
+            try { return String(document.title || '课件').replace(/[\\/:*?"<>|]/g, '_').slice(0, 90); } catch (e) { return '课件'; }
+        }
+    }
+
+    /** 桥客户端：请求当前页面的 OW365 预览 iframe 执行转换，收 PDF ArrayBuffer。
+     * [DEEP-DOC]
+     */
+    function xyBridgeConvertCurrentPdf() {
+        return new Promise((resolve, reject) => {
+            const fr = document.querySelector('iframe[src*="ow365.cn"]');
+            if (!fr || !fr.contentWindow) return reject(new Error('未找到课件预览，请先在课程页打开课件预览'));
+            const reqId = 'xy' + Date.now() + Math.floor(Math.random() * 1e4);
+            const onMsg = ev => {
+                if (String(ev.origin || '').indexOf('ow365.cn') === -1) return;
+                const d = ev.data || {};
+                if (d.type !== 'XY_PRINT_PDF_RES' || d.reqId !== reqId) return;
+                window.removeEventListener('message', onMsg);
+                clearTimeout(tm);
+                if (d.ok) resolve({ name: d.name || '', buf: d.buf });
+                else reject(new Error(d.err || '桥接转换失败'));
+            };
+            const tm = setTimeout(() => { window.removeEventListener('message', onMsg); reject(new Error('桥接响应超时（30s）')); }, 30000);
+            window.addEventListener('message', onMsg);
+            try { fr.contentWindow.postMessage({ type: 'XY_PRINT_PDF_REQ', reqId }, '*'); }
+            catch (e) { clearTimeout(tm); window.removeEventListener('message', onMsg); reject(new Error('桥接消息发送失败: ' + (e.message || e))); }
+        });
+    }
+
+    /** 由 OW365 返回的 title（形如「<文件ID>_<文件ID>」）反查友好文件名：
+     * 优先用下载区文件列表的 id→name 映射，失败回退页面 DOM 文件名扫描，
+     * 再失败用「课件」+时间戳。 [DEEP-DOC]
+     */
+    function xyResolvePreviewName(owTitle) {
+        const m = /^(\d+)_\d+$/.exec(String(owTitle || '').trim());
+        if (m) {
+            try {
+                const hit = (dlState.downloadFiles || []).find(f => String(f.quoteId || f.quote_id || f.id) === m[1]);
+                if (hit && hit.name) return hit.name;
+            } catch (e) {}
+        }
+        try {
+            const els = document.querySelectorAll('span,div,a,p');
+            for (const el of els) {
+                const t = (el.textContent || '').trim().replace(/\s+/g, '');
+                if (/\.(pptx?|docx?|xlsx?|csv|txt)$/i.test(t) && t.length < 100 && !t.includes('\n')) return t;
+            }
+        } catch (e) {}
+        const base = m ? m[1] : '课件';
+        return base + '_' + new Date().toISOString().slice(0, 10) + '.pdf';
+    }
+
+    /** furl 签发（逆向自小雅 getDiskFileUrlBS）：GET /api/jx-oresource/cloud/file_url/
+     * <文件ID>?encryption_status=1&filename=<文件ID>.<ext> → {success, data.url=furl}。
+     * 同域请求自带登录态，任意文件可签发 —— 多选批量的核心前提。 [DEEP-DOC]
+     */
+    async function xyGetFileFurl(f) {
+        const m = String(f.name || '').match(/\.([A-Za-z0-9]+)$/);
+        const ext = m ? m[1].toLowerCase() : 'dat';
+        /* quoteId 才是云盘资源 ID（file_url 接口的 quote_id）；f.id 是资源树节点 ID，
+         * 传错必报 resource not exist。VOD 路径同理不可用（见 getFileDownloadUrl）。 */
+        const qid = f.quoteId || f.quote_id || f.id;
+        let tk = '';
+        try { tk = getCookie() || ''; } catch (e) {}
+        const headers = { 'X-Language': 'zh-CN' };
+        if (tk) headers.Authorization = 'Bearer ' + tk;
+        const url = '/api/jx-oresource/cloud/file_url/' + qid + '?encryption_status=1&filename=' + encodeURIComponent(qid + '.' + ext);
+        let resp = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            resp = await fetch(url, { credentials: 'include', headers });
+            if (resp.status !== 401) break;
+            await sleep(2000); /* token 轮换瞬时窗口，401 稍候重试 */
+        }
+        if (!resp.ok) throw new Error('签发接口 HTTP ' + resp.status);
+        const j = await resp.json();
+        if (!j || !j.success || !j.data || !j.data.url) throw new Error('furl 签发失败（' + ((j && j.message) || '无数据') + '）');
+        return j.data.url;
+    }
+
+    /** 拼 OW365 预览 URL：i=账户（运行时从页面现有预览 iframe 解析，兜底 29353）、
+     * ssl=1、furl；doc/wps 加 n=4（pdf 为 7，但 PDF 无需转换），ppt 不带 n。 [DEEP-DOC]
+     */
+    function xyOw365BuildUrl(furl, ext) {
+        let account = '29353';
+        try {
+            const cur = document.querySelector('iframe[src*="ow365.cn"]');
+            if (cur) { const m = /[?&]i=(\d+)/.exec(cur.src); if (m) account = m[1]; }
+        } catch (e) {}
+        const e = String(ext || '').toUpperCase();
+        const p = { i: account, ssl: 1, furl: furl };
+        if (e === 'DOC' || e === 'DOCX' || e === 'WPS') p.n = 4;
+        return 'https://x1.ow365.cn/?' + Object.keys(p).map(k => k + '=' + encodeURIComponent(p[k])).join('&');
+    }
+
+    /** 单文件隐藏 iframe 转换：签发 furl → 建屏外 iframe 加载 OW365 会话（脚本
+     * 猫/油猴按 @match 自动注入桥服务端）→ load 后发请求 → 收 PDF ArrayBuffer
+     * → 销毁 iframe。串行调用，同一时刻只有一个 OW365 会话。 [DEEP-DOC]
+     */
+    function xyOw365ConvertOne(f) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const m = String(f.name || '').match(/\.([A-Za-z0-9]+)$/);
+                const ext = m ? m[1] : '';
+                const furl = await xyGetFileFurl(f);
+                const src = xyOw365BuildUrl(furl, ext);
+                const fr = document.createElement('iframe');
+                fr.style.cssText = 'position:fixed;left:-9999px;top:0;width:1280px;height:800px;opacity:.01;border:0;';
+                fr.setAttribute('aria-hidden', 'true');
+                const reqId = 'xyb' + Date.now() + Math.floor(Math.random() * 1e4);
+                let finished = false;
+                const cleanup = () => { window.removeEventListener('message', onMsg); clearTimeout(tm); try { fr.remove(); } catch (e) {} };
+                const onMsg = ev => {
+                    if (String(ev.origin || '').indexOf('ow365.cn') === -1) return;
+                    const d = ev.data || {};
+                    if (d.type !== 'XY_PRINT_PDF_RES' || d.reqId !== reqId) return;
+                    finished = true; cleanup();
+                    if (d.ok) resolve({ name: f.name, buf: d.buf });
+                    else reject(new Error(d.err || '转换失败'));
+                };
+                const tm = setTimeout(() => { if (!finished) { cleanup(); reject(new Error('转换超时（90s）')); } }, 90000);
+                window.addEventListener('message', onMsg);
+                fr.addEventListener('load', () => {
+                    /* pv.aspx 重定向会多次触发 load；服务端自带 WAC 就绪等待，此处延迟补发一次 */
+                    setTimeout(() => { if (!finished) { try { fr.contentWindow.postMessage({ type: 'XY_PRINT_PDF_REQ', reqId }, '*'); } catch (e) {} } }, 2500);
+                    setTimeout(() => { if (!finished) { try { fr.contentWindow.postMessage({ type: 'XY_PRINT_PDF_REQ', reqId }, '*'); } catch (e) {} } }, 8000);
+                });
+                fr.src = src;
+                document.body.appendChild(fr);
+            } catch (e) { reject(e); }
+        });
+    }
+
+    /** 多选批量转 PDF 主流程（「🖥 转 PDF」按钮）：勾选 Office 课件 → 逐个隐藏
+     * iframe 开 OW365 会话服务端转换 → PDF 逐个落盘。无勾选时退化为转当前预览。
+     * 全程浏览器内完成，零本地依赖，任何用户可用。 [DEEP-DOC]
+     */
+    async function xyPreviewToPdf() {
+        const btn = document.getElementById('xy-preview-to-pdf');
+        const selected = (() => {
+            try {
+                return (dlState.downloadFiles || []).filter(f => {
+                    const id = normalizeDownloadId(f.id);
+                    return id !== null && dlState.downloadSelectedIds.has(id);
+                });
+            } catch (e) { return []; }
+        })();
+        const officeRe = /\.(pptx?|docx?|doc|wps)$/i;
+        const targets = selected.filter(f => officeRe.test(String(f.name || '')));
+        if (btn) { btn.disabled = true; }
+        try {
+            if (targets.length) {
+                /* 批量模式：勾选文件逐个隐藏 iframe 转换下载 */
+                const _saveAs = (typeof saveAs === 'function') ? saveAs : window.saveAs;
+                if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
+                let okCnt = 0, failCnt = 0;
+                for (let i = 0; i < targets.length; i++) {
+                    const f = targets[i];
+                    if (btn) btn.textContent = '⏳ 转换 ' + (i + 1) + '/' + targets.length + '…';
+                    logMsg('🖥 (' + (i + 1) + '/' + targets.length + ') 正在转换: ' + f.name, 'info', true);
+                    try {
+                        const r = await xyOw365ConvertOne(f);
+                        const name = String(f.name || '课件').replace(/\.[^.]+$/, '') + '.pdf';
+                        _saveAs(new Blob([r.buf], { type: 'application/pdf' }), name);
+                        okCnt++;
+                        logMsg('✅ 已转 PDF: ' + name, 'success', true);
+                    } catch (e) {
+                        failCnt++;
+                        logMsg('❌ 转换失败: ' + f.name + ' (' + (e.message || e) + ')', 'error', true);
+                    }
+                    await sleep(800);
+                }
+                showToast('转换完成：成功 ' + okCnt + (failCnt ? ' · 失败 ' + failCnt : ''), okCnt ? 'success' : 'error');
+                logMsg('🖥 批量转 PDF 结束（成功 ' + okCnt + (failCnt ? ' · 失败 ' + failCnt : '') + '）', okCnt ? 'success' : 'error', true);
+            } else {
+                /* 单文件模式：转当前预览（无勾选时） */
+                const r = await xyBridgeConvertCurrentPdf();
+                const name = (xyResolvePreviewName(r.name).replace(/\.[^.]+$/, '') || '课件') + '.pdf';
+                const _saveAs = (typeof saveAs === 'function') ? saveAs : window.saveAs;
+                if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
+                _saveAs(new Blob([r.buf], { type: 'application/pdf' }), name);
+                showToast('✅ PDF 已导出：' + name, 'success');
+                logMsg('🖥 课件预览已转 PDF（OW365 服务端转换 · 纯前端）: ' + name, 'success', true);
+            }
+        } catch (e) {
+            showToast('转 PDF 失败：' + (e.message || e), 'error');
+            logMsg('❌ 转 PDF 失败: ' + (e.message || e), 'error', true);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = '🖥 转 PDF'; }
+        }
+    }
+
+    /** Markdown 转换面板工厂：按 sfx 生成独立实例（'' → 下载区 / '-hw' → 答题区），id 后缀化互不冲突；
+     * 两实例共享引擎缓存与草稿（输入 400ms 防抖同步）。仅负责创建，幂等判断在外层。
+     * [DEEP-DOC]
+     */
+    function xyMdBuildToolbox(view, sfx) {
+        const bd = T('rgba(71,85,105,0.25)', '#dbe4ee');
+        const bg = T('rgba(15,23,42,0.45)', '#ffffff');
+        const tx = T('#cbd5e1', '#334155');
+        const tx2 = T('#94a3b8', '#64748b');
+        const wrap = document.createElement('div');
+        wrap.id = 'xy-md-toolbox' + sfx;
+        wrap.innerHTML =
+            '<div style="margin-top:10px;">' +
+            '<button class="xy-action-btn" id="xy-md-toggle' + sfx + '" type="button" style="width:100%; min-height:34px; font-size:12px; background:' + T('rgba(168,85,247,0.1)', '#faf5ff') + '; border-color:' + T('rgba(168,85,247,0.28)', '#e9d5ff') + '; color:' + T('#d8b4fe', '#7e22ce') + ';">📝 Markdown 转换（Word / PDF）</button>' +
+            '<div id="xy-md-panel' + sfx + '" style="display:none; margin-top:8px; padding:11px; border:1px solid ' + bd + '; border-radius:11px; background:' + bg + ';">' +
+            '<textarea id="xy-md-input' + sfx + '" placeholder="粘贴 Markdown 文本（支持 # 标题、**加粗**、表格、代码块、$公式$、![图片](url)）…" style="width:100%; box-sizing:border-box; min-height:140px; resize:vertical; padding:8px 10px; font-size:12px; font-family:Consolas,monospace; line-height:1.6; border-radius:8px; border:1px solid ' + bd + '; background:' + T('rgba(15,23,42,0.5)', '#f8fafc') + '; color:' + tx + '; outline:none;"></textarea>' +
+            '<input id="xy-md-fname' + sfx + '" placeholder="文件名（默认：Markdown 导出）" style="width:100%; box-sizing:border-box; margin-top:8px; padding:6px 9px; font-size:11.5px; border-radius:7px; border:1px solid ' + bd + '; background:' + T('rgba(15,23,42,0.5)', '#f8fafc') + '; color:' + tx + '; outline:none;">' +
+            '<div style="display:flex; gap:8px; margin-top:8px;">' +
+            '<button class="xy-action-btn" id="xy-md-to-docx' + sfx + '" type="button" style="flex:1.2; background:' + T('rgba(168,85,247,0.14)', '#f3e8ff') + '; border-color:' + T('rgba(168,85,247,0.3)', '#d8b4fe') + '; color:' + T('#d8b4fe', '#7e22ce') + ';">📄 导出 Word</button>' +
+            '<button class="xy-action-btn" id="xy-md-to-pdf' + sfx + '" type="button" style="flex:1.2; background:' + T('rgba(6,182,212,0.1)', '#e0f2fe') + '; border-color:' + T('rgba(6,182,212,0.28)', '#bae6fd') + '; color:' + T('#67e8f9', '#0e7490') + ';">🖨 导出 PDF（打印）</button>' +
+            '<button class="xy-mini-btn" id="xy-md-clear' + sfx + '" type="button" style="flex:.5;">清空</button>' +
+            '</div>' +
+            '<div id="xy-md-status' + sfx + '" style="margin-top:7px; font-size:11px; color:' + tx2 + '; min-height:15px; line-height:1.5;"></div>' +
+            '<div style="margin-top:3px; font-size:10px; color:' + tx2 + '; line-height:1.5;">Word：$公式$ 转原生可编辑公式 · PDF：窗口内选「另存为 PDF」</div>' +
+            '</div></div>';
+        view.appendChild(wrap);
+        wrap.querySelector('#xy-md-toggle' + sfx).addEventListener('click', () => {
+            const p = wrap.querySelector('#xy-md-panel' + sfx);
+            p.style.display = p.style.display === 'none' ? 'block' : 'none';
+        });
+        wrap.querySelector('#xy-md-to-docx' + sfx).addEventListener('click', () => { void xyMdToDocx(sfx); });
+        wrap.querySelector('#xy-md-to-pdf' + sfx).addEventListener('click', () => { void xyMdToPdf(sfx); });
+        const ta = wrap.querySelector('#xy-md-input' + sfx);
+        ta.addEventListener('input', () => {
+            clearTimeout(xyMdBuildToolbox._dt);
+            xyMdBuildToolbox._dt = setTimeout(() => { try { GM_setValue('xy_md_draft', ta.value); } catch (e) {} }, 400);
+        });
+        wrap.querySelector('#xy-md-clear' + sfx).addEventListener('click', () => {
+            ta.value = '';
+            try { GM_setValue('xy_md_draft', ''); } catch (e) {}
+            xyMdSetStatus('', null, sfx);
+        });
+        try { const d = GM_getValue('xy_md_draft', ''); if (d) ta.value = d; } catch (e) {}
+    }
+
+    /** UI 注入（幂等，可重复调用）：A. 下载区按钮行追加「🖥 预览转 PDF」（检测到 OW365 预览时显示）；
+     * B. Markdown 转换面板挂两处——
+     * 下载视图尾部（后缀 ''）与作业查看台（答题区）尾部（后缀 '-hw'），两个 tab 下均常驻可见。
+     * [DEEP-DOC]
+     */
+    function xyMdEnsureToolbox() {
+        const dlView = document.getElementById('xy-view-download');
+        if (dlView && !document.getElementById('xy-md-toolbox')) xyMdBuildToolbox(dlView, '');
+        const hwView = document.getElementById('xy-view-hw');
+        if (hwView && !document.getElementById('xy-md-toolbox-hw')) xyMdBuildToolbox(hwView, '-hw');
+        const batchBtn = document.getElementById('xy-dl-batch-download');
+        const prevBtn = document.getElementById('xy-preview-to-pdf');
+        if (batchBtn && !prevBtn) {
+            const b = document.createElement('button');
+            b.id = 'xy-preview-to-pdf'; b.className = 'xy-action-btn'; b.type = 'button';
+            b.style.cssText = 'flex:1.5; background:' + T('rgba(6,182,212,0.12)', '#e0f2fe') + '; border-color:' + T('rgba(6,182,212,0.3)', '#bae6fd') + '; color:' + T('#67e8f9', '#0e7490') + ';';
+            b.textContent = '🖥 转 PDF';
+            b.title = '多选课件后点击：逐个自动转 PDF 下载（纯前端走 OW365 服务端转换，无需安装任何东西）；未勾选时转换当前预览的课件';
+            b.addEventListener('click', () => { void xyPreviewToPdf(); });
+            batchBtn.parentNode.appendChild(b);
+        }
+    }
+    setInterval(xyMdEnsureToolbox, 3000);
+    setTimeout(xyMdEnsureToolbox, 1200);
 
     const pushState = history.pushState; history.pushState = function () { pushState.apply(history, arguments); scheduleEnsureUI(100); };
     const replaceState = history.replaceState; history.replaceState = function () { replaceState.apply(history, arguments); scheduleEnsureUI(100); };
