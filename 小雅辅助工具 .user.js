@@ -14548,12 +14548,28 @@ var XYExport = (function (Hinote) {  'use strict';
         }
     }
 
+    /** 数学定界符净化：AI 生成的 Markdown 常把定界符重复包裹在 $...$ 内部
+     * （如 $\(x=0\)$），KaTeX math 模式不识别 \( \) \[ \] token，会整段公式
+     * 渲染失败显示红色原文。这里在非代码文本里剥掉内层定界符（Word 引擎
+     * latex-omml.ts 的 sanitizeLatexInput 同源逻辑，PDF 打印路径专用）。
+     * [DEEP-DOC]
+     */
+    function xyMdSanitizeMathDelims(md) {
+        const parts = String(md || '').split(/(```[\s\S]*?```|`[^`\n]*`)/g);
+        for (let i = 0; i < parts.length; i += 2) { /* 偶数段为非代码文本 */
+            parts[i] = parts[i]
+                .replace(/\$\$([\s\S]+?)\$\$/g, (m, inner) => '$$' + inner.replace(/\\[()\[\]]/g, '') + '$$')
+                .replace(/\$([^$\n]+?)\$/g, (m, inner) => '$' + inner.replace(/\\[()\[\]]/g, '') + '$');
+        }
+        return parts.join('');
+    }
+
     /** Markdown → PDF（打印窗口）：marked 渲染 + KaTeX 公式均在窗口内加载，打开后自动弹出打印对话框。
      * [DEEP-DOC]
      */
     async function xyMdToPdf(sfx) {
         sfx = sfx || '';
-        const md = document.getElementById('xy-md-input' + sfx)?.value || '';
+        const md = xyMdSanitizeMathDelims(document.getElementById('xy-md-input' + sfx)?.value || '');
         if (!md.trim()) { showToast('请先粘贴 Markdown 内容', 'warning'); return; }
         const btn = document.getElementById('xy-md-to-pdf' + sfx);
         if (btn) { btn.disabled = true; btn.textContent = '⏳ 渲染中…'; }
