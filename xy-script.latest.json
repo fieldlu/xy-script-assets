@@ -1,11 +1,11 @@
 {
-  "version": "3.7.4.3",
+  "version": "3.7.4.4",
   "date": "2026-10-10",
   "notes": [
-    "🗑️ 移除 Markdown「🖨 导出 PDF（打印）」功能：转换面板精简为仅保留「📄 导出 Word」，界面更清爽。",
-    "↔️ 导出 Word 全文显式左对齐，1.5 倍行距保持不变（引擎 0.1.8-xy.4）。",
-    "✅ 功能零影响：Markdown 转 Word、课件预览转 PDF（🖥 预览转 PDF）、批量下载等全部照常运行。",
-    "🧹 同步清理 marked / KaTeX 外链依赖与打印窗口代码，脚本更精简。",
+    "↔️ 导出 Word 左对齐加固：每个段落显式写入左对齐属性（此前仅文档默认值，WPS/Word 中文默认模板会盖成两端对齐），现在任何环境都稳定左对齐。",
+    "🚀 转换引擎升级至 0.1.8-xy.5，加载地址带版本参数，不再受 CDN 缓存影响，更新即生效。",
+    "✅ 公式转换回归全绿：15 组公式正常、无红字兜底、无 justify 残留。",
+    "🗑️ 承 3.7.4.3：Markdown「🖨 导出 PDF（打印）」已移除，面板仅保留「📄 导出 Word」。",
     "🔮 更新日志：https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
   ],
   "downloadURL": "https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",

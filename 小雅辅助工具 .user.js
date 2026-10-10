@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.3
+// @version      3.7.4.4
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word/PDF、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -14440,7 +14440,7 @@ var XYExport = (function (Hinote) {  'use strict';
      * [DEEP-DOC]
      * ================================================================ */
     const XYMD = Object.freeze({
-        BUNDLE_URL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/dist/xy-md2docx.bundle.min.js'
+        BUNDLE_URL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/dist/xy-md2docx.bundle.min.js?v=0.1.8-xy.5'
     });
 
     const xyMdLibs = new Map();
