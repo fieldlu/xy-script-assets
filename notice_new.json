@@ -1,11 +1,10 @@
 {
-  "title": "🎉 v3.7.4.3 发布 · 精简优化",
+  "title": "🎉 v3.7.4.4 发布 · 左对齐加固",
   "items": [
-    "📎 一键安装/更新 3.7.4.3：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
-    "🕗 本版于 2026-10-10 发布，精简优化，建议所有用户升级。",
-    "🗑️ 移除 Markdown「🖨 导出 PDF（打印）」功能：转换面板精简为仅保留「📄 导出 Word」。",
-    "↔️ 导出 Word 全文显式左对齐，1.5 倍行距保持不变。",
-    "✅ 功能零影响：Markdown 转 Word、课件「🖥 预览转 PDF」、批量下载全部照常运行。",
-    "🧹 同步清理 marked / KaTeX 外链依赖与打印窗口代码，脚本更精简。更新日志：https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
+    "📎 一键安装/更新 3.7.4.4：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
+    "🕗 本版于 2026-10-10 发布，导出 Word 左对齐加固，建议所有用户升级。",
+    "↔️ 导出 Word 每个段落显式写入左对齐，WPS/Word 中文默认模板不再盖成两端对齐。",
+    "🚀 转换引擎 0.1.8-xy.5，加载地址带版本参数防 CDN 缓存，更新即生效。",
+    "🗑️ 承 3.7.4.3：Markdown「🖨 导出 PDF（打印）」已移除。更新日志：https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
   ]
 }
