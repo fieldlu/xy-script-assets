@@ -1,11 +1,11 @@
 {
-  "title": "🎉 v3.7.4.2 发布 · Markdown 转 Word 专项修复",
+  "title": "🎉 v3.7.4.3 发布 · 精简优化",
   "items": [
-    "📎 一键安装/更新 3.7.4.2：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
-    "🕗 本版于 2026-10-10 发布，Markdown 转 Word 专项修复（公式/代码/排版/稳定性），建议所有用户升级。",
-    "🧹 代码零污染：代码块与行内代码内容原样保留，不再被公式预处理改写。",
-    "🛙 裸 $ 防护：$5 和 $10 这类价格文本不再误判为公式，真实公式不受影响。",
-    "📐 排版微调：正文 1.5 倍行距 + 段后 6pt；代码块单倍紧凑。",
-    "🔧 引擎加载/转换失败自动重试，网络抖动不再直接失败。更新日志：https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
+    "📎 一键安装/更新 3.7.4.3：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
+    "🕗 本版于 2026-10-10 发布，精简优化，建议所有用户升级。",
+    "🗑️ 移除 Markdown「🖨 导出 PDF（打印）」功能：转换面板精简为仅保留「📄 导出 Word」。",
+    "↔️ 导出 Word 全文显式左对齐，1.5 倍行距保持不变。",
+    "✅ 功能零影响：Markdown 转 Word、课件「🖥 预览转 PDF」、批量下载全部照常运行。",
+    "🧹 同步清理 marked / KaTeX 外链依赖与打印窗口代码，脚本更精简。更新日志：https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
   ]
 }
