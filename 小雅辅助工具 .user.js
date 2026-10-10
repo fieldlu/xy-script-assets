@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.2
+// @version      3.7.4.3
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word/PDF、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -40,8 +40,6 @@
  * Markdown 转换功能（§16 xyMd）额外引用了以下 MIT 协议开源库：
  *   - remark-docx (FrankLiu007 fork)  LaTeX→OMML 公式链路      MIT License
  *   - docx (dolanmiu)                 OOXML 文档生成            MIT License
- *   - KaTeX                           数学公式排版              MIT License
- *   - marked                          Markdown 渲染（打印窗口）  MIT License
  *   - pdf-lib                         图片转 PDF                MIT License
  *   - fflate                          ZIP 打包                  MIT License
  *
@@ -14432,23 +14430,17 @@ var XYExport = (function (Hinote) {  'use strict';
     /* ================================================================
      * §16 Markdown 转换模块（xyMd 系）
      * ================================================================
-     * A. Markdown→Word：remark-docx fork 引擎（esbuild IIFE bundle，懒加载
-     *    自 Gitee 资产库），LaTeX 公式转 Word 原生 OMML，图片走 GM 特权抓取
-     *    （复用 §11 hwFetchImageBlob）；
-     * B. Markdown→PDF：marked + KaTeX 全部在打印窗口内 CDN 加载，主页面零
-     *    依赖零污染，浏览器打印引擎出矢量 PDF（文字可选中、链接可点击）；
-     *    转换面板双入口：下载区尾部 + 作业查看台（答题区）尾部（id 后缀隔离）；
+ * A. Markdown→Word：remark-docx fork 引擎（esbuild IIFE bundle，懒加载
+ *    自 Gitee 资产库），LaTeX 公式转 Word 原生 OMML，图片走 GM 特权抓取
+ *    （复用 §11 hwFetchImageBlob）；
+ *    转换面板双入口：下载区尾部 + 作业查看台（答题区）尾部（id 后缀隔离）；
      * D. 「🖥 预览转 PDF」（v3.7.5 纯前端，课件转 PDF 唯一入口）：桥接当前
      *    OW365 预览 iframe，合成 Ctrl+P 触发永中服务端转换 → 抓 printhandler
      *    链接取回 PDF，跨域 postMessage 传 ArrayBuffer，零本地依赖。
      * [DEEP-DOC]
      * ================================================================ */
     const XYMD = Object.freeze({
-        BUNDLE_URL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/dist/xy-md2docx.bundle.min.js',
-        MARKED_URL: 'https://cdn.jsdmirror.com/npm/marked@12.0.2/marked.min.js',
-        KATEX_URL: 'https://cdn.jsdmirror.com/npm/katex@0.16.11/dist/katex.min.js',
-        KATEX_AUTO_URL: 'https://cdn.jsdmirror.com/npm/katex@0.16.11/dist/contrib/auto-render.min.js',
-        KATEX_CSS_URL: 'https://cdn.jsdmirror.com/npm/katex@0.16.11/dist/katex.min.css'
+        BUNDLE_URL: 'https://gitee.com/fieldlu/xy-script-assets/raw/main/dist/xy-md2docx.bundle.min.js'
     });
 
     const xyMdLibs = new Map();
@@ -14562,69 +14554,6 @@ var XYExport = (function (Hinote) {  'use strict';
             showToast('Word 导出失败：' + (e.message || e), 'error');
         } finally {
             if (btn) { btn.disabled = false; btn.textContent = '📄 导出 Word'; }
-        }
-    }
-
-    /** 数学定界符净化：AI 生成的 Markdown 常把定界符重复包裹在 $...$ 内部
-     * （如 $\(x=0\)$），KaTeX math 模式不识别 \( \) \[ \] token，会整段公式
-     * 渲染失败显示红色原文。这里在非代码文本里剥掉内层定界符（Word 引擎
-     * latex-omml.ts 的 sanitizeLatexInput 同源逻辑，PDF 打印路径专用）。
-     * [DEEP-DOC]
-     */
-    function xyMdSanitizeMathDelims(md) {
-        const parts = String(md || '').split(/(```[\s\S]*?```|`[^`\n]*`)/g);
-        for (let i = 0; i < parts.length; i += 2) { /* 偶数段为非代码文本 */
-            parts[i] = parts[i]
-                .replace(/\$\$([\s\S]+?)\$\$/g, (m, inner) => '$$' + inner.replace(/\\[()\[\]]/g, '') + '$$')
-                .replace(/\$([^$\n]+?)\$/g, (m, inner) => '$' + inner.replace(/\\[()\[\]]/g, '') + '$');
-        }
-        return parts.join('');
-    }
-
-    /** Markdown → PDF（打印窗口）：marked 渲染 + KaTeX 公式均在窗口内加载，打开后自动弹出打印对话框。
-     * [DEEP-DOC]
-     */
-    async function xyMdToPdf(sfx) {
-        sfx = sfx || '';
-        const md = xyMdSanitizeMathDelims(document.getElementById('xy-md-input' + sfx)?.value || '');
-        if (!md.trim()) { showToast('请先粘贴 Markdown 内容', 'warning'); return; }
-        const btn = document.getElementById('xy-md-to-pdf' + sfx);
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ 渲染中…'; }
-        try {
-            const markedLib = await xyMdLoadLib(XYMD.MARKED_URL, 'marked');
-            const bodyHtml = (markedLib.parse || markedLib)(md);
-            const fname = xyMdFname(sfx);
-            const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-            const w = window.open('', '_blank');
-            if (!w) { showToast('弹窗被浏览器拦截，请允许本站弹窗后重试', 'error'); return; }
-            w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(fname) + '</title>' +
-                '<link rel="stylesheet" href="' + XYMD.KATEX_CSS_URL + '">' +
-                '<style>' +
-                'body{font-family:"Microsoft YaHei","PingFang SC",sans-serif;font-size:13px;line-height:1.75;color:#1f2937;max-width:820px;margin:0 auto;padding:30px 22px;}' +
-                'h1,h2,h3,h4{line-height:1.35;margin:1.25em 0 .5em;} h1{font-size:1.7em;border-bottom:2px solid #e5e7eb;padding-bottom:.25em;} h2{font-size:1.4em;} h3{font-size:1.18em;}' +
-                'table{border-collapse:collapse;width:100%;margin:1em 0;font-size:12.5px;} th,td{border:1px solid #d1d5db;padding:6px 9px;} th{background:#f3f4f6;}' +
-                'pre{background:#f6f8fa;border:1px solid #e5e7eb;border-radius:6px;padding:10px 12px;overflow:auto;font-size:12px;}' +
-                'code{background:#f3f4f6;border-radius:4px;padding:1px 4px;font-size:.92em;} pre code{background:none;padding:0;}' +
-                'blockquote{border-left:4px solid #9ca3af;margin:1em 0;padding:.2em 1em;color:#4b5563;background:#f9fafb;}' +
-                'img{max-width:100%;} hr{border:none;border-top:2px solid #e5e7eb;margin:1.6em 0;}' +
-                '.katex-display{margin:.9em 0;}' +
-                '@media print{ .print-tip{display:none;} tr,pre,blockquote,img,.katex-display{page-break-inside:avoid;break-inside:avoid;} h1,h2,h3,h4{page-break-after:avoid;break-after:avoid;} thead{display:table-header-group;} body{-webkit-print-color-adjust:exact;print-color-adjust:exact;} }' +
-                '</style></head><body>' +
-                '<div class="print-tip">🖨 打印设置：目标选「另存为 PDF」→ 勾选「背景图形」→ 页眉页脚可取消勾选</div>' +
-                bodyHtml +
-                '<script src="' + XYMD.KATEX_URL + '"><\/script>' +
-                '<script src="' + XYMD.KATEX_AUTO_URL + '"><\/script>' +
-                '<script>(function(){function go(){try{renderMathInElement(document.body,{delimiters:[{left:"$$",right:"$$",display:true},{left:"$",right:"$",display:false}],throwOnError:false});}catch(e){}setTimeout(function(){window.print();},700);}if(window.renderMathInElement){go();}else{window.addEventListener("load",function(){setTimeout(go,400);});}})();<\/script>' +
-                '</body></html>');
-            w.document.close();
-            xyMdSetStatus('🖨 已打开打印窗口：目标选「另存为 PDF」并勾选「背景图形」', T('#67e8f9', '#0e7490'), sfx);
-            logMsg('🖨 Markdown 已打开 PDF 打印窗口: ' + fname, 'info', true);
-        } catch (e) {
-            console.warn('[小雅] MD→PDF 失败:', e);
-            xyMdSetStatus('❌ PDF 导出失败：' + (e.message || e), T('#f87171', '#dc2626'), sfx);
-            showToast('PDF 导出失败：' + (e.message || e), 'error');
-        } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '🖨 导出 PDF（打印）'; }
         }
     }
 
@@ -14926,17 +14855,16 @@ var XYExport = (function (Hinote) {  'use strict';
         wrap.id = 'xy-md-toolbox' + sfx;
         wrap.innerHTML =
             '<div style="margin-top:10px;">' +
-            '<button class="xy-action-btn" id="xy-md-toggle' + sfx + '" type="button" style="width:100%; min-height:34px; font-size:12px; background:' + T('rgba(168,85,247,0.1)', '#faf5ff') + '; border-color:' + T('rgba(168,85,247,0.28)', '#e9d5ff') + '; color:' + T('#d8b4fe', '#7e22ce') + ';">📝 Markdown 转换（Word / PDF）</button>' +
+            '<button class="xy-action-btn" id="xy-md-toggle' + sfx + '" type="button" style="width:100%; min-height:34px; font-size:12px; background:' + T('rgba(168,85,247,0.1)', '#faf5ff') + '; border-color:' + T('rgba(168,85,247,0.28)', '#e9d5ff') + '; color:' + T('#d8b4fe', '#7e22ce') + ';">📝 Markdown 转换（Word）</button>' +
             '<div id="xy-md-panel' + sfx + '" style="display:none; margin-top:8px; padding:11px; border:1px solid ' + bd + '; border-radius:11px; background:' + bg + ';">' +
             '<textarea id="xy-md-input' + sfx + '" placeholder="粘贴 Markdown 文本（支持 # 标题、**加粗**、表格、代码块、$公式$、![图片](url)）…" style="width:100%; box-sizing:border-box; min-height:140px; resize:vertical; padding:8px 10px; font-size:12px; font-family:Consolas,monospace; line-height:1.6; border-radius:8px; border:1px solid ' + bd + '; background:' + T('rgba(15,23,42,0.5)', '#f8fafc') + '; color:' + tx + '; outline:none;"></textarea>' +
             '<input id="xy-md-fname' + sfx + '" placeholder="文件名（默认：Markdown 导出）" style="width:100%; box-sizing:border-box; margin-top:8px; padding:6px 9px; font-size:11.5px; border-radius:7px; border:1px solid ' + bd + '; background:' + T('rgba(15,23,42,0.5)', '#f8fafc') + '; color:' + tx + '; outline:none;">' +
             '<div style="display:flex; gap:8px; margin-top:8px;">' +
             '<button class="xy-action-btn" id="xy-md-to-docx' + sfx + '" type="button" style="flex:1.2; background:' + T('rgba(168,85,247,0.14)', '#f3e8ff') + '; border-color:' + T('rgba(168,85,247,0.3)', '#d8b4fe') + '; color:' + T('#d8b4fe', '#7e22ce') + ';">📄 导出 Word</button>' +
-            '<button class="xy-action-btn" id="xy-md-to-pdf' + sfx + '" type="button" style="flex:1.2; background:' + T('rgba(6,182,212,0.1)', '#e0f2fe') + '; border-color:' + T('rgba(6,182,212,0.28)', '#bae6fd') + '; color:' + T('#67e8f9', '#0e7490') + ';">🖨 导出 PDF（打印）</button>' +
             '<button class="xy-mini-btn" id="xy-md-clear' + sfx + '" type="button" style="flex:.5;">清空</button>' +
             '</div>' +
             '<div id="xy-md-status' + sfx + '" style="margin-top:7px; font-size:11px; color:' + tx2 + '; min-height:15px; line-height:1.5;"></div>' +
-            '<div style="margin-top:3px; font-size:10px; color:' + tx2 + '; line-height:1.5;">Word：$公式$ 转原生可编辑公式 · PDF：窗口内选「另存为 PDF」</div>' +
+            '<div style="margin-top:3px; font-size:10px; color:' + tx2 + '; line-height:1.5;">Word：$公式$ 转原生可编辑公式</div>' +
             '</div></div>';
         view.appendChild(wrap);
         wrap.querySelector('#xy-md-toggle' + sfx).addEventListener('click', () => {
@@ -14944,7 +14872,6 @@ var XYExport = (function (Hinote) {  'use strict';
             p.style.display = p.style.display === 'none' ? 'block' : 'none';
         });
         wrap.querySelector('#xy-md-to-docx' + sfx).addEventListener('click', () => { void xyMdToDocx(sfx); });
-        wrap.querySelector('#xy-md-to-pdf' + sfx).addEventListener('click', () => { void xyMdToPdf(sfx); });
         const ta = wrap.querySelector('#xy-md-input' + sfx);
         ta.addEventListener('input', () => {
             clearTimeout(xyMdBuildToolbox._dt);
