@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.1
+// @version      3.7.4.2
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word/PDF、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -14452,7 +14452,8 @@ var XYExport = (function (Hinote) {  'use strict';
     });
 
     const xyMdLibs = new Map();
-    /** 外部库懒加载器：GM 特权拉取文本 → 隔离作用域执行 → 多目标扫描挂载结果。失败不缓存，可重试。
+    /** 外部库懒加载器：GM 特权拉取文本 → 隔离作用域执行 → 多目标扫描挂载结果。
+     * 网络抖动/代理瞬断自动重试 2 次（1.5s 间隔），失败不缓存可再试。
      * 执行策略：new Function 屏蔽 module/exports/define（防 UMD 误走 CJS/AMD 分支），Function 被拦时降级
      * 间接 eval；挂载检测扫描 window/globalThis/self/unsafeWindow（脚本猫等沙箱中执行域全局与 window
      * 代理可能不是同一对象，只查 window 会漏检 —— UMD 的 IIFE 普通调用 this 恒为执行域全局）。
@@ -14461,27 +14462,35 @@ var XYExport = (function (Hinote) {  'use strict';
     function xyMdLoadLib(url, globalName) {
         if (xyMdLibs.has(url)) return xyMdLibs.get(url);
         const p = new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'GET', url, timeout: 45000,
-                onload: r => {
-                    if (r.status !== 200 || !r.responseText) { xyMdLibs.delete(url); return reject(new Error('资源加载 HTTP ' + r.status)); }
-                    try {
+            let attempt = 0;
+            const retry = (why) => {
+                attempt++;
+                if (attempt >= 3) { xyMdLibs.delete(url); reject(new Error(why + '（已重试 2 次）')); return; }
+                setTimeout(run, 1500);
+            };
+            const run = () => {
+                GM_xmlhttpRequest({
+                    method: 'GET', url, timeout: 45000,
+                    onload: r => {
+                        if (r.status !== 200 || !r.responseText) return retry('资源加载 HTTP ' + r.status);
                         try {
-                            const runner = new Function('module', 'exports', 'define', r.responseText);
-                            runner.call(window, undefined, undefined, undefined);
-                        } catch (fe) { (0, eval)(r.responseText); }
-                        let lib = null;
-                        const targets = [window, (typeof globalThis !== 'undefined' ? globalThis : null), (typeof self !== 'undefined' ? self : null)];
-                        try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) targets.push(unsafeWindow); } catch (e) {}
-                        for (const t of targets) { try { if (t && t[globalName]) { lib = t[globalName]; break; } } catch (e) {} }
-                        if (lib) return resolve(lib);
-                        xyMdLibs.delete(url);
-                        reject(new Error(globalName + ' 未挂载（' + r.responseText.length + 'B 已执行但未注册全局）'));
-                    } catch (e) { xyMdLibs.delete(url); reject(new Error('库代码执行失败: ' + (e.message || e))); }
-                },
-                onerror: () => { xyMdLibs.delete(url); reject(new Error('网络错误（检查代理/网络）')); },
-                ontimeout: () => { xyMdLibs.delete(url); reject(new Error('加载超时')); }
-            });
+                            try {
+                                const runner = new Function('module', 'exports', 'define', r.responseText);
+                                runner.call(window, undefined, undefined, undefined);
+                            } catch (fe) { (0, eval)(r.responseText); }
+                            let lib = null;
+                            const targets = [window, (typeof globalThis !== 'undefined' ? globalThis : null), (typeof self !== 'undefined' ? self : null)];
+                            try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) targets.push(unsafeWindow); } catch (e) {}
+                            for (const t of targets) { try { if (t && t[globalName]) { lib = t[globalName]; break; } } catch (e) {} }
+                            if (lib) return resolve(lib);
+                            retry(globalName + ' 未挂载（' + r.responseText.length + 'B 已执行但未注册全局）');
+                        } catch (e) { retry('库代码执行失败: ' + (e.message || e)); }
+                    },
+                    onerror: () => retry('网络错误（检查代理/网络）'),
+                    ontimeout: () => retry('加载超时')
+                });
+            };
+            run();
         });
         xyMdLibs.set(url, p);
         return p;
@@ -14533,7 +14542,15 @@ var XYExport = (function (Hinote) {  'use strict';
         try {
             const E = await xyMdLoadLib(XYMD.BUNDLE_URL, 'XyMdEngine');
             xyMdSetStatus('正在生成 Word 文档…', null, sfx);
-            const blob = await E.md2docx(md, { output: 'blob', title: fname, creator: '小雅辅助工具', imageResolver: xyMdImageResolver });
+            const opts = { output: 'blob', title: fname, creator: '小雅辅助工具', imageResolver: xyMdImageResolver };
+            let blob;
+            try {
+                blob = await E.md2docx(md, opts);
+            } catch (e1) {
+                /* 引擎偶发失败（大文档/特殊构造）自动重试一次再报错 */
+                console.warn('[小雅] MD→Word 首次转换失败，重试:', e1);
+                blob = await E.md2docx(md, opts);
+            }
             const _saveAs = (typeof saveAs === 'function') ? saveAs : window.saveAs;
             if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
             _saveAs(blob, fname + '.docx');
