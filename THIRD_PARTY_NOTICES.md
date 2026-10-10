@@ -34,19 +34,13 @@
 
 - 许可证：MIT License
 - 用途：Markdown → docx 编译引擎；随脚本懒加载的打包产物 `dist/xy-md2docx.bundle.min.js` 内嵌了同许可依赖 docx（dolanmiu）、KaTeX（Khan Academy）、mathml2omml、unified-latex 等
-- 特色：LaTeX → KaTeX MathML → Word 原生 OMML 公式（导出后可在 Word/WPS 中直接编辑）
-
-### marked
-
-- 作者：markedjs
-- 许可证：MIT License
-- 用途：PDF 打印窗口内 Markdown → HTML 渲染
+- 特色：LaTeX → KaTeX MathML → Word 原生 OMML 公式（导出后可在 Word/WPS 中直接编辑）；默认段落样式显式左对齐（v3.7.4.3 起）
 
 ### KaTeX
 
 - 作者：Khan Academy
 - 许可证：MIT License
-- 用途：PDF 打印窗口内数学公式排版（含 auto-render 扩展）
+- 用途：随 `dist/xy-md2docx.bundle.min.js` 内嵌，LaTeX → MathML 中间表示（Word 公式链路）。v3.7.4.3 起 Markdown 导出 PDF（打印）功能已移除，原先打印窗口内的 KaTeX CDN 独立引用一并清理。
 
 ### pdf-lib
 
