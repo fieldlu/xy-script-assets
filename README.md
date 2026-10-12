@@ -17,7 +17,7 @@
 - 脚本更新检查：一键比对最新版本、查看更新内容
 - 一键反馈 Bug
 
-> ✍️ **手写归档功能**已拆分至独立仓库 [小雅手写归档](https://gitee.com/fieldlu/xy-handwriting-archive)（文字转手写笔迹，导出 .hinote / PDF / JPG），请需要的同学前往单独安装：[一键安装](https://gitee.com/fieldlu/xy-handwriting-archive/raw/main/%E5%B0%8F%E9%9B%85%E6%89%8B%E5%86%99%E5%BD%92%E6%A1%A3.user.js)。
+> ✍️ **手写归档功能**已拆分至独立仓库 [小雅作业华为笔记导出](https://gitee.com/fieldlu/xy-handwriting-archive)（作业题目自动转手写，导出 .hinote / PDF / JPG），请需要的同学前往单独安装：[一键安装](https://gitee.com/fieldlu/xy-handwriting-archive/raw/main/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js)。
 
 ---
 
