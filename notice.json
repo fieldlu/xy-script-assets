@@ -7,7 +7,7 @@
     "🕗 本版于 2026-10-12 发布，大幅瘦身 + Markdown 转 Word 排版规范化，建议所有用户升级。",
     "",
     "⏰ === v3.7.4.5 更新内容（2026-10-12 发布）===",
-    "✂️ 主脚本 3.1MB → 732KB：「作业手写归档」笔记版手写导出（.hinote/手写 PDF/JPG）拆分至独立脚本「小雅作业华为笔记导出」，Greasyfork 一键安装：https://update.greasyfork.org/scripts/599858/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js。",
+    "✂️ 主脚本 3.1MB → 732KB：「作业手写归档」笔记版手写导出（.hinote/手写 PDF/JPG）拆分至独立脚本「小雅作业华为笔记导出」。安装（二选一）：① 境内直装（推荐）https://gitee.com/fieldlu/xy-handwriting-archive/raw/main/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js ② Greasyfork（需能访问）https://update.greasyfork.org/scripts/599858/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js。",
     "📐 Markdown 转 Word 排版规范化：正文宋体+Times 小四、首行缩进 2 字符、段前段后 0；标题黑体加粗；代码 Consolas。",
     "🖥 Markdown 转换面板迁移至主控台底部固定区域，全部标签页常驻。",
     "🖼 Markdown 转 Word 超大图片自动按页宽等比缩放。",

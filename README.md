@@ -17,7 +17,9 @@
 - 脚本更新检查：一键比对最新版本、查看更新内容
 - 一键反馈 Bug
 
-> ✍️ **手写归档功能**已拆分至独立脚本 [小雅作业华为笔记导出](https://greasyfork.org/zh-CN/scripts/599858)（作业题目自动转手写，导出 .hinote / PDF / JPG），请需要的同学前往单独安装：[一键安装](https://update.greasyfork.org/scripts/599858/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js)。
+> ✍️ **手写归档功能**已拆分至独立脚本「小雅作业华为笔记导出」（作业题目自动转手写，导出 .hinote / PDF / JPG），请需要的同学单独安装：
+> - 🇨🇳 境内直装（推荐）：[一键安装（Gitee）](https://gitee.com/fieldlu/xy-handwriting-archive/raw/main/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js)
+> - 🌍 备用渠道：[Greasyfork 脚本页](https://greasyfork.org/zh-CN/scripts/599858)（境内直连可能超时）
 
 ---
 
