@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.6
+// @version      3.7.4.7
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -59,22 +59,22 @@
      * 目标平台：whut.ai-augmented.com（武汉理工「理工智课」教学平台）
      *
      * 整体结构（单 IIFE，内部按模块分区）：
-     *   §0  原生 API 快照      —— 劫持前保存 fetch/XHR 原始引用
+     *   §0  原生 API 快照      —— 监听前保存 fetch/XHR 原始引用
      *   §1  脚本更新模块       —— Gitee 版本清单比对与升级提示
-     *   §2  隐身引擎(主世界)   —— 页面可见性欺骗/音频静默/防后台节流
+     *   §2  后台保持(主世界)   —— 保持页面可见/音频静默/防后台节流
      *   §3  配置常量区         —— 全部具名常量（Object.freeze 冻结）
      *   §4  领域状态           —— 六大业务域状态对象
-     *        playState   播放挂机域（区域路由/引擎模式/跳转状态）
+     *        playState   播放学习域（区域路由/引擎模式/跳转状态）
      *        recState    学习记录域（计数器/会话时长）
-     *        guardState  防检测域（静音/伪装/看门狗）
+     *        guardState  学习保护域（静音/状态保持/巡检）
      *        discState   讨论区域（ID捕获/名单库/回复库）
      *        dlState     下载域（文件列表/选择集/排序过滤）
      *        settingsState 用户设置域（开关项/主题）
      *   §5  学情概览模块(xyOverview 系 / xyCourseDashboard 系 / xyTodayPrompt 系)
      *   §6  区域路由(switchToZone) 与页面扫描(runLowLevelScanner)
      *   §7  课程目录与课件下载模块（dir 系 / dl 系 / download 系）
-     *   §8  刷课引擎(视频/文档挂机、自动提交、雷达跳转)
-     *   §9  防检测执行层(鼠标模拟/深度伪装/保活看门狗)
+     *   §8  学习引擎(视频/文档学习、完成确认、任务总览跳转)
+     *   §9  学习保护执行层(活动保持/状态保持/保活巡检)
      *   §10 讨论区模块(名单抓取/点赞/自动回复)
      *   §11 作业答题模块(hw*：题目捕获/AI提示词/docx导出/答案回填)
      *   §12 计划调度模块(调度队列 / optimizeScheduleOrder)
@@ -85,8 +85,8 @@
      *       自由勾选 + 实时预览，Word/PDF/图片，图片全模式嵌入)
      *
      * 关键设计决策：
-     *   - fetch/XHR 原型劫持用于被动截包（讨论区ID、作业题目），
-     *     所有劫持链最终 apply 回原生引用，保证平台功能不受影响。
+     *   - fetch/XHR 原型监听用于被动截包（讨论区ID、作业题目），
+     *     所有监听链最终 apply 回原生引用，保证平台功能不受影响。
      *   - 主世界桥接：需要页面级 API（Aliplayer SDK）时通过
      *     unsafeWindow 共享队列通信，规避 TM 沙箱隔离。
      *   - VOD 视频（type=9 任务节点）的 quote_id 不是云盘资源 ID，
@@ -593,7 +593,7 @@
             (function() {
                 // 1. 页面可见性固化：向页面主世界注入不可变属性覆盖，
     //    使平台的前端可见性探测（document.hidden / visibilitychange）
-    //    恒定读到「可见」，从而保持后台标签页内的挂机计时不被暂停。
+    //    恒定读到「可见」，从而保持后台标签页内的学习计时不被暂停。
                 Object.defineProperties(document, {
                     hidden: { value: false, configurable: false },
                     visibilityState: { value: 'visible', configurable: false }
@@ -684,7 +684,7 @@
     /** 任务引擎类型 */
     const TASK_TYPE = Object.freeze({ VIDEO: 'video', DOC: 'doc', NONE: 'none' });
 
-    /** 播放挂机模式 */
+    /** 播放学习模式 */
     const PLAY_MODE = Object.freeze({ SEQUENCE: 'sequence', LOOP: 'loop', MANUAL: 'manual' });
 
     /** 计划调度任务策略 */
@@ -707,7 +707,7 @@
         // 兼容壳保留（见该函数处注释）。
     });
 
-    /** 雷达探测退避配置（毫秒） */
+    /** 任务总览探测退避配置（毫秒） */
     const BACKOFF = Object.freeze({
         SUCCESS_DELAYS_MS: [5000, 10000, 20000, 40000, 80000, 600000],
         ERROR_DELAYS_MS: [10000, 30000, 60000, 300000, 600000],
@@ -855,7 +855,7 @@
     }
 
 
-    /** 播放挂机域：区域路由 / 引擎模式 / 跳转与任务完成状态 */
+    /** 播放学习域：区域路由 / 引擎模式 / 跳转与任务完成状态 */
     const playState = {
         activeZone: ZONE.UNINITIALIZED,
         discScrapeAbort: false,
@@ -878,7 +878,7 @@
          * 为什么视频需要独立计时器：docReadTime 的累加点只在文档分支内，
          * 视频页永不自增 ⇒ 任何用 docReadTime 做「放行线」判据的逻辑在视频侧
          * 恒假。此前 LOOP 模式的「安全循环重载」兜底就是这个情况（死判据），
-         * 导致服务端不放行时视频播完就停在最后一帧，只能等看门狗强刷。
+         * 导致服务端不放行时视频播完就停在最后一帧，只能等巡检重新加载。
          */
         videoWatchSeconds: 0,
         jumpFailCount: 0,
@@ -909,7 +909,7 @@
         lastRecordDate: null
     };
 
-    /** 防检测域：硬件静音 / 深度伪装 / 保活看门狗 */
+    /** 学习保护域：硬件静音 / 状态保持 / 保活巡检 */
     const guardState = {
         guardActive: GM_getValue('xy_guard_active', true),
         hardwareMute: GM_getValue('xy_hw_mute', true),
@@ -1157,7 +1157,7 @@
     /**
      * 心跳打点：连播每 tick 调用，标记「这场连播还活着」。
      * 写节流到 10 秒一次——GM_setValue 可能落 localStorage / IndexedDB，
-     * 每秒一写在长时挂机（数小时）下写放大可观；而心跳只需覆盖 TTL 量级，
+     * 每秒一写在长时学习（数小时）下写放大可观；而心跳只需覆盖 TTL 量级，
      * 10 秒粒度足够。force=true 用于暂停续跑 / 唤醒补点等需要立即落盘的场景。
      */
     let _schHbWroteAt = 0;
@@ -1266,7 +1266,7 @@
     let lastRefreshStrategy = 'none';
     /**
      * 静音状态广播：将 guardState.hardwareMute 打包为 CustomEvent
-     * 'xy-volume-change' 在 document 上派发。主世界注入的隐身引擎监听同一
+     * 'xy-volume-change' 在 document 上派发。主世界注入的后台保持监听同一
      * 事件：更新 window._xy_hardware_mute 标记并把所有 video/audio 元素的
      * muted 属性同步到最新值。这是沙箱→主世界的单向控制通道。
      * [DEEP-DOC]
@@ -1377,7 +1377,7 @@
      *   含 course_paper/              → hw（作业答题）
      *   discussion|discuss 词缀       → disc（讨论区）
      *   课程ID/task|home|courseTools → overview（学情概览挂载点）
-     *   课程ID/resource/{a}/{b}      → course（刷课内容页）
+     *   课程ID/resource/{a}/{b}      → course（学习内容页）
      *   课程ID/resource               → dir（目录页）
      *   兜底：含课程 ID → overview，否则 courses
      *
@@ -3376,7 +3376,7 @@
      * 标签页标题状态机：
      *   调度运行中 → 「[i/n] 计划调度 · 任务名前10字」（截断防超长）
      *   course 区 → video 引擎显示播放百分比+循环/连播标记；doc 引擎显示阅读
-     *               进度百分比或达标 ✓；其他引擎显示通用挂机标记
+     *               进度百分比或达标 ✓；其他引擎显示通用学习标记
      *   disc 区   → 「[N人] 讨论区」（名单规模一目了然）
      *   其余      → 还原 originalTitle（模块加载时保存的原始标题）
      * [DEEP-DOC]
@@ -3396,13 +3396,13 @@
                     const pct = Math.round((video.currentTime / video.duration) * 100);
                     document.title = `[${pct}%] ${playState.mode === PLAY_MODE.LOOP ? '循环' : '顺序'}运行中`;
                 } else {
-                    document.title = '[视频] 挂机中';
+                    document.title = '[视频] 学习中';
                 }
             } else if (taskType === TASK_TYPE.DOC) {
                 const pct = Math.min(Math.round((playState.docReadTime / xyDocEffectiveSubmitSeconds()) * 100), 100);
                 document.title = playState.isTaskCompleted ? '[✓] 文档已达标' : `[${pct}%] 文档阅读中`;
             } else {
-                document.title = playState.isTaskCompleted ? '[✓] 已达标' : '[·] 挂机中';
+                document.title = playState.isTaskCompleted ? '[✓] 已达标' : '[·] 学习中';
             }
         } else if (playState.activeZone === ZONE.DISC) {
             document.title = `[${discState.targetNames.length}人] 交流区`;
@@ -3547,7 +3547,7 @@
      * 抽成单一函数后，字段清单只有一份，不会再漂移。
      *
      * 清场清单与理由：
-     *   isTaskCompleted      ← 达标标志，不清则下一项秒判达标被跳过
+     *   isTaskCompleted      ← 达标标志，不清则下一项即时判断达标被跳过
      *   docReadTime          ← 累计计时，两种类型共用，必须归零
      *   lastDocSubmitTime    ← 文档重试节流记账
      *   lastVideoSubmitTime  ← 视频重试节流记账（与上者对称，缺一不可）
@@ -3664,11 +3664,11 @@
     
     let _radarCache = { data: null, time: 0, promise: null };
     /** [R3-04] 教师时长同步在途标记。主循环每 tick 都会检查是否需要对齐，
-     *  用它防止在同步 Promise 未落地时重复发起雷达请求。 */
+     *  用它防止在同步 Promise 未落地时重复发起任务总览请求。 */
     let _xyWmSyncing = false;
     /**
-     * 全局雷达数据源（带缓存）：调 fetchGlobalTasks 取全网任务并附课程名映射。
-     * 缓存命中直接返回旧引用；未命中拉取后写缓存。供秒判/跳转/调度复用，
+     * 任务总览数据源（带缓存）：调 fetchGlobalTasks 取全网任务并附课程名映射。
+     * 缓存命中直接返回旧引用；未命中拉取后写缓存。供即时判断/跳转/调度复用，
      * 降低同一轮询周期内的重复请求。
      * [DEEP-DOC]
      */
@@ -3680,7 +3680,7 @@
             try {
                 const token = await getAuthToken();
                 /**
-                 * ⚠️ 必须带超时。fetchRadarCached 是秒判 / 跳转 / 调度**共用**的数据源，
+                 * ⚠️ 必须带超时。fetchRadarCached 是即时判断 / 跳转 / 调度**共用**的数据源，
                  * 且本函数用 `_radarCache.promise` 做并发去重（见上一行的复用分支）。
                  * 一旦请求悬挂（TCP 半开 / 服务端不响应）且无超时，Promise 永不 settle →
                  * 所有 await 它的调用者全部挂起，且后续调用复用同一个悬挂 Promise →
@@ -3695,9 +3695,9 @@
                 _radarCache.time = Date.now();
                 return data;
             } catch (e) {
-                console.warn('[小雅] 雷达请求失败/超时，本轮降级为空结果', e);
+                console.warn('[小雅] 任务总览请求失败/超时，本轮降级为空结果', e);
                 // 降级返回可判别空结果：调用方均按 `radarData.success && radarData.data` 判空，
-                // 不会被误认为「雷达列表里没有当前任务」而错误放行。
+                // 不会被误认为「任务总览列表里没有当前任务」而错误放行。
                 return { success: false, data: [], _error: true };
             } finally {
                 _radarCache.promise = null;
@@ -3712,7 +3712,7 @@
      * 打开时长 ≥ 该值才放行 finishActivity。以下辅助函数把本地交卷线/
      * 放行线/循环线动态对齐到服务端要求，未设置时保持原默认阈值。
      * ================================================================ */
-    /** 从雷达缓存按 nodeId（可叠加 courseId）查任务的时长要求分钟数，未设置返回 0 */
+    /** 从任务总览缓存按 nodeId（可叠加 courseId）查任务的时长要求分钟数，未设置返回 0 */
     function xyGetWatchMinutesForNode(courseId, nodeId) {
         try {
             // [R3-05] _radarCache.data 存的是**整个响应信封**（见 fetchRadarCached 内
@@ -3801,7 +3801,7 @@
                 return needMin;
             }
 
-            // 缓存未命中：主动拉雷达（不依赖被动预热）
+            // 缓存未命中：主动拉任务总览（不依赖被动预热）
             const data = await fetchRadarCached();
             /**
              * [R4-P2] await 之后必须校验任务未变。
@@ -3832,7 +3832,7 @@
             logMsg(`⏱ 检测到时长要求：${needMin} 分钟（文档按此对齐交卷线 · 视频以播完为准）`, 'info', true);
             return needMin;
         } catch (e) {
-            // 雷达不可用时保持默认阈值，不阻断主循环
+            // 任务总览不可用时保持默认阈值，不阻断主循环
             return 0;
         }
     }
@@ -3841,7 +3841,7 @@
      *
      * 流程：xyRouteKind 分类当前路由 → 与上次记录比对，变化时执行区域钩子链：
      *   hw 路由 → 切作业区 + 延时主动拉题；dir → 切目录区；overview → 切概览；
-     *   course → 刷课区 + 引擎类型探测 + 动态刷新检查；disc → 讨论区锁定判断；
+     *   course → 学习区 + 引擎类型探测 + 动态刷新检查；disc → 讨论区锁定判断；
      *   courses → 回总览。每轮都跑 checkDynamicRefresh 维持防卡死兜底，
      *   最后 updateTitleBar 同步标签页标题。所有切区都经 xyShouldKeepDashboard
      *   Overview 钉住保护闸门。
@@ -3931,8 +3931,8 @@
                          * ⚠️ 此处**不能**先置 isTaskCompleted，与 globalTaskStatusChecker 同源约束。
                          *
                          * 旧写法是 `playState.isTaskCompleted = true; logMsg(...); updateCourseUI();`
-                         * ——「雷达列表里不含当前 node」只是**间接信号**（多端同步下另一台设备
-                         * 完成、或雷达缓存陈旧都会命中），不等于「服务端已确认本机完成」。
+                         * ——「任务总览列表里不含当前 node」只是**间接信号**（多端同步下另一台设备
+                         * 完成、或任务总览缓存陈旧都会命中），不等于「服务端已确认本机完成」。
                          *
                          * 后果：本页从未调用 finishActivity，服务端没有本页的完成记录，但
                          * isTaskCompleted 已为 true → 引擎所有入口被 `if (!playState.isTaskCompleted)`
@@ -3943,16 +3943,16 @@
                          *
                          * 正确做法：走统一收口，让步进逻辑读**服务端确认结果**。
                          */
-                        logMsg('✅ [雷达秒判] 当前任务已在全局雷达达成，交由统一收口确认', 'success', false);
+                        logMsg('✅ [任务总览即时判断] 当前任务已在任务总览达成，交由统一收口确认', 'success', false);
                         await xyEngineCompleteAndAdvance({
                             silent: true,
                             forceSubmit: true,   // 外部信号判定完成，跳过本地判据
-                            typeLabel: '雷达秒判'
+                            typeLabel: '任务总览即时判断'
                         });
                     }
                 }
             }
-        } catch(e) { console.warn('[小雅] 全局任务雷达请求失败', e); }
+        } catch(e) { console.warn('[小雅] 全局任务任务总览请求失败', e); }
 
         if (!isSameScanContext()) return;
         if (xyShouldKeepDashboardOverview(groupId)) return;
@@ -5631,7 +5631,7 @@
      * 刷新策略决策器（每扫描周期调用）：
      *   loop 模式：>1h 长视频按时长×1.2 注册一次性刷新；普通视频/文档按
      *     15min 周期防卡死；达标后切 sequence_completed 策略。
-     *   sequence 模式：已达标或休眠中 → 10min 探测刷新；doc 引擎挂机中 →
+     *   sequence 模式：已达标或休眠中 → 10min 探测刷新；doc 引擎学习中 →
      *     15min 防卡死；其余清除刷新。
      * manual 模式整体跳过。所有周期常量内联于分支中，改动需同步 BACKOFF 注释。
      * [DEEP-DOC]
@@ -5651,7 +5651,7 @@
             if (currentTaskType === TASK_TYPE.DOC) {
                 if (lastRefreshStrategy !== 'loop_doc') {
                     lastRefreshStrategy = 'loop_doc';
-                    scheduleDynamicRefresh(15 * 60 * 1000, `文档挂机防卡死`);
+                    scheduleDynamicRefresh(15 * 60 * 1000, `文档学习防卡死`);
                 }
             } else {
                 let video = document.querySelector('video');
@@ -5685,7 +5685,7 @@
             } else if (currentTaskType === TASK_TYPE.DOC) {
                 if (lastRefreshStrategy !== 'sequence_doc') {
                     lastRefreshStrategy = 'sequence_doc';
-                    scheduleDynamicRefresh(15 * 60 * 1000, `文档挂机防卡死`);
+                    scheduleDynamicRefresh(15 * 60 * 1000, `文档学习防卡死`);
                 }
             } else {
                 if (lastRefreshStrategy !== 'none') {
@@ -5820,7 +5820,7 @@
     };
     /**
      * 作业请求参数抽取：URL 对象的 group_id/node_id/paper_id 查询参数逐一
-     * 回填 hw 模块三参状态（空值保留原值）。fetch 与 XHR 两条劫持链都汇入此处。
+     * 回填 hw 模块三参状态（空值保留原值）。fetch 与 XHR 两条监听链都汇入此处。
      * [DEEP-DOC]
      */
     function hwCaptureParams(rawUrl) {
@@ -5869,7 +5869,7 @@
             const self = this;
             if (self._hw_url && self._hw_url.includes('/queryStuPaper/v2')) {
                 self.addEventListener('load', function() {
-                    // 参数学习后置 + 仅采信成功响应（与 fetch 劫持器同策略）
+                    // 参数学习后置 + 仅采信成功响应（与 fetch 监听器同策略）
                     if (self.status === 200) {
                         console.log('[小雅辅助·作业区] 已捕获 XHR 题目数据包(200)');
                         hwCaptureParams(self._hw_url);
@@ -5935,10 +5935,10 @@
         return TASK_TYPE.DOC;
     }
     /**
-     * 任务完成验证提交器（挂机引擎的核心出口）。
+     * 任务完成验证提交器（学习引擎的核心出口）。
      *
      * 组装当前课程/节点的完成上报请求发往平台接口，解析响应判定 success。
-     * 调用方分布：循环模式播完即交、sequence 定时器达标强交、快速击破手动触发。
+     * 调用方分布：循环模式播完即交、sequence 定时器达标强交、快速完成手动触发。
      *
      * **返回结果对象而非裸布尔**，因为裸 false 有两种截然不同的含义：
      *   · skipped=true  → 本次被并发锁挡回，请求**根本没发出**，答案在途
@@ -5984,7 +5984,7 @@
                 if (rTask && rTask.finish !== 2) {
                     taskId = rTask.task_id || rTask.id;
                 } else if (!rTask || rTask.finish === 2) {
-                    if (!silent) logMsg('✅ [雷达] 任务已在后台完成，无需再提交！', 'success', false);
+                    if (!silent) logMsg('✅ [任务总览] 任务已在后台完成，无需再提交！', 'success', false);
                     confirmed = true;
                     return done(true); 
                 }
@@ -6007,7 +6007,7 @@
              * 为什么必须加：这个 fetch 是持锁期间的最后一跳。若服务端连接挂起
              * （不返回也不断开），isSubmittingLock 会一直为 true ——
              * 期间所有其它调用方都被挡回、拿到 skipped:true（判定在途、不记账、
-             * 不强制放行），等于整条链原地空转，只能等看门狗 180s 强刷兜底。
+             * 不强制放行），等于整条链原地空转，只能等巡检 180s 重新加载兜底。
              * 加 15s 超时后，最坏情况退化为「本次失败 → 记一次账 → 30s 后重试」，
              * 仍在正常节流节奏内。
              */
@@ -6099,13 +6099,13 @@
      *   1. 幂等：已达标则直接返回，避免重复提交刷接口
      *   2. 交卷：调 autoSubmitCurrentTask，拿服务端确认
      *   3. 置位：成功后写 isTaskCompleted（调度的唯一判据）
-     *   4. 去向：调度在跑则交由调度切项；否则走连播雷达跳转
+     *   4. 去向：调度在跑则交由调度切项；否则走连播任务总览跳转
      *
      * @param {object} opts
-     * @param {boolean} [opts.silent]      - 静默提交（循环挂机用）
+     * @param {boolean} [opts.silent]      - 静默提交（循环学习用）
      * @param {boolean} [opts.forcePass]   - 强制放行（超过放行线仍未确认时用）
      * @param {string}  [opts.typeLabel]   - 日志用任务类型名
-     * @param {boolean} [opts.forceSubmit]  - 强制交卷：由外部信号（雷达列表）判定完成，
+     * @param {boolean} [opts.forceSubmit]  - 强制交卷：由外部信号（任务总览列表）判定完成，
      *                                        本地判据不适用；仍要求服务端确认，失败不推进
      * @returns {Promise<{ok: boolean, fired: boolean, skipped: boolean}>}
      *   ok      - 是否已确认达标（含「被挡回、判定在途」的乐观放行）
@@ -6123,8 +6123,8 @@
         if (playState.isTaskCompleted) return { ok: true, fired: false, skipped: false };
         /**
          * [SLEEP-FIX] 手动休眠守卫（推进链总收口）：MANUAL 模式下不交卷、不推进、
-         * 不跳转。此前「雷达秒判 → 本函数 → tryJumpToNext」全链无模式检查，
-         * 用户点「手动休眠」后视频完成/秒判仍会跨课程跳转。
+         * 不跳转。此前「任务总览即时判断 → 本函数 → tryJumpToNext」全链无模式检查，
+         * 用户点「手动休眠」后视频完成/即时判断仍会跨课程跳转。
          * 调度运行态不受影响（xySchStart/tick 会把 mode 切为 SEQUENCE/LOOP）。
          */
         if (playState.mode === PLAY_MODE.MANUAL) {
@@ -6154,7 +6154,7 @@
             confirmed = res.confirmed;
         }
         /**
-         * forceSubmit 语义：调用方已从**外部信号**（雷达列表）判定任务完成，
+         * forceSubmit 语义：调用方已从**外部信号**（任务总览列表）判定任务完成，
          * 本地判据（视频播完 / 阅读满 N 分钟）在此场景下不适用或不成立，
          * 因此只看服务端确认结果，不走 forcePass 的无条件放行。
          *
@@ -6172,20 +6172,20 @@
         /**
          * 日志区分两种达标来源，避免误导：
          *   forcePass → 服务端**未**收到请求，这是「放弃本项、推进下一项」，
-         *               措辞不能写成「达标」（雷达里该项仍是未完成状态）
+         *               措辞不能写成「达标」（任务总览里该项仍是未完成状态）
          *   正常路径  → 服务端已确认
          */
         logMsg(forcePass
             ? `⚡ ${typeLabel}已达放行线，跳过等待并推进（服务端未确认本项）`
             : `✅ ${typeLabel}已获服务器确认达标`, forcePass ? 'warning' : 'success', silent);
 
-        // 去向分流：调度独占跳转权，避免与雷达跳转双头打架
+        // 去向分流：调度独占跳转权，避免与任务总览跳转双头打架
         if (xyScheduleState.isRunning) {
             // 调度在跑：不动导航，下一个 tick 由调度读 isTaskCompleted 切项
             return { ok: true, fired: !forcePass, skipped: false };
         }
-        /* [LOOP-FIX] 循环模式（安全循环）驻留当前任务：达标后不进全局雷达匹配、
-         * 不跨课程跳转——循环的语义就是在当前任务反复挂机，维持机制由
+        /* [LOOP-FIX] 循环模式（安全循环）驻留当前任务：达标后不进任务总览匹配、
+         * 不跨课程跳转——循环的语义就是在当前任务反复学习，维持机制由
          * checkDynamicRefresh 的防卡死刷新（文档 15min / >1h 长视频 1.2×时长）承担。
          * 旧实现 LOOP 达标也走 tryJumpToNext：全网探测下一项，无新任务时还进入
          * 指数退避重试循环（白耗请求），与「安全循环」语义自相矛盾。
@@ -6202,7 +6202,7 @@
     /**
      * 连播跳转下一任务编排（指数退避宿主）。
      *
-     * 成功路径：雷达锁定未完成任务 → getTaskResourceId 补全三元组 →
+     * 成功路径：任务总览锁定未完成任务 → getTaskResourceId 补全三元组 →
      * jumpFailCount 归零 → 500ms 后整页跳转 resource/{res}/{node}，5s 后解除
      * isJumpingLock 兜底。失败路径：failCount++ 按 SUCCESS_DELAYS_MS 梯度延迟
      * 解锁重试；连续 6 次进入深度休眠（jumpSleepUntil = now+10min）并复位计数。
@@ -6222,15 +6222,15 @@
             const currentGroupId = getCourseGroupId(); 
             const currentNodeId = getNodeId(); 
             
-            logMsg('🔄 正在通过【全局雷达】匹配下一项自主观看任务...', 'info', false);
+            logMsg('🔄 正在通过【任务总览】匹配下一项自主观看任务...', 'info', false);
             
             _radarCache.time = 0; 
             const unfinishData = await fetchRadarCached();
             const unfinishTasks = (unfinishData && unfinishData.success && unfinishData.data) ? unfinishData.data : [];
 
             /**
-             * 雷达连播口径：基础筛选 + 排除当前节点 + 排除未开始任务。
-             * 不按文件名后缀过滤——雷达靠节点跳转，播放引擎由目标页自行决定，
+             * 任务连播口径：基础筛选 + 排除当前节点 + 排除未开始任务。
+             * 不按文件名后缀过滤——任务总览靠节点跳转，播放引擎由目标页自行决定，
              * 任务名未必带后缀（如「第一集 工业强国-轴承」），加了会误杀。
              */
             const watchTasks = xyBrushFilterPlayable(unfinishTasks).filter(t => {
@@ -6259,7 +6259,7 @@
             if (targetTask) {
                 const resId = await getTaskResourceId(targetTask);
 
-                logMsg(`⏭️ 雷达锁定目标：${targetTask.name}，执行跨节点跳转！`, 'success', false);
+                logMsg(`⏭️ 任务总览锁定目标：${targetTask.name}，执行跨节点跳转！`, 'success', false);
 
                 const pathPrefix = xyCourseRoutePrefix();
 
@@ -6305,14 +6305,14 @@
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
-                 logMsg(`⚠️ 雷达连通异常，${Math.round(delay / 1000)} 秒后重试（第 ${failCount} 次）...`, 'error', false);
+                 logMsg(`⚠️ 任务总览连通异常，${Math.round(delay / 1000)} 秒后重试（第 ${failCount} 次）...`, 'error', false);
                  setTimeout(() => { isJumpingLock = false; }, delay);
             }
         }
     }
 
     /**
-     * 连播基础筛选器：所有连播入口（一键连播 / 雷达连播 / 智能排课）共用。
+     * 连播基础筛选器：所有连播入口（一键连播 / 任务连播 / 智能排课）共用。
      *
      * 只做「无论哪个入口都必然正确」的判断，保证三个入口口径一致且互不削弱：
      *   1. task_type === 1   —— 必须是任务点，不是章节或其它节点
@@ -6321,7 +6321,7 @@
      *   4. 按 group:node:task 去重
      *
      * 各入口的额外条件（文件名识别、时间窗口、排除当前节点）在各自调用后追加，
-     * 因为它们的语义并不相同：雷达连播靠节点跳转不需识别后缀，排课与一键连播
+     * 因为它们的语义并不相同：任务连播靠节点跳转不需识别后缀，排课与一键连播
      * 需要按后缀选择播放引擎，而排课原本不做时间过滤。
      */
     function xyBrushFilterPlayable(tasks) {
@@ -6360,9 +6360,9 @@
 
     let lastTaskCheck = 0;
     /**
-     * 全局达成秒判器（6s 节流 + force 穿透）：拉雷达缓存查当前 node 是否仍在
+     * 全局达成即时判断器（6s 节流 + force 穿透）：拉任务总览缓存查当前 node 是否仍在
      * 未完成清单——不在说明别处已完成（多端同步场景），立即置 isTaskCompleted
-     * 放行并尝试跳转，省去本地重复挂机。
+     * 放行并尝试跳转，省去本地重复学习。
      * [DEEP-DOC]
      */
     async function globalTaskStatusChecker(forceCheck = false) {
@@ -6386,18 +6386,18 @@
                          * 本页会永久停在「已达标」，而引擎所有入口都有
                          * `if (!playState.isTaskCompleted)` 门外加调度 tick 的达标判定，
                          * **再也不会有人重试提交** —— 用户以为这项完成了，实际没有。
-                         * 触发场景：多端同步下另一台设备完成了该项（雷达列表消失），
+                         * 触发场景：多端同步下另一台设备完成了该项（任务总览列表消失），
                          * 而本机此刻网络抖动导致 finishActivity 失败。
                          *
                          * 正确做法：走统一收口。让步进逻辑读的是**服务端确认结果**，
-                         * 而不是「雷达列表里消失」这一条间接信号。
+                         * 而不是「任务总览列表里消失」这一条间接信号。
                          */
                         const res = await xyEngineCompleteAndAdvance({
                             silent: true,
-                            forceSubmit: true,      // 雷达已判完成，本地判据不适用，直接交卷
-                            typeLabel: '雷达任务'
+                            forceSubmit: true,      // 任务总览已判完成，本地判据不适用，直接交卷
+                            typeLabel: '任务总览任务'
                         });
-                        if (res.ok) logMsg('✅ [雷达] 当前任务已在全局雷达达成！', 'success', false);
+                        if (res.ok) logMsg('✅ [任务总览] 当前任务已在任务总览达成！', 'success', false);
                     }
                 } else { 
                     if (playState.isTaskCompleted || (document.getElementById('xy-status-banner') && document.getElementById('xy-status-banner').innerText.includes('初始化'))) { 
@@ -6409,7 +6409,7 @@
     }
     /**
      * 平台弹窗清扫：探测常见弹窗容器/遮罩选择器并逐个 remove/dismiss。
-     * 在下载执行与挂机跳转前调用——任何残留弹窗都可能吞掉后续自动化点击。
+     * 在下载执行与学习跳转前调用——任何残留弹窗都可能吞掉后续自动化点击。
      * [DEEP-DOC]
      */
     function forceDismissPopups(doc = document) {
@@ -6457,7 +6457,7 @@
     /**
      * 拟人鼠标移动单步：起止两点间按 cubicBezier 时间轴插值 N 个采样点，
      * 每点叠加随机抖动后依次派发 pointermove/mousemove（bubbles 冒泡）。
-     * 目标坐标限制在视口内。深度伪装的行为熵来源之一。
+     * 目标坐标限制在视口内。状态保持的行为熵来源之一。
      * [DEEP-DOC]
      */
     function simulateMouseMove() {
@@ -6497,7 +6497,7 @@
         animateStep();
     }
     /**
-     * 鼠标模拟调度环：随机 8-25s 间隔触发 simulateMouseMove（随机起止点）+
+     * 活动保持调度环：随机 8-25s 间隔触发 simulateMouseMove（随机起止点）+
      * 低概率 simulateRandomClick。递归 setTimeout 实现可中断的无限循环；
      * guardState.mouseSimActive 为 false 时自终止。
      * [DEEP-DOC]
@@ -6591,7 +6591,7 @@
         scheduleDeepCamo('click');
     }
     /**
-     * 深度伪装编排中枢：deepCamouflage 开启时启动三个独立调度环
+     * 状态保持编排中枢：deepCamouflage 开启时启动三个独立调度环
      * （滚动 / 键盘 / 点击+移动组合），各自随机相位互不同步——行为特征更接近
      * 真人多任务。关闭时全部清理。
      * [DEEP-DOC]
@@ -6616,7 +6616,7 @@
     /**
      * 文档预览自动开启：探测预览占位元素存在且未展开时 robustClick 触发。
      * 部分文档（PPT/PDF 预览）必须点开才开始被平台计入学时，此函数保证
-     * 挂机计时有效。
+     * 学习计时有效。
      * [DEEP-DOC]
      */
     function checkAndClickDocPreview() {
@@ -6636,7 +6636,7 @@
     }
 
     /**
-     * [R3-01] 带超时的通用 fetch（走页面 fetch，含脚本自身的响应体劫持链）。
+     * [R3-01] 带超时的通用 fetch（走页面 fetch，含脚本自身的响应体监听链）。
      *
      * 背景：全脚本 40 个网络调用点里有 26 个是裸 fetch，既不传 signal 也没有
      * 其它超时手段。在「TCP 已连上但服务端不返回」的场景下，fetch 既不 resolve
@@ -6655,7 +6655,7 @@
     }
 
     /**
-     * [R3-01] 带超时的**原生** fetch：绕过脚本对 window.fetch 的劫持链，
+     * [R3-01] 带超时的**原生** fetch：绕过脚本对 window.fetch 的监听链，
      * 用于作业区必须拿到未经处理的原始响应体的拉取。
      */
     async function xyNativeFetch(url, options = {}, timeoutMs = 15000) {
@@ -6712,8 +6712,8 @@
     }
     /**
      * 计时上报包装器：透传调用 _origSendRecordRequest，异常时 warn 记录
-     * 「sendRecord 失败」并累加 recordFailCount 供看门狗判断上报通道健康度。
-     * 不向上抛错——计时失败不应打断挂机主流程。
+     * 「sendRecord 失败」并累加 recordFailCount 供巡检判断上报通道健康度。
+     * 不向上抛错——计时失败不应打断学习主流程。
      * [DEEP-DOC]
      */
     async function sendRecordRequest() {
@@ -6731,7 +6731,7 @@
      * 抗节流定时器工厂 —— 解决后台标签页 setInterval 被浏览器降频的问题。
      *
      * 实现：递归 setTimeout 链 + 漂移补偿（每 tick 记录期望时刻与实际时刻差，
-     * 下次延迟扣减差值）；配合隐身引擎的可见性固化（document.hidden 恒 false），
+     * 下次延迟扣减差值）；配合后台保持的可见性固化（document.hidden 恒 false），
      * 后台标签页也能维持接近真实的触发频率。返回带 stop() 的句柄对象。
      *
      * @param {Function} fn - 周期回调
@@ -6895,7 +6895,7 @@
     let keepaliveWatchdogTimer = null;
     let keepaliveLastBeatTime = 0;
     /**
-     * 保活看门狗：10s 巡检周期检查挂机活性——watchdogLastActiveTime 距今超过
+     * 保活巡检：10s 巡检周期检查学习活性——watchdogLastActiveTime 距今超过
      * 阈值（各引擎正常运转都会持续刷新它）判定失速，先尝试恢复引擎动作，
      * 连续失速升级为页面重载自救。keepaliveEnabled 关闭时不启动。
      * [DEEP-DOC]
@@ -6918,7 +6918,7 @@
                 recordIntervalTimer = createPersistentInterval(sendRecordRequest, 30000, 20);
             }
         }, 10000);
-        logMsg('💓 后台保活看门狗已启动（10s巡检）', 'silent', true);
+        logMsg('💓 后台保活巡检已启动（10s巡检）', 'silent', true);
     }
 
 
@@ -6948,7 +6948,7 @@
         const timeoutLimit = xyScheduleState.isRunning ? 1800000 : 180000; 
         if (Date.now() - watchdogLastActiveTime > timeoutLimit) {
             sessionStorage.setItem('xy_reload_reason', '防死锁刷新');
-            logMsg(`💀 发生死锁！执行强刷...`, 'error', false);
+            logMsg(`💀 发生死锁！执行重新加载...`, 'error', false);
             setTimeout(() => window.location.reload(), 1000);
             return;
         }
@@ -6968,7 +6968,7 @@
             if(dEngine) dEngine.style.opacity = taskType === TASK_TYPE.DOC ? '1' : '0.4';
 
     let isMakingProgress = false;
-    /** [R3-17] 提到外层，供尾部看门狗喂狗判据使用（跨域 iframe 播放器会取不到） */
+    /** [R3-17] 提到外层，供尾部巡检刷新计时判据使用（跨域 iframe 播放器会取不到） */
     let video = null;
 
     if (taskType === TASK_TYPE.VIDEO) {
@@ -7004,9 +7004,9 @@
                              * 注意这里**不能 `return`** —— 该 return 在函数顶层（1s 主循环），
                              * 会连带跳过：
                              *   1. 本分支下方的 isMakingProgress 标记
-                             *   2. 函数尾部的看门狗刷新与 updateTitleBar()
-                             * 拖动频繁时（视频一被外部逻辑 seek 就触发）会让看门狗持续收不到
-                             * 活动信号，最终误判「死锁」并强刷页面 —— 表现为视频反复从头开始。
+                             *   2. 函数尾部的巡检刷新与 updateTitleBar()
+                             * 拖动频繁时（视频一被外部逻辑 seek 就触发）会让巡检持续收不到
+                             * 活动信号，最终误判「死锁」并重新加载页面 —— 表现为视频反复从头开始。
                              * 改为弹回后继续走完本轮逻辑即可。
                              */
                             logMsg('⚠️ 检测到拖动进度条，已弹回原位', 'warning', true);
@@ -7248,24 +7248,24 @@
                     isMakingProgress = true;
                 } else {
                     const statusEl = document.getElementById('xy-doc-status'), progressEl = document.getElementById('xy-doc-progress');
-                    if(statusEl) statusEl.innerText = `已达标 (挂机或跳转)`; if(progressEl) progressEl.style.width = `100%`;
+                    if(statusEl) statusEl.innerText = `已达标 (学习或跳转)`; if(progressEl) progressEl.style.width = `100%`;
                     isMakingProgress = true;
                 }
             }
 
             /**
-             * [R3-06] 喂狗判据：只认「本 tick 确有推进」。
+             * [R3-06] 刷新计时判据：只认「本 tick 确有推进」。
              *
              * 旧写法 `|| recState.recordActive` 把「学习记录开关开着」当成活性信号 ——
              * 只要用户开着学习记录，watchdogLastActiveTime 每拍都被无条件刷新，
              * 上面 `Date.now() - watchdogLastActiveTime > timeoutLimit` 永不成立，
-             * 防死锁强刷**整条分支是死代码**。
+             * 防死锁重新加载**整条分支是死代码**。
              *
              * [R3-17] 必须与 R3-06 同批改：视频元素取不到时（跨域 iframe 播放器
              * 取不到 contentDocument、或播放器尚未渲染），isMakingProgress 恒为
-             * false；若简单地「不喂狗」就会每 3 分钟误判死锁并强刷，页面反复重载。
+             * false；若简单地「不刷新计时」就会每 3 分钟误判死锁并重新加载，页面反复重载。
              * 故给一个**有界**宽限窗口：连续取不到元素超过 120 拍（约 2 分钟）后
-             * 停止喂狗，把判定权交还看门狗 —— 既不误刷，也保留自愈能力。
+             * 停止刷新计时，把判定权交还巡检 —— 既不误刷，也保留自愈能力。
              */
             if (isMakingProgress || playState.isProcessingJump) {
                 playState.videoMissingTicks = 0;
@@ -7721,13 +7721,13 @@
             "🛠️ 修复：长文本不再超出页面边缘、行与行不再重叠。",
             "",
             "⏰ === v3.7.3.1 更新 ===",
-            "🧹 内部清理：移除 15 个废弃函数（反馈旧问卷、Google 表单配置、鼠标模拟/深度伪装手动开关、看门狗停止器等）。",
-            "✅ 功能零变化：雷达调度、安全循环、防休眠、保活、鼠标模拟、深度伪装、作业、手写归档全部照常运行。",
+            "🧹 内部清理：移除 15 个废弃函数（反馈旧问卷、Google 表单配置、活动保持/状态保持手动开关、巡检停止器等）。",
+            "✅ 功能零变化：任务总览调度、安全循环、防休眠、保活、活动保持、状态保持、作业、手写归档全部照常运行。",
             "📏 脚本体积缩减，加载更快。",
             "",
             "⏰ === v3.7.3.0 更新 ===",
             "✨ 新增「作业手写归档」：作业题目与批改结果一键生成手写版，导出 .hinote / PDF / JPG，手写归档免手抄。",
-            "🛡️ 修复「文件预览确认」提示框卡住问题，挂机流程不再被拦截。",
+            "🛡️ 修复「文件预览确认」提示框卡住问题，学习流程不再被拦截。",
             "📝 修复访问非本人课程时误显示学情概览的问题。",
             "📝 作业区数据全面修复：适配平台新版接口，题目、我的记录与批改状态均可正常识别。",
             "🧹 面板精简：移除冗余开关，仅保留「强制静音」，各引擎默认开启。",
@@ -7841,8 +7841,8 @@
         return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
     }
     /**
-     * 刷课区 UI 状态机总渲染：横幅六态（调度暂停/调度中/手动休眠/深度休眠倒计时/
-     * 循环挂机/连播进行）决定 banner 文案与配色；联动引擎指示灯透明度、
+     * 学习区 UI 状态机总渲染：横幅六态（调度暂停/调度中/手动休眠/深度休眠倒计时/
+     * 循环学习/连播进行）决定 banner 文案与配色；联动引擎指示灯透明度、
      * 文档进度条宽度、实时学习时长显示。activeZone 非 course 直接短路。
      * [DEEP-DOC]
      */
@@ -7862,7 +7862,7 @@
                 }
             }
             else if (playState.mode === PLAY_MODE.MANUAL) {
-                statusBanner.innerHTML = `<span style="color:${T('#94a3b8','#64748b')};">⏸️ 挂机休眠中</span>`;
+                statusBanner.innerHTML = `<span style="color:${T('#94a3b8','#64748b')};">⏸️ 学习休眠中</span>`;
                 statusBanner.style.background = T('rgba(71,85,105,0.15)','#f8fafc');
                 statusBanner.style.borderColor = T('rgba(71,85,105,0.2)','#e2e8f0');
             }
@@ -7873,7 +7873,7 @@
                     statusBanner.style.background = T('rgba(251,191,36,0.1)','#fffbeb');
                     statusBanner.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a');
                 } else {
-                    statusBanner.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">🌐 雷达系统扫描中...</span>`;
+                    statusBanner.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">🌐 任务总览系统扫描中...</span>`;
                     statusBanner.style.background = T('rgba(99,102,241,0.1)','#eef2ff');
                     statusBanner.style.borderColor = T('rgba(99,102,241,0.2)','#c7d2fe');
                 }
@@ -8040,7 +8040,7 @@
         updateCheckedCount();
     }
     /**
-     * 全网任务聚合（雷达/调度/批量提交的共用数据源）。
+     * 全网任务聚合（任务总览/调度/批量提交的共用数据源）。
      *
      * 流程：un_finish 接口取未完成任务骨架 → 学生课程列表补齐 courseMap
      * （GM 持久化 xy_course_map 跨会话缓存）→ 逐课程并发 queryCourseResources
@@ -8086,7 +8086,7 @@
                 }));
             }
 
-            // 拉取全部学生课程，补齐 courseMap（调度/雷达显示所有课程）
+            // 拉取全部学生课程，补齐 courseMap（调度/任务总览显示所有课程）
             try {
                 const gr = await xyFetch(`https://${domain}/api/jx-iresource/group/student/groups?time_flag=1`, { headers: { "authorization": `Bearer ${token}` } });
                 const gj = await gr.json();
@@ -8217,7 +8217,7 @@
                 await sleep(400); 
 
                 submitBtn = document.getElementById('xy-batch-submit-btn');
-                if (submitBtn) submitBtn.innerText = `🔄 正在同步雷达数据... (${i+1}/${total})`;
+                if (submitBtn) submitBtn.innerText = `🔄 正在同步任务总览数据... (${i+1}/${total})`;
                 
                 const latestTasks = await fetchGlobalTasks(); 
                 renderGlobalDashboardContent(latestTasks); 
@@ -8241,7 +8241,7 @@
          *
          * 旧实现只在正常路径末尾（循环之后）恢复，catch 里不复原地直接吞掉异常。
          * 循环内 `fetchGlobalTasks()` / `renderGlobalDashboardContent()` 任一抛错
-         * 都会跳出循环进 catch —— 按钮永久停留在「🔄 正在同步雷达数据...」且
+         * 都会跳出循环进 catch —— 按钮永久停留在「🔄 正在同步任务总览数据...」且
          * disabled=true，用户只能刷新页面。
          */
         finally {
@@ -8252,7 +8252,7 @@
             }
         }
     }
-    /** 打开全局任务雷达面板：置 overlay 可见 → fetchGlobalTasks 拉数据 → renderGlobalDashboardContent 全量渲染。关闭按钮在面板内绑定。
+    /** 打开全局任务任务总览面板：置 overlay 可见 → fetchGlobalTasks 拉数据 → renderGlobalDashboardContent 全量渲染。关闭按钮在面板内绑定。
      * [DEEP-DOC]
      */
     async function openGlobalTaskDashboard() {
@@ -8261,11 +8261,11 @@
         overlay.innerHTML = `
             <div style="background:${T('linear-gradient(180deg, #1e293b 0%, #0f172a 100%)','#ffffff')}; width:90%; max-width:960px; height:85vh; border-radius:24px; box-shadow:${T('0 30px 60px rgba(0,0,0,0.5)','0 20px 50px rgba(0,0,0,0.1)')}; display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')};">
                 <div style="padding:24px 32px; background:${T('linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.15))','#eef2ff')}; border-bottom:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')}; display:flex; justify-content:space-between; align-items:center; flex-shrink: 0;">
-                    <div style="font-size:22px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; display:flex; align-items:center; gap:12px; letter-spacing: 0.5px;">🌍 全局智能导航雷达</div>
+                    <div style="font-size:22px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; display:flex; align-items:center; gap:12px; letter-spacing: 0.5px;">🌍 全局智能导航任务总览</div>
                     <button id="xy-close-dashboard" style="background:none; border:none; font-size:26px; color:${T('#94a3b8','#64748b')}; cursor:pointer; padding:0; transition: 0.2s;" onmouseover="this.style.color='${T('#e2e8f0','#0f172a')}'; this.style.transform='rotate(90deg)';" onmouseout="this.style.color='${T('#94a3b8','#64748b')}'; this.style.transform='none';">✖</button>
                 </div>
                 <div id="xy-dashboard-content" style="flex:1; overflow-y:auto; padding:32px; background:transparent;">
-                    <div style="text-align:center; padding:60px; color:${T('#94a3b8','#64748b')}; font-size:18px; letter-spacing: 0.5px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描全局雷达与所有课程的已完成任务...</span></div>
+                    <div style="text-align:center; padding:60px; color:${T('#94a3b8','#64748b')}; font-size:18px; letter-spacing: 0.5px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描任务总览与所有课程的已完成任务...</span></div>
                 </div>
                 <div id="xy-dashboard-footer" style="display:none; padding:20px 32px; background:${T('rgba(15,23,42,0.8)','#f8fafc')}; border-top:1px solid ${T('rgba(71,85,105,0.25)','#e2e8f0')}; flex-shrink: 0; justify-content:center; box-shadow: ${T('0 -4px 20px rgba(0,0,0,0.15)','none')};">
                     <button id="xy-batch-submit-btn" style="width:100%; max-width:700px; background:linear-gradient(135deg, #6366f1, #4f46e5); color:white; border:none; padding:18px; border-radius:14px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow:0 8px 24px rgba(99,102,241,0.3); transition:all 0.2s; letter-spacing: 1px;" onmouseover="this.style.transform='translateY(-2px)';" onmouseout="this.style.transform='none';">🚀 完成确认选中任务</button>
@@ -8276,7 +8276,7 @@
         document.getElementById('xy-close-dashboard').onclick = () => { overlay.style.opacity = '0'; overlay.firstElementChild.style.transform = 'scale(0.95)'; setTimeout(() => overlay.remove(), 300); };
         const tasks = await fetchGlobalTasks(); renderGlobalDashboardContent(tasks);
     }
-    /** 雷达专用的轻量资源拉取：getAuthToken + queryCourseResources，success 即返回 data.data；异常静默 null（雷达容忍部分课程缺树）。
+    /** 任务总览专用的轻量资源拉取：getAuthToken + queryCourseResources，success 即返回 data.data；异常静默 null（任务总览容忍部分课程缺树）。
      * [DEEP-DOC]
      */
     async function fetchCourseResourcesForRadar(gid) {
@@ -8285,13 +8285,13 @@
             const res = await xyFetch(`https://${domain}/api/jx-iresource/resource/queryCourseResources?group_id=${gid}`, { headers: { "authorization": `Bearer ${token}` } });
             const data = await res.json();
             if (data.success && data.data) return data.data;
-        } catch(e) { console.warn('[小雅] 雷达课程资源请求失败:', gid, e); }
+        } catch(e) { console.warn('[小雅] 任务总览课程资源请求失败:', gid, e); }
         return null;
     }
     /**
      * 单元名映射递归构建：dirIsUnit 判定的单元节点写入 map（_id/node_id 双键
      * 都映射到单元名）并推入 orderedOut 保序数组；叶子文件继承最近父单元名。
-     * 供雷达任务按单元分组展示。
+     * 供任务总览任务按单元分组展示。
      * [DEEP-DOC]
      */
     function buildUnitNameMap(nodes, parentName, map, orderedOut) {
@@ -8325,8 +8325,8 @@
         return m;
     }
     /**
-     * 雷达任务卡 HTML：名称截断悬浮提示、课程名、状态徽标（已完成可刷/待完成）、
-     * 操作按钮（挂机/提交）。data-tid 关联全局任务 Map 供事件委托取回完整对象。
+     * 任务总览任务卡 HTML：名称截断悬浮提示、课程名、状态徽标（已完成可刷/待完成）、
+     * 操作按钮（学习/提交）。data-tid 关联全局任务 Map 供事件委托取回完整对象。
      * [DEEP-DOC]
      */
     function buildRadarTaskCard(task) {
@@ -8365,7 +8365,7 @@
             </div>`;
     }
     /**
-     * 全局雷达面板主渲染：空态早退；按 groupTasksByUnit 分组后逐组渲染任务卡；
+     * 任务总览面板主渲染：空态早退；按 groupTasksByUnit 分组后逐组渲染任务卡；
      * 头部统计（总任务/未完成）与批量操作栏（勾选提交）一并装配；事件委托统一
      * 在容器上处理点击。
      * [DEEP-DOC]
@@ -8641,7 +8641,7 @@
         showToast(`已优化导入 ${xyScheduleState.queue.length} 个任务`, 'success');
     }
     /**
-     * 一键雷达连播：全网扫描 → 过滤未完成且已开始的视频/文档 → DDL 升序排序
+     * 一键任务连播：全网扫描 → 过滤未完成且已开始的视频/文档 → DDL 升序排序
      * （同 DDL 先看完成态再比课程号节点号）→ 整体入队 until_done 策略 →
      * currentIdx 归零立即开跑。运行中禁止重复触发（先停调度）。
      * [DEEP-DOC]
@@ -8653,7 +8653,7 @@
         }
         /**
          * [SEGMENT-FIX] 自定义队列保护：调度中心里用户手动设置的待办任务
-         * 不被「一键雷达连播」无声覆盖（旧实现直接 queue = [] 重建全网任务，
+         * 不被「一键任务连播」无声覆盖（旧实现直接 queue = [] 重建全网任务，
          * 导致联播播放的不是用户设置的板块）。已有自定义待办时：
          * 确认 = 沿用现有队列直接启动调度（按用户设置的板块顺序联播）；
          * 取消 = 中断（如需重新扫描，请先在调度中心清空队列）。
@@ -8668,7 +8668,7 @@
             return;
         }
 
-        logMsg('🔊 雷达连播：正在扫描全网未完成任务...', 'info', false);
+        logMsg('🔊 任务连播：正在扫描全网未完成任务...', 'info', false);
         showToast('正在扫描全网任务...', 'info');
 
         const allTasks = await fetchGlobalTasks();
@@ -8684,7 +8684,7 @@
         });
 
         if (pendingTasks.length === 0) {
-            logMsg('🔊 雷达连播：全网未发现可挂机的待完成任务', 'warning', false);
+            logMsg('🔊 任务连播：全网未发现可学习的待完成任务', 'warning', false);
             showToast('未发现待完成的视频/文档任务', 'warning');
             return;
         }
@@ -8719,8 +8719,8 @@
         saveScheduleState();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
 
-        logMsg(`🔊 雷达连播：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
-        showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动雷达连播`, 'success');
+        logMsg(`🔊 任务连播：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
+        showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动任务连播`, 'success');
 
         
         xyScheduleState.lastMode = playState.mode;
@@ -8741,7 +8741,7 @@
         const firstTask = xyScheduleState.queue[0];
         if (firstTask) {
             const pathPrefix = xyCourseRoutePrefix();
-            logMsg(`🔊 雷达连播：正在跳转至首个任务「${(firstTask.name||'未知').substring(0,12)}」...`, 'success', false);
+            logMsg(`🔊 任务连播：正在跳转至首个任务「${(firstTask.name||'未知').substring(0,12)}」...`, 'success', false);
             setTimeout(() => {
                 /**
                  * [JUMP-HOME-FIX] 首跳 URL 必须与调度 tick 同形（含 resource 段）：
@@ -8768,12 +8768,12 @@
     
     
     let quickKillRunning = false;
-    /** 快速击破当前任务：跳过自然挂机等待，直接对当前 node 发起一次完成验证并
+    /** 快速完成当前任务：跳过自然学习等待，直接对当前 node 发起一次完成验证并
      * 根据结果反馈日志。适用于「就差这一个」的场景。
      * [DEEP-DOC]
      */
     async function quickKillCurrentTask() {
-        if (quickKillRunning) { showToast('极速秒交正在执行中', 'warning'); return; }
+        if (quickKillRunning) { showToast('极速快速确认正在执行中', 'warning'); return; }
         const groupId = getCourseGroupId();
         const nodeId = getNodeId();
         if (!groupId || !nodeId) { showToast('当前页面无任务可提交', 'warning'); return; }
@@ -8783,21 +8783,21 @@
         const origText = btn ? btn.innerText : '';
 
         try {
-            if (btn) { btn.innerText = '⚡ 秒交中...'; btn.disabled = true; }
-            logMsg('⚡ 极速秒交：正在提交当前页面任务...', 'info', false);
+            if (btn) { btn.innerText = '⚡ 快速确认中...'; btn.disabled = true; }
+            logMsg('⚡ 极速快速确认：正在提交当前页面任务...', 'info', false);
 
             /**
              * ⚠️ autoSubmitCurrentTask 返回的是**结果对象** `{ok, skipped, confirmed}`，
              * 不是裸布尔。曾写成 `if (success)` —— 对象恒为 truthy，
-             * 于是无论提交成功、失败还是被锁挡回，都会走进「秒交成功」分支，
+             * 于是无论提交成功、失败还是被锁挡回，都会走进「快速确认成功」分支，
              * 并把 isTaskCompleted 无条件置 true（一次典型的「服务端没确认、
              * 本地却宣告达标」的数据错误）。必须读 .ok。
              */
             const res = await autoSubmitCurrentTask();
 
             if (res.ok) {
-                logMsg('✅ 极速秒交成功！当前任务已提交', 'success', false);
-                showToast('秒交成功！', 'success');
+                logMsg('✅ 极速快速确认成功！当前任务已提交', 'success', false);
+                showToast('快速确认成功！', 'success');
                 playState.isTaskCompleted = true;
                 updateCourseUI();
             } else if (res.skipped) {
@@ -8805,11 +8805,11 @@
                 logMsg('⏳ 已有提交在途，请稍候再试', 'info', false);
                 showToast('已有提交在途', 'warning');
             } else {
-                logMsg('❌ 秒交失败：可能需要先挂机积累时长', 'warning', false);
-                showToast('秒交失败，请先挂机积累时长', 'warning');
+                logMsg('❌ 快速确认失败：可能需要先学习积累时长', 'warning', false);
+                showToast('快速确认失败，请先学习积累时长', 'warning');
             }
         } catch(e) {
-            logMsg('❌ 极速秒交异常', 'error', false);
+            logMsg('❌ 极速快速确认异常', 'error', false);
         } finally {
             quickKillRunning = false;
             if (btn) { btn.innerText = origText; btn.disabled = false; }
@@ -8859,7 +8859,7 @@
                         <select class="xy-sch-strategy" data-uuid="${item.uuid}" style="padding:4px 8px; border-radius:6px; border:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; font-size:13px; outline:none; background:${T('rgba(15,23,42,0.5)','#ffffff')}; color:${T('#e2e8f0','#0f172a')};" ${isActive||isCompleted ? 'disabled' : ''}>
                             <option value="until_done" ${item.strategy===STRATEGY.UNTIL_DONE?'selected':''}>🎯 达标即跳(顺序调度)</option>
                             <option value="duration" ${item.strategy===STRATEGY.FIXED_DURATION?'selected':''}>🕒 刷固定时长</option>
-                            <option value="infinite" ${item.strategy===STRATEGY.INFINITE?'selected':''}>♾️ 无限挂机</option>
+                            <option value="infinite" ${item.strategy===STRATEGY.INFINITE?'selected':''}>♾️ 持续学习</option>
                         </select>
                         <input type="number" class="xy-sch-min-input" data-uuid="${item.uuid}" value="${item.duration || 30}" style="width:50px; padding:4px; text-align:center; border:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; border-radius:6px; font-size:13px; background:${T('rgba(15,23,42,0.5)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; display:${item.strategy===STRATEGY.FIXED_DURATION?'block':'none'};" ${isActive||isCompleted ? 'disabled' : ''}>
                         <span class="xy-sch-min-unit" data-uuid="${item.uuid}" style="font-size:13px; color:${T('#94a3b8','#64748b')}; display:${item.strategy===STRATEGY.FIXED_DURATION?'block':'none'};">分</span>
@@ -9115,7 +9115,7 @@
             });
 
             if (!hasAnyValidTask) {
-                html = `<div style="text-align:center; padding:40px; color:${T('#94a3b8','#64748b')};">当前全网未发现可挂机的视频或文档任务</div>`;
+                html = `<div style="text-align:center; padding:40px; color:${T('#94a3b8','#64748b')};">当前全网未发现可学习的视频或文档任务</div>`;
             }
 
             container.innerHTML = html;
@@ -9202,7 +9202,7 @@ const tid = e.target.getAttribute('data-tid');
             </style>
             <div style="background:${T('linear-gradient(180deg, #1e293b 0%, #0f172a 100%)','#ffffff')}; width:90%; max-width:1100px; height:85vh; border-radius:24px; box-shadow:${T('0 40px 80px rgba(0,0,0,0.5)','0 20px 50px rgba(0,0,0,0.1)')}; display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')};">
                 <div style="padding:24px 32px; background:${T('linear-gradient(135deg, rgba(245,158,11,0.18), rgba(217,119,6,0.12))','#fffbeb')}; border-bottom:1px solid ${T('rgba(245,158,11,0.2)','#fde68a')}; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
-                    <div style="font-size:22px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; display:flex; align-items:center; gap:12px; letter-spacing:0.5px;">📅 超级计划调度中心 <span style="font-size:12px; background:${T('rgba(245,158,11,0.15)','#ffedd5')}; padding:4px 10px; border-radius:12px; border:1px solid ${T('rgba(245,158,11,0.2)','#fde68a')}; color:${T('#fcd34d','#92400e')};">自定义挂机时长 • 无限循环刷总时</span></div>
+                    <div style="font-size:22px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; display:flex; align-items:center; gap:12px; letter-spacing:0.5px;">📅 超级计划调度中心 <span style="font-size:12px; background:${T('rgba(245,158,11,0.15)','#ffedd5')}; padding:4px 10px; border-radius:12px; border:1px solid ${T('rgba(245,158,11,0.2)','#fde68a')}; color:${T('#fcd34d','#92400e')};">自定义学习时长 • 无限循环刷总时</span></div>
                     <button id="xy-close-schedule" style="background:none; border:none; font-size:26px; color:${T('#94a3b8','#64748b')}; cursor:pointer; padding:0; transition:0.2s;" onmouseover="this.style.color='${T('#e2e8f0','#0f172a')}'; this.style.transform='rotate(90deg)';" onmouseout="this.style.color='${T('#94a3b8','#64748b')}'; this.style.transform='none';">✖</button>
                 </div>
 
@@ -9219,7 +9219,7 @@ const tid = e.target.getAttribute('data-tid');
                             </div>
                         </div>
                         <div id="xy-sch-lib-list" style="flex:1; overflow-y:auto; padding:16px 24px;">
-                            <div style="text-align:center; padding:60px; color:${T('#94a3b8','#64748b')}; font-size:16px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描全局雷达与所有课程记录...</span></div>
+                            <div style="text-align:center; padding:60px; color:${T('#94a3b8','#64748b')}; font-size:16px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描任务总览与所有课程记录...</span></div>
                         </div>
                     </div>
 
@@ -9514,7 +9514,7 @@ const tid = e.target.getAttribute('data-tid');
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
         logMsg('📅 计划调度已启动', 'success');
         /**
-         * [SEGMENT-FIX] 启动即跳转雷达联播：不再等调度 tick 发现节点不齐才跳。
+         * [SEGMENT-FIX] 启动即跳转任务总览联播：不再等调度 tick 发现节点不齐才跳。
          * 目标 = 队列第一个待办任务（用户在调度中心设置的板块），URL 形态与
          * 调度 tick 完全同形（含 resource 段 + xy_sch_jumping 标记），落地页
          * 才不会误触发残留清理。已对齐节点时无需跳转。
@@ -9756,15 +9756,15 @@ const tid = e.target.getAttribute('data-tid');
         currentTask.elapsedSec = (currentTask.elapsedSec || 0) + 1;
         
         /**
-         * ⚠️ 喂狗必须加条件，不能无条件刷。
+         * ⚠️ 刷新计时必须加条件，不能无条件刷。
          *
          * 旧写法是每拍无条件 `watchdogLastActiveTime = Date.now()` —— 后果是当任务**已达标**
-         * 但引擎因故未推进跳转（跳转条件被堵 / 下一页异常循环）时，看门狗时钟被持续刷新，
+         * 但引擎因故未推进跳转（跳转条件被堵 / 下一页异常循环）时，巡检时钟被持续刷新，
          * 1s 循环里 `Date.now() - watchdogLastActiveTime > timeoutLimit` 永不成立 →
          * 180s 防死锁重载**永不触发** → 页面卡在达标态空转、**没有任何自愈路径**。
          *
-         * 保留喂狗的场景：① 任务尚未达标（还在等）；② 调度本身在跑（有自己的 elapsedSec
-         * 推进语义）。仅在「非调度态 + 已达标」时停止喂狗，把自愈权交还给看门狗。
+         * 保留刷新计时的场景：① 任务尚未达标（还在等）；② 调度本身在跑（有自己的 elapsedSec
+         * 推进语义）。仅在「非调度态 + 已达标」时停止刷新计时，把自愈权交还给巡检。
          */
         if (!playState.isTaskCompleted || xyScheduleState.isRunning) {
             watchdogLastActiveTime = Date.now();
@@ -9797,10 +9797,10 @@ const tid = e.target.getAttribute('data-tid');
             }
         }
         /**
-         * ⚠️ STRATEGY.INFINITE（♾️ 无限挂机）在此**故意不设分支**，isDone 恒为 false。
+         * ⚠️ STRATEGY.INFINITE（♾️ 持续学习）在此**故意不设分支**，isDone 恒为 false。
          * 这不是遗漏，是该策略的语义本身——「无限」就意味着本项永不结束、队列不推进。
-         * 显式写明以免后来者按「分支缺失」处理（误加 isDone = true 会让无限挂机被
-         * 1 秒后立即跳过）。若将来需要「无限挂机 N 分钟后跳过」，应新增独立策略枚举，
+         * 显式写明以免后来者按「分支缺失」处理（误加 isDone = true 会让持续学习被
+         * 1 秒后立即跳过）。若将来需要「持续学习 N 分钟后跳过」，应新增独立策略枚举，
          * 而不是改写 INFINITE 的语义。
          */
         
@@ -10171,7 +10171,7 @@ const tid = e.target.getAttribute('data-tid');
      *   resource 页形态 → queryResource/v3 单次请求，questions 数组展开子题
      *     （type=9 组合题的 subQuestions 平铺并标 _parentId）后走主处理器；
      *   course_paper 形态 → queryStuPaper/v2 指数退避轮询 6 次（200ms×2^n）,
-     *     依赖劫持链在响应到达时自动处理（本函数只负责触发请求），轮询结束
+     *     依赖监听链在响应到达时自动处理（本函数只负责触发请求），轮询结束
      *     仍未拿到则放弃并 warn。
      * _hwProactiveFetching 重入门防并发重复拉取。
      * [DEEP-DOC]
@@ -10488,7 +10488,7 @@ const tid = e.target.getAttribute('data-tid');
         return '';
     }
     /** 记录 ID 获取编排：hwRecordId 缓存非空直返；否则 RefreshPaperData 触发
-     * 劫持链重新捕获试卷载荷补齐，仍拿不到抛错（上层提示初始化失败）。
+     * 监听链重新捕获试卷载荷补齐，仍拿不到抛错（上层提示初始化失败）。
      * [DEEP-DOC]
      */
     async function hwGetRecordId() {
@@ -10622,7 +10622,7 @@ const tid = e.target.getAttribute('data-tid');
         return data;
     }
     /**
-     * 试卷状态轮询刷新：queryStuPaper/v2 触发劫持链更新 hwSubmissionResult，
+     * 试卷状态轮询刷新：queryStuPaper/v2 触发监听链更新 hwSubmissionResult，
      * 最多 5 次每次 sleep(400*(attempt+1))；任一轮发现 submitted 即提前 true 收场。
      * @returns {Promise<boolean>} 最终是否已提交
      * [DEEP-DOC]
@@ -12019,7 +12019,7 @@ var XYExport = (function (Hinote) {  'use strict';
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
                             <button class="xy-mode-btn" id="btn-mode-man">手动休眠</button>
                             <button class="xy-mode-btn" id="btn-mode-loop">安全循环</button>
-                            <button class="xy-mode-btn" id="btn-mode-seq">雷达调度</button>
+                            <button class="xy-mode-btn" id="btn-mode-seq">任务总览调度</button>
                         </div>
                     </div>
 
@@ -12028,7 +12028,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     <div class="xy-panel xy-stat-box" style="margin-bottom: 10px;">
                         <div style="display: flex; justify-content: center; align-items: center; width: 100%; text-align: center;">
                             <div>
-                                <div style="font-size: 10px; color: ${T('#cbd5e1','#475569')}; font-weight:600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.8px;">实时挂机</div>
+                                <div style="font-size: 10px; color: ${T('#cbd5e1','#475569')}; font-weight:600; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.8px;">实时学习</div>
                                 <div id="xy-real-time" style="font-size: 28px; font-weight: 700; color: ${T('#34d399','#059669')}; font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace; line-height: 1; letter-spacing: -0.5px;">0m 00s</div>
                             </div>
                         </div>
@@ -12040,12 +12040,12 @@ var XYExport = (function (Hinote) {  'use strict';
                         </div>
                         <div id="xy-body-actions">
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-                                <button class="xy-action-btn" id="xy-btn-dashboard" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')};">🌍 雷达</button>
+                                <button class="xy-action-btn" id="xy-btn-dashboard" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')};">🌍 任务总览</button>
                                 <button class="xy-action-btn" id="xy-btn-schedule" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')}; border-color:${T('rgba(251,191,36,0.25)','#fde68a')}; color:${T('#fcd34d','#92400e')};">📅 调度</button>
                             </div>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                                 <button class="xy-action-btn" id="xy-btn-download-zone" style="background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; border-color:${T('rgba(52,211,153,0.2)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">📥 下载</button>
-                                <button class="xy-action-btn" id="xy-btn-quick-kill" style="background:${T('rgba(239,68,68,0.12)','#fef2f2')}; border-color:${T('rgba(239,68,68,0.25)','#fecaca')}; color:${T('#f87171','#dc2626')}; font-weight:700;">⚡ 秒交</button>
+                                <button class="xy-action-btn" id="xy-btn-quick-kill" style="background:${T('rgba(239,68,68,0.12)','#fef2f2')}; border-color:${T('rgba(239,68,68,0.25)','#fecaca')}; color:${T('#f87171','#dc2626')}; font-weight:700;">⚡ 快速确认</button>
                             </div>
                         </div>
                     </div>
@@ -12309,8 +12309,8 @@ var XYExport = (function (Hinote) {  'use strict';
             logBox.scrollTop = logBox.scrollHeight;
         } else {
             logMsg('=============================', 'silent', true);
-            logMsg('雷达 已就绪', 'info', false);
-            logMsg('📡 全局雷达网持续扫描中...', 'silent', true);
+            logMsg('任务总览 已就绪', 'info', false);
+            logMsg('📡 任务总览网持续扫描中...', 'silent', true);
         }
 
         /* ── §5 事件装配：控件绑定委托给 xyBindPanelEvents ── */
@@ -12318,7 +12318,7 @@ var XYExport = (function (Hinote) {  'use strict';
 
 /**
  * 面板事件装配层（纯装配函数）：把主控台内全部控件交互
- * （分区按钮/更新/学情入口/课程列表委托/防检测开关组/模式切换/
+ * （分区按钮/更新/学情入口/课程列表委托/学习保护开关组/模式切换/
  *   刷新面板/终端显隐/日志与时长清零）绑定到 DOM。
  * 通过 AbortController 信号注册 document 级监听，面板销毁时统一解绑。
  * @param {{listenerOptions: AddEventListenerOptions}} ctx - 装配上文
@@ -12559,7 +12559,7 @@ var XYExport = (function (Hinote) {  'use strict';
         xySafeEl('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg('安全循环模式开启', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
         xySafeEl('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
 
-        // 防休眠/后台保活/鼠标模拟/深度伪装 UI 已删除——引擎按默认状态自动运行，无手动开关
+        // 防休眠/后台保活/活动保持/状态保持 UI 已删除——引擎按默认状态自动运行，无手动开关
         document.getElementById('xy-btn-guard')?.remove();
         
         if (guardState.mouseSimActive) { scheduleMouseSim(); }

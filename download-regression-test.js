@@ -193,7 +193,7 @@ assert.equal(
 );
 console.log('course navigation regression: PASS');
 
-// 主动打开当前课程学情后，课程总览、刷课和讨论路由扫描都不能覆盖该选择。
+// 主动打开当前课程学情后，课程总览、学习和讨论路由扫描都不能覆盖该选择。
 const overviewKeepStart = SCRIPT.indexOf('    function xyShouldKeepDashboardOverview');
 const overviewKeepEnd = SCRIPT.indexOf('    function getNodeId', overviewKeepStart);
 assert(overviewKeepStart >= 0 && overviewKeepEnd > overviewKeepStart, 'dashboard overview route guard not found');
@@ -438,7 +438,7 @@ assert.doesNotMatch(SCRIPT, /xy-view-course-home|xyCourseHome|courseHome/);
 assert.doesNotMatch(SCRIPT, /viewTask\.style\.display = newZone === 'task' \? 'flex' : 'none';/);
 console.log('course route zone transition regression: PASS');
 
-// 路由必须按页面语义分区：全局课程页才是总览，单课程任务页不能被映射到刷课区或全局总览。
+// 路由必须按页面语义分区：全局课程页才是总览，单课程任务页不能被映射到学习区或全局总览。
 const routeKindStart = SCRIPT.indexOf('    function getCourseGroupId');
 const routeKindEnd = SCRIPT.indexOf('    const sleep', routeKindStart);
 assert(routeKindStart >= 0 && routeKindEnd > routeKindStart, 'route helper boundary not found');
