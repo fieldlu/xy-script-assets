@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.5
+// @version      3.7.4.6
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -3925,7 +3925,8 @@
                         const currentRes = flatRes.find(r => r.node_id == nodeId || r.id == nodeId || (paperIdForMatch && (r.node_id == paperIdForMatch || r.id == paperIdForMatch)));
                         if (currentRes) taskType = currentRes.computed_task_type;
                     }
-                    if (!playState.isTaskCompleted && playState.activeZone === ZONE.COURSE) {
+                    if (!playState.isTaskCompleted && playState.activeZone === ZONE.COURSE
+                        && playState.mode !== PLAY_MODE.MANUAL) {
                         /**
                          * ⚠️ 此处**不能**先置 isTaskCompleted，与 globalTaskStatusChecker 同源约束。
                          *
@@ -6120,6 +6121,15 @@
         const { silent = false, forcePass = false, forceSubmit = false, typeLabel = '任务' } = opts;
 
         if (playState.isTaskCompleted) return { ok: true, fired: false, skipped: false };
+        /**
+         * [SLEEP-FIX] 手动休眠守卫（推进链总收口）：MANUAL 模式下不交卷、不推进、
+         * 不跳转。此前「雷达秒判 → 本函数 → tryJumpToNext」全链无模式检查，
+         * 用户点「手动休眠」后视频完成/秒判仍会跨课程跳转。
+         * 调度运行态不受影响（xySchStart/tick 会把 mode 切为 SEQUENCE/LOOP）。
+         */
+        if (playState.mode === PLAY_MODE.MANUAL) {
+            return { ok: true, fired: false, skipped: false, blockedByManual: true };
+        }
 
         let confirmed = false;
         let skipped = false;
@@ -6174,6 +6184,15 @@
             // 调度在跑：不动导航，下一个 tick 由调度读 isTaskCompleted 切项
             return { ok: true, fired: !forcePass, skipped: false };
         }
+        /* [LOOP-FIX] 循环模式（安全循环）驻留当前任务：达标后不进全局雷达匹配、
+         * 不跨课程跳转——循环的语义就是在当前任务反复挂机，维持机制由
+         * checkDynamicRefresh 的防卡死刷新（文档 15min / >1h 长视频 1.2×时长）承担。
+         * 旧实现 LOOP 达标也走 tryJumpToNext：全网探测下一项，无新任务时还进入
+         * 指数退避重试循环（白耗请求），与「安全循环」语义自相矛盾。
+         * 用户想刷下一个任务时用「顺序调度」或调度中心。 */
+        if (playState.mode === PLAY_MODE.LOOP) {
+            return { ok: true, fired: !forcePass, skipped: false, loopStay: true };
+        }
         playState.isProcessingJump = true;
         try { await tryJumpToNext(); }
         finally { playState.isProcessingJump = false; }
@@ -6193,7 +6212,9 @@
     async function tryJumpToNext() {
         if (isJumpingLock) return; 
         if (Date.now() < playState.jumpSleepUntil) return; 
-        if (xyScheduleState.isRunning) return; 
+        if (xyScheduleState.isRunning) return;
+        /* [SLEEP-FIX] 手动休眠下绝不自主跳转（含全部后续 setTimeout 延迟跳转） */
+        if (playState.mode === PLAY_MODE.MANUAL) return;
 
         isJumpingLock = true;
         
@@ -6244,6 +6265,8 @@
 
                 playState.jumpFailCount = 0; 
                 setTimeout(() => { 
+                    /* [SLEEP-FIX] 竞态复查：fetch 期间用户点了休眠/停调度则放弃跳转 */
+                    if (playState.mode === PLAY_MODE.MANUAL || xyScheduleState.isRunning) { isJumpingLock = false; return; }
                     window.location.href = `/app/jx-web/${pathPrefix}/${targetTask.group_id}/resource/${resId}/${targetTask.node_id}`; 
                 }, 500);
                 
@@ -6265,7 +6288,7 @@
                  isJumpingLock = false;
             } else {
                  const waitSec = Math.round(delay / 1000);
-                 logMsg(`⏳ 探测无新任务，${waitSec}秒后重试 (第${failCount}次，指数退避)...`, 'warning', false);
+                 logMsg(`⏳ 探测无新任务，${waitSec}秒后重试 （第 ${failCount} 次 · 指数退避）...`, 'warning', false);
                  setTimeout(() => { isJumpingLock = false; }, delay);
             }
 
@@ -6282,7 +6305,7 @@
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
-                 logMsg(`雷达连通异常，${Math.round(delay/1000)}秒后重试 (第${failCount}次)...`, 'error', false);
+                 logMsg(`⚠️ 雷达连通异常，${Math.round(delay / 1000)} 秒后重试（第 ${failCount} 次）...`, 'error', false);
                  setTimeout(() => { isJumpingLock = false; }, delay);
             }
         }
@@ -7527,13 +7550,13 @@
                 if (pageIndex > 300) break;
             }
             
-            if (targets.length === 0) { logMsg(`未找到匹配的目标列表`, 'warning'); return; }
+            if (targets.length === 0) { logMsg(`⚠️ 未找到匹配的目标列表`, 'warning'); return; }
             
             targets = targets.slice(0, MAX_LIKES);
             const uniqueTargets = []; const seenIds = new Set();
             for (const t of targets) { if (!seenIds.has(t.id)) { seenIds.add(t.id); uniqueTargets.push(t); } }
 
-            let successCount = 0; const token = await getAuthToken(); logMsg(`锁定 ${uniqueTargets.length} 个目标评论，准备就绪，开始批量互动...`, 'info');
+            let successCount = 0; const token = await getAuthToken(); logMsg(`🎯 锁定 ${uniqueTargets.length} 个目标评论，准备就绪，开始批量互动...`, 'info');
             
             btn.innerText = `互动处理中...`;
             for (let i = 0; i < uniqueTargets.length; i++) {
@@ -7639,13 +7662,13 @@
                 if (pageIndex > 300) break;
             }
             
-            if (targets.length === 0) { logMsg(`未找到匹配的回复目标列表`, 'warning'); return; }
+            if (targets.length === 0) { logMsg(`⚠️ 未找到匹配的回复目标列表`, 'warning'); return; }
             
             targets = targets.slice(0, MAX_REPLIES);
             const uniqueTargets = []; const seenIds = new Set();
             for (const t of targets) { if (!seenIds.has(t.id)) { seenIds.add(t.id); uniqueTargets.push(t); } }
 
-            let successCount = 0; const token = await getAuthToken(); logMsg(`锁定 ${uniqueTargets.length} 个目标评论，准备就绪，开始自动回复...`, 'info');
+            let successCount = 0; const token = await getAuthToken(); logMsg(`🎯 锁定 ${uniqueTargets.length} 个目标评论，准备就绪，开始自动回复...`, 'info');
             
             if (btn) btn.innerText = `回复发射中...`;
             for (let i = 0; i < uniqueTargets.length; i++) {
@@ -8628,8 +8651,24 @@
             showToast('计划调度正在运行中，请先停止后再启动', 'warning');
             return;
         }
+        /**
+         * [SEGMENT-FIX] 自定义队列保护：调度中心里用户手动设置的待办任务
+         * 不被「一键雷达连播」无声覆盖（旧实现直接 queue = [] 重建全网任务，
+         * 导致联播播放的不是用户设置的板块）。已有自定义待办时：
+         * 确认 = 沿用现有队列直接启动调度（按用户设置的板块顺序联播）；
+         * 取消 = 中断（如需重新扫描，请先在调度中心清空队列）。
+         */
+        const pendingCustom = xyScheduleState.queue.filter(q => q.status === 'pending' || q.status === 'running');
+        if (pendingCustom.length > 0) {
+            xyShowModal('📡 已有自定义调度任务',
+                '调度队列中已有 <b style="color:#fbbf24;">' + pendingCustom.length + '</b> 个未完成的自定义任务。<br><br>' +
+                '<b style="color:#34d399;">「确认」</b>：沿用现有队列，直接按你在调度中心设置的板块顺序联播（推荐）；<br>' +
+                '<b style="color:#94a3b8;">「取消」</b>：本次不做任何操作（需重新扫描请先在调度中心清空队列）。',
+                () => { window.xySchStart && window.xySchStart(); });
+            return;
+        }
 
-        logMsg('🔊 雷达调度：正在扫描全网未完成任务...', 'info', false);
+        logMsg('🔊 雷达连播：正在扫描全网未完成任务...', 'info', false);
         showToast('正在扫描全网任务...', 'info');
 
         const allTasks = await fetchGlobalTasks();
@@ -8645,7 +8684,7 @@
         });
 
         if (pendingTasks.length === 0) {
-            logMsg('🔊 顺序调度：全网未发现可挂机的待完成任务', 'warning', false);
+            logMsg('🔊 雷达连播：全网未发现可挂机的待完成任务', 'warning', false);
             showToast('未发现待完成的视频/文档任务', 'warning');
             return;
         }
@@ -8680,8 +8719,8 @@
         saveScheduleState();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
 
-        logMsg(`🔊 顺序调度：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
-        showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动顺序调度`, 'success');
+        logMsg(`🔊 雷达连播：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
+        showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动雷达连播`, 'success');
 
         
         xyScheduleState.lastMode = playState.mode;
@@ -8702,7 +8741,7 @@
         const firstTask = xyScheduleState.queue[0];
         if (firstTask) {
             const pathPrefix = xyCourseRoutePrefix();
-            logMsg(`🔊 顺序调度：正在跳转至首个任务「${(firstTask.name||'未知').substring(0,12)}」...`, 'success', false);
+            logMsg(`🔊 雷达连播：正在跳转至首个任务「${(firstTask.name||'未知').substring(0,12)}」...`, 'success', false);
             setTimeout(() => {
                 /**
                  * [JUMP-HOME-FIX] 首跳 URL 必须与调度 tick 同形（含 resource 段）：
@@ -8716,6 +8755,8 @@
                  * 把刚启动的队列整个清空（isRunning 置 false），也就是
                  * 「跳到首页后彻底不再跳转」的直接原因。
                  */
+                /* [SLEEP-FIX] 竞态复查：延迟期间调度已被停止/休眠则放弃首跳 */
+                if (!xyScheduleState.isRunning || xyScheduleState.isPaused) return;
                 try { sessionStorage.setItem('xy_sch_jumping', '1'); } catch(e) {}
                 window.location.href = `/app/jx-web/${pathPrefix}/${firstTask.groupId}/resource/${firstTask.resourceId}/${firstTask.nodeId}`;
             }, 800);
@@ -9222,6 +9263,11 @@ const tid = e.target.getAttribute('data-tid');
         };
 
         const tasks = await fetchGlobalTasks();
+        /* [EXPIRE-FIX] 打开调度中心即比对当前任务集，自动清理跨学期残留旧课程 */
+        try {
+            const pruned = window.xyPruneExpiredQueue && window.xyPruneExpiredQueue(tasks);
+            if (pruned > 0) showToast(`🧹 已自动清理 ${pruned} 个过期课程任务`, 'warning');
+        } catch (e) { console.warn('[小雅] 过期任务清理失败', e); }
         renderLibraryList(tasks);
         renderQueueList();
 
@@ -9280,7 +9326,7 @@ const tid = e.target.getAttribute('data-tid');
             updateSchCard();
             try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
             renderQueueList();
-            logMsg('📅 计划调度中心已接管引擎最高权限，准备跳跃！', 'success');
+            logMsg('📅 调度中心已接管引擎最高权限，准备跳转！', 'success');
         };
 
         pauseBtn.onclick = () => {
@@ -9402,9 +9448,46 @@ const tid = e.target.getAttribute('data-tid');
     }
 
     
+    /**
+     * [EXPIRE-FIX] 过期任务识别与清理：队列持久化在 GM 存储，跨学期残留的
+     * 旧课程任务（group_id 不在当前全网未完成任务集里）会导致调度启动后
+     * 跳转失败循环（3 次暂停）或播到失效内容。以 fetchGlobalTasks 的当前
+     * 未完成任务集为基准，按 group_id 维度剔除失效项。
+     * @param {Array} tasks 当前全网未完成任务（fetchGlobalTasks 结果）
+     * @returns {number} 清理条数
+     */
+    window.xyPruneExpiredQueue = (tasks) => {
+        if (!Array.isArray(tasks) || xyScheduleState.queue.length === 0) return 0;
+        const activeGids = new Set(tasks.map(t => String(t.group_id)).filter(Boolean));
+        if (activeGids.size === 0) return 0;
+        const before = xyScheduleState.queue.length;
+        const kept = xyScheduleState.queue.filter(q => activeGids.has(String(q.groupId)));
+        const removed = before - kept.length;
+        if (removed > 0) {
+            const removedNames = xyScheduleState.queue
+                .filter(q => !activeGids.has(String(q.groupId)))
+                .slice(0, 5).map(q => (q.name || '未知').substring(0, 10));
+            xyScheduleState.queue = kept;
+            /* currentIdx 对齐到剔除后的第一个待办 */
+            const fp = kept.findIndex(q => q.status === 'pending');
+            xyScheduleState.currentIdx = fp >= 0 ? fp : 0;
+            saveScheduleState();
+            if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
+            logMsg(`🧹 已清理 ${removed} 个过期课程任务（不在当前学期未完成列表）：${removedNames.join('、')}${removed > 5 ? ' 等' : ''}`, 'warning', false);
+        }
+        return removed;
+    };
+
     window.xySchStart = () => {
         if (xyScheduleState.queue.length === 0) { logMsg('队列为空，无法启动调度', 'warning'); return; }
         if (xyScheduleState.isRunning) return;
+        /* [EXPIRE-FIX] 队列全部处于过期/失效状态（无一个 pending/running）则拒绝启动 */
+        const runnable = xyScheduleState.queue.filter(q => q.status === 'pending' || q.status === 'running');
+        if (runnable.length === 0) {
+            logMsg('⚠️ 队列中没有可执行的任务（可能全部已完成或已过期），请到调度中心清理后重新添加', 'error', false);
+            showToast('队列无可执行任务，请打开调度中心清理后重新添加', 'warning');
+            return;
+        }
         const allDone = xyScheduleState.queue.every(q => q.status === 'completed');
         if (allDone) {
             xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; q.actionDone = false; });
@@ -9415,6 +9498,13 @@ const tid = e.target.getAttribute('data-tid');
         GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
         xyScheduleState.isRunning = true;
         xyScheduleState.isPaused = false;
+        // [SEGMENT-FIX] currentIdx 对齐到队列中第一个待办任务：
+        // 旧会话残留的 currentIdx 可能停在末尾/中间，导致「启动了却不播用户设置的板块」
+        if (xyScheduleState.queue.every(q => q.status !== 'pending')) {
+            xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; q.actionDone = false; });
+        }
+        const firstPending = xyScheduleState.queue.findIndex(q => q.status === 'pending');
+        if (firstPending >= 0 && xyScheduleState.currentIdx !== firstPending) xyScheduleState.currentIdx = firstPending;
         saveScheduleState();
         // [JUMP-HOME-FIX] 启动即补心跳：否则「启动后立刻刷新/被平台重定向」会把刚启动的队列当残留清空
         xyScheduleHeartbeat(true);
@@ -9423,6 +9513,25 @@ const tid = e.target.getAttribute('data-tid');
         try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
         logMsg('📅 计划调度已启动', 'success');
+        /**
+         * [SEGMENT-FIX] 启动即跳转雷达联播：不再等调度 tick 发现节点不齐才跳。
+         * 目标 = 队列第一个待办任务（用户在调度中心设置的板块），URL 形态与
+         * 调度 tick 完全同形（含 resource 段 + xy_sch_jumping 标记），落地页
+         * 才不会误触发残留清理。已对齐节点时无需跳转。
+         */
+        const segTask = xyScheduleState.queue[xyScheduleState.currentIdx];
+        if (segTask && (getCourseGroupId() != segTask.groupId || getNodeId() != segTask.nodeId)) {
+            playState.isJumping = true;
+            const segPrefix = xyCourseRoutePrefix();
+            logMsg(`🚀 计划调度：正在前往「${(segTask.name || '未知').substring(0, 12)}」...`, 'success', false);
+            setTimeout(() => {
+                /* [SLEEP-FIX] 延迟期间被停止/暂停则放弃 */
+                if (!xyScheduleState.isRunning || xyScheduleState.isPaused) { playState.isJumping = false; return; }
+                try { sessionStorage.setItem('xy_sch_jumping', '1'); } catch (e) {}
+                window.location.href = `/app/jx-web/${segPrefix}/${segTask.groupId}/resource/${segTask.resourceId}/${segTask.nodeId}`;
+            }, 800);
+            setTimeout(() => { if (playState.isJumping) playState.isJumping = false; }, 15000);
+        }
     };
 
     window.xySchPause = () => {
@@ -9606,6 +9715,8 @@ const tid = e.target.getAttribute('data-tid');
                 logMsg(`🚀 计划调度：跨空间跳跃前往【${(currentTask.name||'未知').substring(0,10)}】...`, 'info', false);
                 
                 setTimeout(() => {
+                    /* [SLEEP-FIX] 竞态复查：延迟期间调度被停止/暂停则放弃跳转 */
+                    if (!xyScheduleState.isRunning || xyScheduleState.isPaused) { playState.isJumping = false; return; }
                     sessionStorage.setItem('xy_sch_jumping', '1'); 
                     window.location.href = `/app/jx-web/${pathPrefix}/${currentTask.groupId}/resource/${currentTask.resourceId}/${currentTask.nodeId}`;
                 }, 1500);
@@ -10571,16 +10682,16 @@ const tid = e.target.getAttribute('data-tid');
         for (let i = 0; i < blocks.length; i++) {
             const block = blocks[i];
             const qd = hwQuestionsData.find(q => String(q.index) === String(block.index));
-            if (!qd) { fail++; logMsg(`第 ${block.index} 题未在题目列表中找到，已跳过`,'warning'); continue; }
+            if (!qd) { fail++; logMsg(`⚠️ 第 ${block.index} 题未在题目列表中找到，已跳过`,'warning'); continue; }
             const payload = hwBuildAnswerPayload(qd, block.answer);
             if (!payload) { skip++; continue; }
             try {
                 await hwSubmitAnswer(qd, payload);
                 ok++;
-                logMsg(`第 ${block.index} 题已保存`,'success',true);
+                logMsg(`✅ 第 ${block.index} 题已保存`,'success',true);
             } catch(e) {
                 fail++;
-                logMsg(`第 ${block.index} 题保存失败：${e.message}`,'error');
+                logMsg(`❌ 第 ${block.index} 题保存失败：${e.message}`,'error');
             }
             if (i < blocks.length - 1) await sleep(150);
         }
@@ -10598,7 +10709,7 @@ const tid = e.target.getAttribute('data-tid');
             }
         } else {
             showToast(`未保存任何答案（成功 ${ok} / 失败 ${fail} / 跳过 ${skip}）`, fail ? 'error' : 'warning');
-            logMsg(`未保存任何答案：成功 ${ok}，失败 ${fail}，跳过 ${skip}`, fail ? 'error' : 'warning');
+            logMsg(`📝 答案保存汇总：成功 ${ok} · 失败 ${fail} · 跳过 ${skip}`, fail ? 'error' : 'warning');
         }
     }
     /**
@@ -12442,7 +12553,7 @@ var XYExport = (function (Hinote) {  'use strict';
             playState.mode = PLAY_MODE.MANUAL;
             GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
             clearDynamicRefresh();
-            logMsg('已暂停，且已强制停止所有重载任务', 'success');
+            logMsg('已暂停：所有调度、重载与自动跳转已终止（手动模式下引擎不再自主切换课程）', 'success');
             updateCourseUI();
         };
         xySafeEl('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg('安全循环模式开启', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };

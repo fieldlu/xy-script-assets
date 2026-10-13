@@ -1,13 +1,16 @@
 {
-  "title": "🎉 v3.7.4.5 发布 · 瘦身 + 排版规范",
+  "title": "🎉 v3.7.4.6 发布 · 计划调度修复",
+  "version": "3.7.4.6",
+  "updatedAt": "2026-10-13",
   "items": [
-    "📎 一键安装/更新 3.7.4.5：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
-    "🕗 本版于 2026-10-12 发布，大幅瘦身 + Markdown 转 Word 排版规范化，建议所有用户升级。",
-    "✂️ 主脚本 3.1MB → 732KB：手写归档笔记版拆分至独立脚本「小雅作业华为笔记导出」。安装（二选一）：",
-    "① 境内直装（推荐）https://scriptcat.org/scripts/code/8408/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js",
-    "② Greasyfork（需能访问）https://update.greasyfork.org/scripts/599858/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js",
-    "📐 Markdown 转 Word 排版规范化：正文宋体+Times 小四、首行缩进 2 字符、段前段后 0；标题黑体加粗；代码 Consolas。",
-    "🖥 Markdown 转换面板迁移至主控台底部固定区域，全部标签页常驻。",
-    "🖼 Markdown 转 Word 超大图片自动按页宽等比缩放；🛠 修复普通导出 PDF/图片失败。更新日志：https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
+    "📎 一键安装/更新 3.7.4.6：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
+    "🕗 本版于 2026-10-13 发布，计划调度三连修复 + 安全循环语义修正，建议所有用户升级。",
+    "🛡 修复手动休眠：休眠后不再自动跳转课程，推进链全链模式守卫 + 延迟跳转竞态复查。",
+    "📡 调度中心自定义任务：启动即跳转你设置的板块联播；一键雷达连播不再无声覆盖自定义队列。",
+    "🧹 过期任务自动清理：打开调度中心自动剔除跨学期旧课程任务。",
+    "🔁 安全循环达标后驻留当前任务，不再进全局雷达探测/跨课程跳转。",
+    "✍️ 文案统一：日志叫法归一、emoji 补齐、标点规范。",
+    "✍️ 独立脚本「小雅作业华为笔记导出」已上架 ScriptCat，境内直装：https://scriptcat.org/scripts/code/8408/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js",
+    "✍️ 备用渠道 Greasyfork：https://update.greasyfork.org/scripts/599858/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js"
   ]
 }

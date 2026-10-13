@@ -1,14 +1,12 @@
 {
-  "version": "3.7.4.5",
-  "date": "2026-10-12",
+  "version": "3.7.4.6",
+  "updatedAt": "2026-10-13",
+  "installUrl": "https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
   "notes": [
-    "✂️ 大幅瘦身：「作业手写归档」笔记版手写导出（.hinote / 手写 PDF / JPG）拆分至独立脚本「小雅作业华为笔记导出」（安装：https://gitee.com/fieldlu/xy-handwriting-archive/raw/main/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js 或 Greasyfork https://greasyfork.org/zh-CN/scripts/599858），主脚本体积 3.1MB → 732KB，更新下载更快。",
-    "📐 Markdown 转 Word 排版规范化（对齐主流中文模板方案）：正文宋体 + Times New Roman 小四、1.5 倍行距、首行缩进 2 字符、段前段后 0；标题黑体加粗；代码块 Consolas。",
-    "🖥 Markdown 转换面板迁移至主控台底部固定区域，全部标签页常驻，不再依附下载区/答题区。",
-    "🖼 Markdown 转 Word：超大图片自动按页宽等比缩放，不再横向溢出 A4。",
-    "🛠 修复普通导出 PDF / 图片失败（xyExpCanvasToJPEG 缺失）的问题。",
-    "🔮 更新日志：https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
-  ],
-  "downloadURL": "https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
-  "changelogURL": "https://gitee.com/fieldlu/xy-script-assets/blob/main/CHANGELOG.md"
+    "🛡 修复手动休眠：休眠后不再自动跳转课程（推进链全链守卫 + 延迟跳转竞态复查）",
+    "📡 调度中心自定义任务：启动即跳转设置的板块联播；一键连播不再覆盖自定义队列",
+    "🧹 过期任务自动清理：调度中心打开时自动剔除跨学期旧课程",
+    "🔁 安全循环达标后驻留当前任务，不再走全局雷达探测/跨课程跳转",
+    "✍️ 文案统一：日志叫法归一、emoji 补齐、标点规范"
+  ]
 }
