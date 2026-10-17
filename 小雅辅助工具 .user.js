@@ -2115,7 +2115,7 @@
                 <div class="xy-today-prompt-reasons">${xyTodayPromptRenderReasons(summary.priorityReasons)}</div>
                 <div class="xy-today-prompt-counts"><span>可做 ${summary.counts.actionable || 0}</span><span>24小时内 ${summary.counts.dueToday || 0}</span><span>待批阅 ${summary.counts.pending || 0}</span><span>已截止 ${summary.counts.expired || 0}</span></div>
                 ${actions ? `<div class="xy-course-dashboard-today-actions">${actions}</div>` : ''}
-                ${hiddenCount > 0 ? `<div class="xy-today-prompt-more">另有 ${hiddenCount} 项可做任务未列出，进入任意课程的「学情」可看全部</div>` : ''}
+                ${hiddenCount > 0 ? `<div class="xy-today-prompt-more">另有 ${hiddenCount} 项可做任务未列出，进入主页可看全部</div>` : ''}
             </section>`;
     }
     /**
