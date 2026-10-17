@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.7
+// @version      3.7.4.8
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -1526,6 +1526,26 @@
         return 'later';
     }
     /**
+     * 连续紧迫度 0~1.5：把「还剩多少小时」压成平滑曲线，替代 24h/72h 硬分桶。
+     * 目的：让「还剩 10 天」和「还剩 59 天」不再同分——原来两条都落进 later 桶，
+     * 各拿 12 分，面板上完全等价，排序只能靠偶然的课程顺序决定。
+     *
+     * 采用双曲衰减 1/(1+h/168)，半衰期 7 天（168h）：
+     *   还剩 1 天 → 0.88　7 天 → 0.50　30 天 → 0.19　60 天 → 0.11
+     * 选 7 天是因为大学作业的截止尺度在「几天到几周」，用 24h 做半衰期会让
+     * 一周后的任务全部贴到 0，区分度反而丢失（实测 11 天与 60 天只差 0.03）。
+     *
+     * @param {number} deadlineAt - 截止时间戳(ms)
+     * @param {number} [now=Date.now()]
+     * @returns {number} 0~1.5（逾期 1.5）
+     */
+    function xyTodayPromptUrgency(deadlineAt, now = Date.now()) {
+        if (!Number.isFinite(deadlineAt)) return 0.35;
+        const hours = (deadlineAt - now) / 3600000;
+        if (hours <= 0) return 1.5;
+        return 1 / (1 + hours / 168);
+    }
+    /**
      * 任务状态键归一化。两级来源：
      *   1. 平台显式字段 task.status.key / statusKey（trim 后非空即信）；
      *   2. 推导兜底：有截止时间且已过期 → 'expired'，否则 'actionable'。
@@ -1567,15 +1587,17 @@
         const nodeId = String(source.nodeId ?? source.node_id ?? '').trim();
         const parentId = String(source.parentId ?? source.parent_id ?? '').trim();
         const statusWeight = TODAY_PROMPT_WEIGHTS.STATUS;
-        const deadlineWeight = TODAY_PROMPT_WEIGHTS.DEADLINE;
+        const urgency = xyTodayPromptUrgency(Number.isFinite(deadlineAt) ? deadlineAt : NaN, now);
         const priorityReasons = [];
         if (isActionable) priorityReasons.push(statusKey === 'unsubmitted' ? '尚未提交' : '当前可直接完成');
         else if (statusKey === 'pending') priorityReasons.push('等待批阅');
         else if (statusKey === 'graded') priorityReasons.push('已完成');
         else if (isExpired) priorityReasons.push('已截止');
-        if (deadlineBucket === 'today') priorityReasons.push('24小时内截止');
-        else if (deadlineBucket === 'soon') priorityReasons.push('近期截止');
-        else if (deadlineBucket === 'unknown' && isActionable) priorityReasons.push('暂无明确截止时间');
+        // 「近期截止」换成具体天数：同档里「还剩 10 天」和「还剩 59 天」必须能区分
+        if (Number.isFinite(deadlineAt) && deadlineAt > now) {
+            const daysLeft = Math.ceil((deadlineAt - now) / 86400000);
+            priorityReasons.push(daysLeft <= 1 ? '24小时内截止' : `还剩 ${daysLeft} 天`);
+        } else if (deadlineBucket === 'unknown' && isActionable) priorityReasons.push('暂无明确截止时间');
         if (nodeId && parentId && priorityReasons.length < 3) priorityReasons.push('可直达任务');
         return {
             ...source,
@@ -1587,9 +1609,11 @@
             parentId,
             isActionable: isActionable && !isExpired,
             isExpired,
+            urgency,
             priorityReasons: priorityReasons.slice(0, 3),
+            // 状态分决定「该不该做」，连续紧迫度决定「谁更急」；时间项由离散桶改为 0~40 的连续值
             priorityScore: (statusWeight[statusKey] ?? 5)
-                + (deadlineWeight[deadlineBucket] ?? 0)
+                + Math.round(urgency * 40)
                 + (nodeId && parentId ? 8 : 0)
                 + (title !== '未命名任务' ? 2 : 0)
         };
@@ -1729,7 +1753,16 @@
     function xyTodayPromptBuildGlobalSummary(courses, now = Date.now(), partialError = '') {
         const ranked = xyTodayPromptRankCourses(courses, now);
         const actionableCourses = ranked.filter(course => ['urgent', 'continue'].includes(course.state));
-        const actions = actionableCourses.flatMap(course => course.actions.slice(0, 2).map(task => ({ ...task, courseId: course.courseId, courseName: course.courseName }))).slice(0, 3);
+        // 所有可做任务进同一个池子按分数全局排，不再「每课取 2 再截 3」。
+        // 后者会让完成率低的课程整体前移，把「59 天后截止」压到「10 天后截止」前面。
+        const actionPool = ranked.flatMap(course => (Array.isArray(course.tasks) ? course.tasks : [])
+            .filter(task => task.isActionable)
+            .map(task => ({ ...task, courseId: course.courseId, courseName: course.courseName })));
+        actionPool.sort((left, right) => (right.priorityScore - left.priorityScore)
+            || ((Number.isFinite(left.deadlineAt) ? left.deadlineAt : Number.POSITIVE_INFINITY)
+                - (Number.isFinite(right.deadlineAt) ? right.deadlineAt : Number.POSITIVE_INFINITY)));
+        // 上限 5 条：够覆盖真实可做量，又不至于把面板撑爆；超出部分另行提示
+        const actions = actionPool.slice(0, 5);
         const counts = ranked.reduce((result, course) => {
             result.actionable += course.counts.actionable || 0;
             result.expired += course.counts.expired || 0;
@@ -1739,11 +1772,16 @@
             return result;
         }, { actionable: 0, dueToday: 0, expired: 0, pending: 0, courses: 0 });
         const topCourse = actionableCourses[0];
+        // 标题必须跟随真正排第一的那条任务，否则会出现「标题说 A 课、列表首条是 B 课」
+        const firstAction = actions[0] || null;
+        const firstCourseTaskCount = firstAction
+            ? actionPool.filter(task => task.courseId === firstAction.courseId).length
+            : 0;
         const state = partialError ? 'partial' : topCourse?.state || (counts.pending > 0 ? 'waiting' : 'clear');
         return {
             state,
-            title: topCourse
-                ? `今天先处理「${topCourse.courseName}」的 ${topCourse.actions.length || topCourse.counts.actionable} 项任务`
+            title: firstAction
+                ? `今天先处理「${firstAction.courseName}」的 ${firstCourseTaskCount || 1} 项任务`
                 : state === 'waiting'
                     ? '今天暂无新的提交任务'
                     : state === 'partial'
@@ -2064,6 +2102,8 @@
                 </div>`;
         }).join('');
         const stateIcon = summary.state === 'urgent' ? '🧭' : summary.state === 'partial' ? '⚠' : summary.state === 'waiting' ? '🕒' : '✓';
+        // 面板写着「可做 6」却只列 3 条，用户会以为漏了；把差额明说出来，比静默截断诚实
+        const hiddenCount = Math.max(0, (summary.counts.actionable || 0) - summary.actions.length);
         container.innerHTML = `
             <section class="xy-course-dashboard-today is-${escapeHtml(summary.state)}" aria-label="今日学习提示">
                 <div class="xy-course-dashboard-today-head">
@@ -2075,6 +2115,7 @@
                 <div class="xy-today-prompt-reasons">${xyTodayPromptRenderReasons(summary.priorityReasons)}</div>
                 <div class="xy-today-prompt-counts"><span>可做 ${summary.counts.actionable || 0}</span><span>24小时内 ${summary.counts.dueToday || 0}</span><span>待批阅 ${summary.counts.pending || 0}</span><span>已截止 ${summary.counts.expired || 0}</span></div>
                 ${actions ? `<div class="xy-course-dashboard-today-actions">${actions}</div>` : ''}
+                ${hiddenCount > 0 ? `<div class="xy-today-prompt-more" style="font-size:11px;margin-top:6px;opacity:.7;">另有 ${hiddenCount} 项可做任务未列出，进入任意课程的「学情」可看全部</div>` : ''}
             </section>`;
     }
     /**
