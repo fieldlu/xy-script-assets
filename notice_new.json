@@ -1,19 +1,16 @@
 {
-  "title": "🎉 v3.7.4.7 发布 · 说明文字调整",
+  "title": "🎉 v3.7.4.7 已发布",
   "version": "3.7.4.7",
   "updatedAt": "2026-10-13",
   "items": [
-    "📎 一键安装/更新 3.7.4.7：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
-    "🕗 本版于 2026-10-13 发布，只调整说明和日志用词，建议更新。",
-    "✍️ 面板、日志和仓库说明改为更直白的说法，操作方式不变。",
-    "📎 功能与 3.7.4.6 相同：计划调度、任务连播、资料下载、作业导出均保持原样。",
-    "✍️ 独立脚本「小雅作业华为笔记导出」已上架 ScriptCat，境内直装：https://scriptcat.org/scripts/code/8408/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js",
-    "✍️ 备用渠道 Greasyfork：https://update.greasyfork.org/scripts/599858/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js",
+    "📎 安装 / 更新：https://scriptcat.org/scripts/code/5881/%E5%B0%8F%E9%9B%85%E8%BE%85%E5%8A%A9%E5%B7%A5%E5%85%B7.user.js",
+    "🕗 2026-10-13 发布。本版只调整面板、日志与说明的用词，功能与 3.7.4.6 完全一致（计划调度 / 任务连播 / 资料下载 / 作业导出均不变）。",
+    "✍️ 姊妹脚本「小雅作业华为笔记导出」：https://scriptcat.org/scripts/code/8408/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js",
+    "　 备用渠道（Greasyfork）：https://update.greasyfork.org/scripts/599858/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js",
     "",
-    "📦 === GitHub 仓库 ===",
+    "📦 === GitHub ===",
     "🛜 校园网双网自动登录（WLAN / ISP）：https://github.com/fieldlu/whut-campus-login",
-    "✍️ 作业笔记导出 GitHub 镜像：https://github.com/fieldlu/xy-handwriting-archive",
     "📦 全部仓库与更新记录：https://github.com/fieldlu",
-    "🧹 仓库近期做过整理重建，旧链接可能失效，从上面主页重新进入即可。"
+    "🧹 近期仓库做过整理重建，旧链接失效时从上面主页重新进入即可。"
   ]
 }
