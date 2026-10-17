@@ -9,12 +9,12 @@
     "📎 功能与 3.7.4.6 相同：计划调度、任务连播、资料下载、作业导出均保持原样。",
     "✍️ 独立脚本「小雅作业华为笔记导出」已上架 ScriptCat，境内直装：https://scriptcat.org/scripts/code/8408/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js",
     "✍️ 备用渠道 Greasyfork：https://update.greasyfork.org/scripts/599858/%E5%B0%8F%E9%9B%85%E4%BD%9C%E4%B8%9A%E5%8D%8E%E4%B8%BA%E7%AC%94%E8%AE%B0%E5%AF%BC%E5%87%BA.user.js",
-    "📦 GitHub 仓库也开好了：https://github.com/fieldlu 脚本源码和更新记录在那里同步一份。",
-    "🌐 新项目 · 武理全站新闻抓取助手：覆盖全校 52 个二级站点的栏目文章，自动翻页，可导出正文与配图。",
-    "🔗 https://github.com/fieldlu/whut-auto-news-crawler",
-    "🛜 新项目 · 校园网双网自动登录：WHUT-WLAN 与 WHUT-ISP 一套脚本通用，支持断线保活。",
-    "🔗 https://github.com/fieldlu/whut-campus-login",
-    "✍️ 小雅作业华为笔记导出的 GitHub 镜像：https://github.com/fieldlu/xy-handwriting-archive",
-    "🧹 GitHub 上几个仓库做了整理重建，旧链接可能打不开，从主页重新进入即可。"
+    "",
+    "📦 === GitHub 仓库 ===",
+    "🌐 全站新闻抓取助手（52 个二级站点栏目）：https://github.com/fieldlu/whut-auto-news-crawler",
+    "🛜 校园网双网自动登录（WLAN / ISP）：https://github.com/fieldlu/whut-campus-login",
+    "✍️ 作业笔记导出 GitHub 镜像：https://github.com/fieldlu/xy-handwriting-archive",
+    "📦 全部仓库与更新记录：https://github.com/fieldlu",
+    "🧹 仓库近期做过整理重建，旧链接可能失效，从上面主页重新进入即可。"
   ]
 }
