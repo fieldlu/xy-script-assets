@@ -2115,7 +2115,7 @@
                 <div class="xy-today-prompt-reasons">${xyTodayPromptRenderReasons(summary.priorityReasons)}</div>
                 <div class="xy-today-prompt-counts"><span>可做 ${summary.counts.actionable || 0}</span><span>24小时内 ${summary.counts.dueToday || 0}</span><span>待批阅 ${summary.counts.pending || 0}</span><span>已截止 ${summary.counts.expired || 0}</span></div>
                 ${actions ? `<div class="xy-course-dashboard-today-actions">${actions}</div>` : ''}
-                ${hiddenCount > 0 ? `<div class="xy-today-prompt-more" style="font-size:11px;margin-top:6px;opacity:.7;">另有 ${hiddenCount} 项可做任务未列出，进入任意课程的「学情」可看全部</div>` : ''}
+                ${hiddenCount > 0 ? `<div class="xy-today-prompt-more">另有 ${hiddenCount} 项可做任务未列出，进入任意课程的「学情」可看全部</div>` : ''}
             </section>`;
     }
     /**
@@ -11868,6 +11868,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 #xy-super-console .xy-course-dashboard-today-head > span { flex:0 0 auto; padding:2px 6px; border-radius:999px; color:var(--xy-accent); background:color-mix(in srgb, var(--xy-accent) 10%, transparent); font-size:8.5px; font-weight:700; white-space:nowrap; }
                 #xy-super-console .xy-course-dashboard-today-icon { color:var(--xy-accent); font-size:13px; }
                 #xy-super-console .xy-course-dashboard-today-meta { margin-top:4px; color:var(--xy-text-muted); font-size:9px; line-height:1.45; overflow-wrap:anywhere; word-break:break-word; }
+                #xy-super-console .xy-today-prompt-more { margin-top:5px; color:var(--xy-text-muted); font-size:9px; line-height:1.45; overflow-wrap:anywhere; }
                 #xy-super-console .xy-course-dashboard-today-actions { display:grid; gap:5px; margin-top:8px; }
                 #xy-super-console .xy-course-dashboard-today-action { display:flex; align-items:center; justify-content:space-between; gap:7px; min-width:0; padding:7px 8px; border:1px solid color-mix(in srgb, var(--xy-accent) 14%, var(--xy-border)); border-radius:8px; background:color-mix(in srgb, var(--xy-surface) 60%, transparent); }
                 #xy-super-console .xy-course-dashboard-today-action-copy { flex:1; min-width:0; }
