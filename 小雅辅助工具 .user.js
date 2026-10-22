@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.8
+// @version      3.7.4.9
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -11983,7 +11983,6 @@ var XYExport = (function (Hinote) {  'use strict';
                 <div id="xy-handle-row2" class="xy-seg">
                     <div id="xy-seg-zone" class="xy-seg-item active" title="当前区域">🛰️ 小雅引擎</div>
                     <div id="xy-seg-feedback" class="xy-seg-item" title="反馈问题或建议">💬 反馈</div>
-                    <div id="xy-seg-qq" class="xy-seg-item" title="点击复制QQ群号">👥 QQ群</div>
                     <div id="xy-seg-update" class="xy-seg-item" title="检查脚本更新">↻ 检查更新<span class="xy-seg-dot"></span></div>
                 </div>
             </div>
@@ -12388,16 +12387,6 @@ var XYExport = (function (Hinote) {  'use strict';
         return el || _xyNoopEl;
     };
         const uiDocumentListenerOptions = ctx.listenerOptions;
-        const qqBadge = document.getElementById('xy-seg-qq');
-        if (qqBadge) {
-            qqBadge.onclick = async (e) => {
-                e.stopPropagation();
-                try {
-                    await navigator.clipboard.writeText('1095232169');
-                    showToast('🎉 QQ群号 1095232169 已成功复制到剪贴板！', 'success');
-                } catch(err) { showToast('请手动复制 QQ群号: 1095232169', 'error'); }
-            };
-        }
 
         const updateBtn = document.getElementById('xy-seg-update');
         if (updateBtn) updateBtn.onclick = (e) => { e.stopPropagation(); xyShowUpdateModal(); };
