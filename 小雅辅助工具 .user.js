@@ -870,6 +870,16 @@
     }
 
 
+    /**
+     * 文档阅读计时所属的页面标识。
+     *
+     * 平台对文档的规则是「刷新即从零」，但脚本原先只依赖 playState 重建来归零 ——
+     * 真正按 F5 时确实会归零，可 SPA 内重新进入同一文档、预览 iframe 重载时页面没重建，
+     * docReadTime 会接着旧值继续累加，表现为「平台从头算、脚本还记着上一次」。
+     * 这里用 URL 作为归属标识：页面一换就先把计时清掉。
+     */
+    let _xyDocTimerKey = '';
+
     /** 播放学习域：区域路由 / 引擎模式 / 跳转与任务完成状态 */
     const playState = {
         activeZone: ZONE.UNINITIALIZED,
@@ -7215,6 +7225,18 @@
                     }
                 }
             } else if (taskType === TASK_TYPE.DOC) {
+                /**
+                 * 刷新/重进文档任务时从零开始计时。
+                 * 只在「文档页面变了」时清一次：同一页面内不清，避免把正在累计的进度打断。
+                 * 视频分支不做任何处理，断点续播与既有计时逻辑保持原样。
+                 */
+                const docTimerKey = location.href;
+                if (_xyDocTimerKey !== docTimerKey) {
+                    _xyDocTimerKey = docTimerKey;
+                    playState.docReadTime = 0;
+                    playState.lastDocSubmitTime = 0;
+                    logMsg('📄 文档阅读从 0 开始计时', 'info', false);
+                }
                 checkAndClickDocPreview(); 
 
                 if (!playState.isTaskCompleted) {
