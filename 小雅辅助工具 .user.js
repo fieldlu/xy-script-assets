@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.9
+// @version      3.7.4.10
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -740,9 +740,24 @@
     /** 共享文件扩展名判定正则（全脚本唯一定义点） */
     const SHARED_PATTERNS = Object.freeze({
         MEDIA: /\.(?:mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac)$/i,
-        DOC: /\.(?:pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i,
-        get WATCH() { return /\.(?:mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z)$/i; }
+        DOC: /\.(?:pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z|html|htm)$/i,
+        get WATCH() { return /\.(?:mp4|avi|mov|wmv|flv|mkv|m3u8|webm|mp3|wav|aac|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|wps|csv|zip|rar|7z|html|htm)$/i; }
     });
+
+    /**
+     * 「像文件」判定：扩展名以字母开头、1~10 位字母数字结尾即视为文件。
+     *
+     * 为什么不用白名单：老师上传 .md / .zip / 无常见后缀的课件时，白名单会把它们
+     * 整条漏掉。为什么不能只写 \.[A-Za-z0-9]+$：目录名常带版本号（「第3章 v1.0」
+     * 「课件 v2.1」），结尾是 .数字，会被误判成文件，列表里就会多出假条目。
+     * 因此要求扩展名以字母开头，并把纯数字后缀排除。
+     */
+    function xyLooksLikeFile(name) {
+        const s = String(name || '').trim();
+        if (!s) return false;
+        if (/\.\d+$/.test(s)) return false;
+        return /\.[A-Za-z][A-Za-z0-9]{0,9}$/.test(s);
+    }
 
     /* ================================================================
      * [MODULE] vdom — 声明式视图微内核（lit-html 心智模型，零依赖）
@@ -3502,11 +3517,10 @@
                     keep = true;
                 }
                 
-                else {
-                    const isMedia = SHARED_PATTERNS.MEDIA.test(name);
-                    const isDoc = SHARED_PATTERNS.DOC.test(name);
-                    
-                    if (isMedia || isDoc) keep = true;
+                else if (xyLooksLikeFile(name)) {
+                    // 不再区分媒体/文档白名单：任何带扩展名的叶子节点都收进下载列表，
+                    // 视频/文档分类交给 dlFileType() 兜底到「其他」
+                    keep = true;
                 }
 
                 if (keep) {
@@ -4147,7 +4161,7 @@
         const type = n.task_type !== undefined ? n.task_type : n.type;
         if (Number(type) >= 2 && Number(type) <= 5) return false;
         if (Number(n.resource_type) > 0) return false;
-        return !SHARED_PATTERNS.WATCH.test(String(n.name || n.title || ''));
+        return !xyLooksLikeFile(String(n.name || n.title || ''));
     }
     /**
      * 目录树构建器：从扁平资源树重组为「单元嵌套 + 叶子文件」结构。
@@ -4465,8 +4479,8 @@
                 const dirTree = buildDirTree(data.data);
                 const flat = extractFilesFromResources(data.data);
                 const files = flat.filter(r => {
-                    const name = (r.name || r.title || '').toLowerCase();
-                    return SHARED_PATTERNS.WATCH.test(name);
+                    const name = r.name || r.title || '';
+                    return xyLooksLikeFile(name);
                 }).map(r => {
                     const id = dlResourceId(r);
                     if (id === null) return null;
@@ -5236,7 +5250,7 @@
         if (/^(MP4|AVI|MOV|WMV|FLV|MKV|M3U8|WEBM)$/.test(ext)) return 'video';
         if (/^(MP3|WAV|AAC)$/.test(ext)) return 'audio';
         if (ext === 'PDF') return 'pdf';
-        if (/^(DOC|DOCX|WPS|TXT)$/.test(ext)) return 'doc';
+        if (/^(DOC|DOCX|WPS|TXT|HTML|HTM)$/.test(ext)) return 'doc';
         if (/^(PPT|PPTX)$/.test(ext)) return 'ppt';
         if (/^(XLS|XLSX|CSV)$/.test(ext)) return 'xls';
         if (/^(ZIP|RAR|7Z)$/.test(ext)) return 'zip';
@@ -5254,6 +5268,7 @@
         else if (ext === 'PDF') bg = '#dc2626';
         else if (/^(DOC|DOCX|WPS)$/.test(ext)) bg = '#2563eb';
         else if (ext === 'TXT') bg = '#6b7280';
+        else if (/^(HTML|HTM)$/.test(ext)) bg = '#0891b2';
         else if (/^(PPT|PPTX)$/.test(ext)) bg = '#ea580c';
         else if (/^(XLS|XLSX|CSV)$/.test(ext)) bg = '#16a34a';
         else if (/^(ZIP|RAR|7Z)$/.test(ext)) bg = '#a16207';
@@ -6378,10 +6393,19 @@
         });
     }
 
-    /** 播放引擎可识别性：任务名后缀需命中 MEDIA/DOC 之一。 */
+    /**
+     * 任务可入队判定：除视频外一律按文档处理，不再依赖 MEDIA/DOC 后缀白名单。
+     *
+     * 原来按后缀筛名字，导致 .md / .zip / .py / 无后缀等文档任务被排除在排课和
+     * 连播之外，老师传个不常见格式就整条学不了。上游 xyBrushFilterPlayable 已确认
+     * task_type===1、有 node_id、未完成，这里只需排除空名字。
+     *
+     * 注意：视频还是文档由运行时 getTaskTypeAccurate() 按页面是否含 <video> 判定，
+     * 不依赖文件名，所以放宽这里不会把文档误当视频播。
+     */
     function xyBrushIsPlayableName(task) {
-        const name = ((task && task.name) || '').toLowerCase();
-        return SHARED_PATTERNS.MEDIA.test(name) || SHARED_PATTERNS.DOC.test(name);
+        const name = String((task && (task.name || task.title)) || '').trim();
+        return name.length > 0;
     }
 
     /**
@@ -8580,7 +8604,8 @@
             const daysLeft = Math.max(0, (endTime - now) / (1000 * 60 * 60 * 24));
             const name = (task.name || '').toLowerCase();
             const isVideo = SHARED_PATTERNS.MEDIA.test(name);
-            const isDoc = SHARED_PATTERNS.DOC.test(name);
+            // 非视频即文档：未知格式不再落到「其他」权重被降权
+            const isDoc = !isVideo;
 
             
             const ddlScore = daysLeft < SCHEDULE_WEIGHTS.DDL_DAY_1 ? SCHEDULE_WEIGHTS.DDL_SCORE[0]
@@ -9063,10 +9088,9 @@
 
             if (!window.xyGlobalTaskMap) window.xyGlobalTaskMap = new Map();
 
-            const isValidSchTask = (task) => {
-                const name = (task.name || '').toLowerCase();
-                return SHARED_PATTERNS.WATCH.test(name);
-            };
+            // 非视频即文档：任务库不再按后缀白名单过滤，
+            // 否则 .md / .zip / 无后缀的文档任务在库里根本看不到
+            const isValidSchTask = (task) => String((task && (task.name || task.title)) || '').trim().length > 0;
 
             const buildSchLibCard = (task) => {
                 window.xyGlobalTaskMap.set(String(task.task_id || task.id), task);
