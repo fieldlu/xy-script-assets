@@ -1150,6 +1150,16 @@
         try { loggedIn = !!getCookie(); } catch (e) { loggedIn = false; }
         if (loggedIn) return;
 
+        /**
+         * 默认进入手动休眠：重开浏览器后小雅要重新登录，脚本不该自己接着跑。
+         * 只改模式、不动用户设过的其它偏好；退出休眠点「一键连播」即可。
+         */
+        if (playState.mode !== PLAY_MODE.MANUAL) {
+            playState.mode = PLAY_MODE.MANUAL;
+            try { GM_setValue('xy_play_mode', PLAY_MODE.MANUAL); } catch (e) {}
+            try { logMsg('😴 新会话默认进入手动休眠', 'info', false); } catch (e) {}
+        }
+
         const dirty = xyScheduleState.isRunning || xyScheduleState.isPaused
             || xyScheduleState.currentIdx !== 0
             || xyScheduleState.queue.some(q => q.status === 'running' || Number(q.elapsedSec || 0) > 0);
