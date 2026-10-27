@@ -878,6 +878,8 @@
      * 改为盯住预览节点本身：刷新会重建 iframe 或重新触发 load，两种都能捕捉到。
      */
     let _xyDocPreviewEl = null;
+    /** 本页脚本的诞生时刻：用来识别「计时比页面还老」的继承值 */
+    const _xyPageBornAt = Date.now();
     /** 上次因预览重建而清零的时刻，用于防止一次刷新被反复触发、把进度永远清在 0 */
     let _xyDocResetAt = 0;
 
@@ -7245,6 +7247,21 @@
                     playState.lastDocSubmitTime = 0;
                     logMsg('📄 文档阅读从 0 开始计时', 'info', false);
                 };
+                /**
+                 * 硬判据：文档计时不可能比本页存在得还久。
+                 *
+                 * 只要 docReadTime 明显超过「本页脚本已运行的秒数」，就说明它是从上一页
+                 * 继承来的旧值（平台刷新没触发路由切换、iframe 也没重建时，前面两条判据都会漏）。
+                 * 这条不依赖任何事件，任何形式的刷新只要页面真的重新加载过都会命中；
+                 * 正常累计永远小于存活时长，所以不会误清。
+                 */
+                const aliveSec = (Date.now() - _xyPageBornAt) / 1000;
+                if (playState.docReadTime > aliveSec + 3) {
+                    playState.docReadTime = 0;
+                    playState.lastDocSubmitTime = 0;
+                    logMsg('📄 文档阅读计时超过本页存活时长，判定为继承值，已归零', 'info', false);
+                }
+
                 const docPreviewEl = document.querySelector(
                     'iframe[src*="ow365"], iframe[src*="office"], .pdf-viewer, .xy_disk_preview'
                 );
