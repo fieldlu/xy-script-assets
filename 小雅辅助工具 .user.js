@@ -871,14 +871,15 @@
 
 
     /**
-     * 文档阅读计时所属的页面标识。
+     * 文档阅读计时的归属锚点：当前正在计时的那个预览容器（iframe / pdf-viewer）。
      *
-     * 平台对文档的规则是「刷新即从零」，但脚本原先只依赖 playState 重建来归零 ——
-     * 真正按 F5 时确实会归零，可 SPA 内重新进入同一文档、预览 iframe 重载时页面没重建，
-     * docReadTime 会接着旧值继续累加，表现为「平台从头算、脚本还记着上一次」。
-     * 这里用 URL 作为归属标识：页面一换就先把计时清掉。
+     * 为什么不用 URL 判断：在同一个页面里点「刷新」，location.href 一个字符都不会变，
+     * 拿 URL 当键等于没判断 —— 平台那边已经从头算了，脚本这边还在接着旧值累加。
+     * 改为盯住预览节点本身：刷新会重建 iframe 或重新触发 load，两种都能捕捉到。
      */
-    let _xyDocTimerKey = '';
+    let _xyDocPreviewEl = null;
+    /** 上次因预览重建而清零的时刻，用于防止一次刷新被反复触发、把进度永远清在 0 */
+    let _xyDocResetAt = 0;
 
     /** 播放学习域：区域路由 / 引擎模式 / 跳转与任务完成状态 */
     const playState = {
@@ -7226,16 +7227,34 @@
                 }
             } else if (taskType === TASK_TYPE.DOC) {
                 /**
-                 * 刷新/重进文档任务时从零开始计时。
-                 * 只在「文档页面变了」时清一次：同一页面内不清，避免把正在累计的进度打断。
+                 * 刷新后文档从零计时（对齐平台「刷新即从零」的规则）。
+                 *
+                 * 判据是「预览容器换了」而不是「URL 变了」：同页面点刷新 URL 不变，
+                 * 但平台会重建预览或重新加载 iframe，节点引用或 load 事件必然有一次触发。
+                 * 3 秒内不重复清零，避免一次刷新被识别成多次、把进度永远压在 0。
                  * 视频分支不做任何处理，断点续播与既有计时逻辑保持原样。
                  */
-                const docTimerKey = location.href;
-                if (_xyDocTimerKey !== docTimerKey) {
-                    _xyDocTimerKey = docTimerKey;
+                const docReset = () => {
+                    // 累计不足 5 秒：要么刚进任务、要么刚清过，再清没有意义，
+                    // 同时也能挡掉 iframe 首次绑定 load 时的那一次回调
+                    if (playState.docReadTime < 5) return;
+                    const nowTs = Date.now();
+                    if (nowTs - _xyDocResetAt < 3000) return;
+                    _xyDocResetAt = nowTs;
                     playState.docReadTime = 0;
                     playState.lastDocSubmitTime = 0;
                     logMsg('📄 文档阅读从 0 开始计时', 'info', false);
+                };
+                const docPreviewEl = document.querySelector(
+                    'iframe[src*="ow365"], iframe[src*="office"], .pdf-viewer, .xy_disk_preview'
+                );
+                if (docPreviewEl && docPreviewEl !== _xyDocPreviewEl) {
+                    _xyDocPreviewEl = docPreviewEl;
+                    // 容器换了 = 又加载了一次（平台内刷新 / 重进同一篇都会重建节点）
+                    docReset();
+                    if (docPreviewEl.tagName === 'IFRAME') {
+                        docPreviewEl.addEventListener('load', docReset);
+                    }
                 }
                 checkAndClickDocPreview(); 
 
