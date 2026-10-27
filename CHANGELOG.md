@@ -30,6 +30,10 @@
 - 调度队列**直接清空**（`queue.length = 0`）：重新登录后课程与任务上下文都变了，
   上一会话的待办再跑一遍只会做无用功，也可能命中已过期的节点
 - 运行态一并复位：`isRunning` / `isPaused` / `currentIdx` 归零，心跳与跳转重试计数清零
+- 同时清除会话级缓存：`xy_course_map`（课程映射）、`xy_notice_cache`（公告缓存）、
+  `xy_target_names`（讨论区名单）、`xy_route_prefix`（路由前缀）、`xy_update_last_check`
+- 界面偏好（主题、面板尺寸与位置、各开关）、自定义回复、Markdown 草稿属于用户资产，**不清**
+- 为此新增 `@grant GM_deleteValue`，否则删不掉只会留下空字符串
 - **默认进入手动休眠**：未登录时把播放模式写成 `manual`，脚本不会自己接着跑；
   要开始学习点一次「一键连播」即可。只改模式，不动用户设过的其它偏好
 

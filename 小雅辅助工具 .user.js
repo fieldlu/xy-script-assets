@@ -16,6 +16,7 @@
 // @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @icon         https://www.ai-augmented.com/static/logo3.1dbbea8f.png
@@ -1159,6 +1160,14 @@
             try { GM_setValue('xy_play_mode', PLAY_MODE.MANUAL); } catch (e) {}
             try { logMsg('😴 新会话默认进入手动休眠', 'info', false); } catch (e) {}
         }
+
+        /**
+         * 会话级缓存一并清掉：这些是上一次登录态下的产物，重开浏览器后
+         * 课程映射、公告、讨论区名单都可能已经过期，留着只会读到旧数据。
+         * 界面偏好（主题/面板尺寸/位置）、自定义回复、Markdown 草稿属于用户资产，不动。
+         */
+        ['xy_course_map', 'xy_notice_cache', 'xy_target_names', 'xy_route_prefix', 'xy_update_last_check']
+            .forEach(k => { try { GM_deleteValue(k); } catch (e) {} });
 
         /**
          * 调度队列直接清空：重开浏览器后课程与任务上下文都变了，
