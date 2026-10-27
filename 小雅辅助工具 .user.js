@@ -1134,6 +1134,45 @@
         autoStop: GM_getValue('xy_schedule_auto_stop', '')
     };
 
+    /**
+     * 新浏览器会话的脏状态清理。
+     *
+     * 关掉浏览器再打开，小雅要重新登录；上一会话存下来的「运行中 / 暂停在第 N 项 /
+     * 已驻留 10 分钟」在登录页上全是脏数据，脚本会照着它去探测、跳转，落在登录页乱转。
+     *
+     * 判据用「当前是否已登录」而不是 sessionStorage：
+     *   · 刷新页面  → cookie 还在，已登录 → 不动（用户明确要求刷新要保留）
+     *   · 新开标签页 → cookie 共享，已登录 → 不动
+     *   · 重开浏览器 → 没有 token，未登录 → 清运行态与未完成项的进度，队列条目本身保留
+     */
+    (function xyDropStaleRunStateWhenLoggedOut() {
+        let loggedIn = false;
+        try { loggedIn = !!getCookie(); } catch (e) { loggedIn = false; }
+        if (loggedIn) return;
+
+        const dirty = xyScheduleState.isRunning || xyScheduleState.isPaused
+            || xyScheduleState.currentIdx !== 0
+            || xyScheduleState.queue.some(q => q.status === 'running' || Number(q.elapsedSec || 0) > 0);
+        if (!dirty) return;
+
+        xyScheduleState.isRunning = false;
+        xyScheduleState.isPaused = false;
+        xyScheduleState.currentIdx = 0;
+        xyScheduleState.queue.forEach(q => {
+            if (q.status === 'running') q.status = 'pending';
+            // 已完成的项保留成绩，未完成的项进度归零
+            if (q.status !== 'completed') { q.elapsedSec = 0; q.actionDone = false; }
+        });
+
+        try {
+            saveScheduleState();
+            GM_setValue('xy_schedule_heartbeat', 0);
+            GM_setValue('xy_jump_retry_count', 0);
+            GM_setValue('xy_jump_retry_key', '');
+        } catch (e) {}
+        try { logMsg('🔐 未登录，已清除上次会话残留的调度状态', 'info', false); } catch (e) {}
+    })();
+
     
     xyScheduleState.queue.forEach(q => {
         if (q.infinite !== undefined) {
