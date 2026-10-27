@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.10
+// @version      3.7.4.11
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -1659,11 +1659,31 @@
      * @returns {Object} 含 title/statusKey/deadlineBucket/priorityScore/priorityReasons 等的信号对象（原字段保留）
      * [DEEP-DOC]
      */
+    /**
+     * 统计「还没到开放时间」的任务条数。
+     *
+     * 平台待办接口把这些任务算作待提交（status=unsubmitted），但点进去只有
+     * 「未开始」，既学不了也提交不了。凡是「可做」口径的地方都要把它们扣掉，
+     * 否则提示说可做 0、列表却挂着 51 项。
+     */
+    function xyTodayPromptLockedCount(tasks, now = Date.now()) {
+        return (Array.isArray(tasks) ? tasks : []).filter(task => {
+            const startAt = Date.parse(task?.startTime || task?.start_time || '');
+            return Number.isFinite(startAt) && startAt > now;
+        }).length;
+    }
     function xyTodayPromptBuildTaskSignal(task, now = Date.now()) {
         const source = task && typeof task === 'object' ? task : {};
         const title = String(source.title || source.name || '未命名任务').trim() || '未命名任务';
         const endTime = source.endTime || source.end_time || '';
         const deadlineAt = Date.parse(endTime);
+        /**
+         * 开放时间：还没到点的任务在平台上点进去只有「未开始」，学不了。
+         * 平台待办接口照样把它算作待提交，所以必须在信号层打个标记，
+         * 由排序与计数把它剔掉，否则面板会推荐一批点不动的任务。
+         */
+        const startAt = Date.parse(source.startTime || source.start_time || '');
+        const isLocked = Number.isFinite(startAt) && startAt > now;
         const deadlineBucket = xyTodayPromptDeadlineBucket(deadlineAt, now);
         const statusKey = xyTodayPromptStatusKey(source, deadlineAt, now);
         const isActionable = statusKey === 'actionable' || statusKey === 'unsubmitted';
@@ -1689,6 +1709,8 @@
             title,
             statusKey,
             deadlineAt: Number.isFinite(deadlineAt) ? deadlineAt : null,
+            startAt: Number.isFinite(startAt) ? startAt : null,
+            isLocked,
             deadlineBucket,
             nodeId,
             parentId,
@@ -1715,7 +1737,8 @@
                 ? task
                 : xyTodayPromptBuildTaskSignal(task, now);
             return { ...signal, _todayPromptIndex: index };
-        }).sort((left, right) => {
+        }).filter(task => !task.isLocked)
+        .sort((left, right) => {
             if (right.priorityScore !== left.priorityScore) return right.priorityScore - left.priorityScore;
             const leftDeadline = Number.isFinite(left.deadlineAt) ? left.deadlineAt : Number.POSITIVE_INFINITY;
             const rightDeadline = Number.isFinite(right.deadlineAt) ? right.deadlineAt : Number.POSITIVE_INFINITY;
@@ -1745,6 +1768,8 @@
         const pendingCount = source.pendingCount === null || source.pendingCount === undefined
             ? null
             : Math.max(0, xyOverviewNumber(source.pendingCount));
+        // pendingCount 传入前已在数据入口扣掉未开放任务（见 xyTodayPromptLockedCount 的调用），
+        // 这里直接使用，不再二次扣减；任务明细里的未开放项已由 RankTasks 剔除。
         const expiredCount = source.expiredCount === null || source.expiredCount === undefined
             ? null
             : Math.max(0, xyOverviewNumber(source.expiredCount));
@@ -2268,7 +2293,10 @@
             courseId: data.courseId,
             courseName: data.courseName,
             portrait: data.portrait?.data,
-            pendingCount: taskBreakdown ? taskBreakdown.actionable : null,
+            // 「可做」不含未开放任务：它们点进去只有「未开始」，列进来只会误导
+            pendingCount: taskBreakdown
+                ? Math.max(0, taskBreakdown.actionable - xyTodayPromptLockedCount(data.tasks.data))
+                : null,
             expiredCount: taskBreakdown ? taskBreakdown.expired : null,
             waitingCount: taskBreakdown ? taskBreakdown.pending : 0,
             taskDetailsError: data.tasks.error || data.tasks.pendingError || ''
@@ -2649,6 +2677,8 @@
             const pendingTask = {
                 title: String(task?.title || task?.name || '未命名任务'),
                 endTime: task?.end_time || '',
+                // 开放时间必须带上：下游要据此隐藏「未开始」的任务，并把它从可做里扣掉
+                startTime: task?.start_time || task?.startTime || '',
                 parentId: task?.parent_id === null || task?.parent_id === undefined ? '' : String(task.parent_id),
                 nodeId: task?.node_id === null || task?.node_id === undefined ? '' : String(task.node_id)
             };
@@ -2895,7 +2925,11 @@
             const pendingGroups = pendingAvailable ? xyCourseDashboardGroupPending(pendingResult.value) : new Map();
             courses.forEach(course => {
                 const pending = pendingGroups.get(course.courseId);
-                course.pendingCount = pendingAvailable ? (pending?.actionableCount || 0) : null;
+                // 未开放任务不计入「可做」：总览头部统计、课程徽标、排序与提示
+                // 全都读这个字段，在这里扣一次，口径就统一了
+                course.pendingCount = pendingAvailable
+                    ? Math.max(0, (pending?.actionableCount || 0) - xyTodayPromptLockedCount(pending?.tasks))
+                    : null;
                 course.expiredCount = pendingAvailable ? (pending?.expiredCount || 0) : null;
                 course.nearestDeadline = pending?.nearestDeadline || null;
                 course.nearestExpiredDeadline = pending?.nearestExpiredDeadline || null;
@@ -9217,14 +9251,24 @@
             if (!window.xyGlobalTaskMap) window.xyGlobalTaskMap = new Map();
 
             /**
-             * 任务库只列「文件型」条目。
+             * 任务库的入选条件：是任务节点、名字非空、且已经到开放时间。
              *
-             * 这里不能用「非空即通过」：任务树里课程、单元、章节都是带名字的节点，
-             * 一并放进来会把真正的课件挤掉，表现为「pptx 不见了」。
-             * 也不能用 MEDIA/DOC 白名单：那样 .md / .zip 等不常见格式会被漏掉。
-             * 折中判据放在 xyLooksLikeFile：有扩展名即文件，纯数字后缀（章节号）仍按目录处理。
+             * 历史教训：
+             *   · 用 MEDIA/DOC 白名单 → 只认常见后缀，pptx 之外的格式整条漏掉，
+             *     老师给的任务名不带扩展名时（如「第三讲」）也会被误杀；
+             *   · 用「有扩展名」判据 → 同样依赖任务名带后缀，不带就消失。
+             * 任务池的数据源是「未完成任务」接口，拿到的本来就都是任务节点，
+             * 因此只要 task_type 合法、名字非空就放行，格式交给运行时识别。
+             * 脏节点由 xyGlobalTaskMap 的 id 校验和点击时的 node_id 校验兜住。
              */
-            const isValidSchTask = (task) => xyLooksLikeFile((task && (task.name || task.title)) || '');
+            const isValidSchTask = (task) => {
+                if (!task) return false;
+                if (task.task_type !== undefined && task.task_type !== null && Number(task.task_type) !== 1) return false;
+                // 未开放的任务列出来也加不进队列：平台点进去只有「未开始」，学不了
+                const startAt = Date.parse(task.start_time || task.startTime || '');
+                if (Number.isFinite(startAt) && startAt > Date.now()) return false;
+                return String(task.name || task.title || '').trim().length > 0;
+            };
 
             const buildSchLibCard = (task) => {
                 // 只登记有唯一 id 的条目：无 id 的节点都用 "undefined" 作 key 时，
