@@ -7261,6 +7261,19 @@
                     playState.lastDocSubmitTime = 0;
                     logMsg('📄 文档阅读计时超过本页存活时长，判定为继承值，已归零', 'info', false);
                 }
+                /**
+                 * 调度面板上的「⏱ 已驻留」也要跟着归零 —— 它存在 GM 的队列里，
+                 * 刷新后会被原样读回来，于是出现「文档进度归零了、旁边还挂着 10m53s」。
+                 * 同样用存活时长判定是否为继承值；只在文档分支处理，视频任务保持原样。
+                 */
+                const curSchedTask = (xyScheduleState && Array.isArray(xyScheduleState.queue))
+                    ? xyScheduleState.queue[xyScheduleState.currentIdx]
+                    : null;
+                if (curSchedTask && Number(curSchedTask.elapsedSec || 0) > aliveSec + 3) {
+                    curSchedTask.elapsedSec = 0;
+                    try { saveScheduleState(); } catch (e) {}
+                    logMsg('📄 调度驻留计时同样判定为继承值，已归零', 'info', false);
+                }
 
                 const docPreviewEl = document.querySelector(
                     'iframe[src*="ow365"], iframe[src*="office"], .pdf-viewer, .xy_disk_preview'
