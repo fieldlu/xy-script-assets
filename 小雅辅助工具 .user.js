@@ -9216,12 +9216,21 @@
 
             if (!window.xyGlobalTaskMap) window.xyGlobalTaskMap = new Map();
 
-            // 非视频即文档：任务库不再按后缀白名单过滤，
-            // 否则 .md / .zip / 无后缀的文档任务在库里根本看不到
-            const isValidSchTask = (task) => String((task && (task.name || task.title)) || '').trim().length > 0;
+            /**
+             * 任务库只列「文件型」条目。
+             *
+             * 这里不能用「非空即通过」：任务树里课程、单元、章节都是带名字的节点，
+             * 一并放进来会把真正的课件挤掉，表现为「pptx 不见了」。
+             * 也不能用 MEDIA/DOC 白名单：那样 .md / .zip 等不常见格式会被漏掉。
+             * 折中判据放在 xyLooksLikeFile：有扩展名即文件，纯数字后缀（章节号）仍按目录处理。
+             */
+            const isValidSchTask = (task) => xyLooksLikeFile((task && (task.name || task.title)) || '');
 
             const buildSchLibCard = (task) => {
-                window.xyGlobalTaskMap.set(String(task.task_id || task.id), task);
+                // 只登记有唯一 id 的条目：无 id 的节点都用 "undefined" 作 key 时，
+                // 会把真正带 id 的任务覆盖掉，点击取到的是别的节点，入队即成脏数据
+                const mapKey = String(task.task_id || task.id || '');
+                if (mapKey) window.xyGlobalTaskMap.set(mapKey, task);
                 const isCompleted = task.finish === 2;
                 const name = (task.name || '').toLowerCase();
                 const isVideo = SHARED_PATTERNS.MEDIA.test(name);
@@ -9351,6 +9360,12 @@
 const tid = e.target.getAttribute('data-tid');
     // [R3-03] getAttribute 恒为字符串，与写入侧 String(...) 对齐，避免 number/string 键 miss
     const task = window.xyGlobalTaskMap.get(String(tid));
+                    // 没有 node_id 的条目定位不到具体资源，加进去只会渲染成空行
+                    if (!task || !task.node_id) {
+                        showToast('该条目不是可学习的任务节点，无法加入队列', 'warning');
+                        e.target.disabled = false;
+                        return;
+                    }
                     if (task) {
                         const originalText = e.target.innerText;
                         e.target.innerText = '提取中...';
