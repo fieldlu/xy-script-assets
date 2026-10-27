@@ -1143,7 +1143,7 @@
      * 判据用「当前是否已登录」而不是 sessionStorage：
      *   · 刷新页面  → cookie 还在，已登录 → 不动（用户明确要求刷新要保留）
      *   · 新开标签页 → cookie 共享，已登录 → 不动
-     *   · 重开浏览器 → 没有 token，未登录 → 清运行态与未完成项的进度，队列条目本身保留
+     *   · 重开浏览器 → 没有 token，未登录 → 清空调度队列并进入手动休眠
      */
     (function xyDropStaleRunStateWhenLoggedOut() {
         let loggedIn = false;
@@ -1160,27 +1160,26 @@
             try { logMsg('😴 新会话默认进入手动休眠', 'info', false); } catch (e) {}
         }
 
-        const dirty = xyScheduleState.isRunning || xyScheduleState.isPaused
-            || xyScheduleState.currentIdx !== 0
-            || xyScheduleState.queue.some(q => q.status === 'running' || Number(q.elapsedSec || 0) > 0);
-        if (!dirty) return;
-
+        /**
+         * 调度队列直接清空：重开浏览器后课程与任务上下文都变了，
+         * 上一会话残留的待办再跑一遍只会做无用功，也可能命中已过期的节点。
+         * 用 length=0 原地清空，保持队列数组引用不被切断。
+         */
+        const hadQueue = xyScheduleState.queue.length > 0;
+        xyScheduleState.queue.length = 0;
         xyScheduleState.isRunning = false;
         xyScheduleState.isPaused = false;
         xyScheduleState.currentIdx = 0;
-        xyScheduleState.queue.forEach(q => {
-            if (q.status === 'running') q.status = 'pending';
-            // 已完成的项保留成绩，未完成的项进度归零
-            if (q.status !== 'completed') { q.elapsedSec = 0; q.actionDone = false; }
-        });
 
-        try {
-            saveScheduleState();
-            GM_setValue('xy_schedule_heartbeat', 0);
-            GM_setValue('xy_jump_retry_count', 0);
-            GM_setValue('xy_jump_retry_key', '');
-        } catch (e) {}
-        try { logMsg('🔐 未登录，已清除上次会话残留的调度状态', 'info', false); } catch (e) {}
+        if (hadQueue) {
+            try {
+                saveScheduleState();
+                GM_setValue('xy_schedule_heartbeat', 0);
+                GM_setValue('xy_jump_retry_count', 0);
+                GM_setValue('xy_jump_retry_key', '');
+            } catch (e) {}
+            try { logMsg('🧹 重开浏览器，调度队列已清空', 'info', false); } catch (e) {}
+        }
     })();
 
     
