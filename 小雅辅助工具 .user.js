@@ -3783,10 +3783,10 @@
         }
         
         
-        const superConsole = document.getElementById('xy-super-console');
-        if (superConsole) {
-            superConsole.style.display = 'flex';
-        }
+        /* 这里原来是 superConsole.style.display = 'flex'，会在每次路由切换时
+         * 把面板强行拉出来，而球还亮着 —— 这正是「球和面板同时出现」的来源。
+         * 改为交给悬浮球状态机：新页面有自己的记忆，该展开就展开，该收起就收起。*/
+        if (typeof window.xySyncLauncher === 'function') window.xySyncLauncher();
         
         const viewC = document.getElementById('xy-view-course'), viewD = document.getElementById('xy-view-disc'), viewCourses = document.getElementById('xy-view-courses'), viewOverview = document.getElementById('xy-view-overview'), viewDL = document.getElementById('xy-view-download'), viewHW = document.getElementById('xy-view-hw'), viewDIR = document.getElementById('xy-view-dir'), segZone = document.getElementById('xy-seg-zone');
         if (viewC && viewD && viewCourses && viewOverview && viewDL && segZone) {
@@ -13060,27 +13060,68 @@ var XYExport = (function (Hinote) {  'use strict';
         `;
         document.body.appendChild(ball);
 
-        const xyExpandPanel = () => {
-            GM_setValue('xy_panel_collapsed', '0');
-            /* 必须先显示再量尺寸：display:none 的元素 offsetWidth/offsetHeight 都是 0，
-             * 拿 0 去算落点会把面板顶到视口外 */
-            wrapper.style.display = 'flex';
-            if (body) body.style.display = 'flex';
-            if (handleRow2) handleRow2.style.display = 'flex';
-            ball.classList.add('xy-ball-hide');
+        /* ── 折叠状态机 ──
+         * 面板与球是互斥的两态：expanded 只显示面板，collapsed 只显示球。
+         * 状态按「页面」分别记忆（路由归一化后作键），切页或刷新都能各回各的；
+         * 所有显隐只走 xyApplyLauncherState 这一个出口，别的代码无权单独改其中一半。
+         */
+        const LAUNCHER_STATE_KEY = 'xy_panel_page_state';
+        const LAUNCHER_LEGACY_KEY = 'xy_panel_collapsed';
+        let pageStateMap = {};
+        try {
+            pageStateMap = JSON.parse(GM_getValue(LAUNCHER_STATE_KEY, '{}')) || {};
+            if (typeof pageStateMap !== 'object' || Array.isArray(pageStateMap)) pageStateMap = {};
+        } catch (e) { pageStateMap = {}; }
 
+        /** 路由归一化：把数字/长 id 段折成 :id，让同一类页面共用一个键 */
+        const xyPageKey = () => {
+            const p = (location.pathname || '/').replace(/\/+$/, '') || '/';
+            return p.replace(/\/[0-9a-f]{8,}|\/\d+/gi, '/:id');
+        };
+
+        const xyReadStateForPage = () => {
+            const v = pageStateMap[xyPageKey()];
+            if (v === 'expanded' || v === 'collapsed') return v;
+            // 老版本只存了全局的折叠位，升级后先沿用他的习惯，之后按页面各记各的
+            try {
+                return GM_getValue(LAUNCHER_LEGACY_KEY, '1') === '0' ? 'expanded' : 'collapsed';
+            } catch (e) { return 'collapsed'; }
+        };
+
+        /** 唯一出口：两种状态各自把两个元素一起写死，杜绝「球和面板同时在场」 */
+        const xyApplyLauncherState = (state) => {
+            if (state === 'expanded') {
+                wrapper.style.display = 'flex';
+                if (body) body.style.display = 'flex';
+                if (handleRow2) handleRow2.style.display = 'flex';
+                ball.classList.add('xy-ball-hide');
+            } else {
+                wrapper.style.display = 'none';
+                ball.classList.remove('xy-ball-hide');
+            }
+        };
+
+        const xyPersistLauncherState = (state) => {
+            pageStateMap[xyPageKey()] = state;
+            try { GM_setValue(LAUNCHER_STATE_KEY, JSON.stringify(pageStateMap)); } catch (e) {}
+        };
+
+        const xyExpandPanel = () => {
+            /* 先切态再量尺寸：display:none 时 offsetWidth/offsetHeight 都是 0，
+             * 拿 0 去算落点会把面板顶到视口外 */
+            xyApplyLauncherState('expanded');
             const w = wrapper.offsetWidth || 360;
             const h = wrapper.offsetHeight || 480;
             const x = Math.max(8, Math.min(ballPos.x + BALL_SIZE - w, window.innerWidth - w - 8));
             const y = Math.max(8, Math.min(ballPos.y, window.innerHeight - h - 8));
             wrapper.style.left = Math.round(x) + 'px';
             wrapper.style.top = Math.round(y) + 'px';
+            xyPersistLauncherState('expanded');
         };
 
         const xyCollapsePanel = () => {
             /* 已经收起时再收起会读到 0 尺寸的矩形，把球甩到左上角 */
             if (wrapper.style.display === 'none') return;
-            GM_setValue('xy_panel_collapsed', '1');
             const rect = wrapper.getBoundingClientRect();
             ballPos = {
                 x: Math.max(0, Math.min(rect.right - BALL_SIZE, window.innerWidth - BALL_SIZE)),
@@ -13089,10 +13130,30 @@ var XYExport = (function (Hinote) {  'use strict';
             ball.style.left = Math.round(ballPos.x) + 'px';
             ball.style.top = Math.round(ballPos.y) + 'px';
             GM_setValue('xy_ball_pos', JSON.stringify(ballPos));
-            ball.classList.remove('xy-ball-hide');
-            wrapper.style.display = 'none';
+            xyApplyLauncherState('collapsed');
+            xyPersistLauncherState('collapsed');
+        };
+
+        /** 切页后按新页面的记忆恢复；没记录过的页面按默认收起 */
+        const xySyncLauncherForPage = () => {
+            xyApplyLauncherState(xyReadStateForPage());
         };
         window.xyExpandPanel = xyExpandPanel;
+        window.xySyncLauncher = xySyncLauncherForPage;
+
+        /* 不变量兜底：任何别处擅自改面板显隐，这里都会把另一个收掉，
+         * 保证「同一时刻只有一种可见」不会因为某段旧代码而破功 */
+        try { window.__xyLauncherObserver?.disconnect(); } catch (e) {}
+        window.__xyLauncherObserver = new MutationObserver(() => {
+            const panelVisible = wrapper.style.display !== 'none';
+            const ballVisible = !ball.classList.contains('xy-ball-hide');
+            if (panelVisible && ballVisible) {
+                ball.classList.add('xy-ball-hide');
+            } else if (!panelVisible && !ballVisible) {
+                ball.classList.remove('xy-ball-hide');
+            }
+        });
+        window.__xyLauncherObserver.observe(wrapper, { attributes: true, attributeFilter: ['style'] });
 
         /* 拖动：位移超过 3px 记作拖拽，松手时不触发展开 */
         let ballDragging = false, ballMoved = false, ballDX = 0, ballDY = 0;
@@ -13127,14 +13188,19 @@ var XYExport = (function (Hinote) {  'use strict';
         }
         if (handle) handle.style.cursor = 'grab';
 
-        /* 初始态：默认收起（记住上次选择） */
-        if (GM_getValue('xy_panel_collapsed', '1') === '1') {
-            ball.classList.remove('xy-ball-hide');
-            wrapper.style.display = 'none';
-        } else {
-            wrapper.style.display = 'flex';
-            ball.classList.add('xy-ball-hide');
-        }
+        /* 初始态：按当前页面自己的记忆恢复 */
+        xySyncLauncherForPage();
+
+        /* 路由监听：SPA 切页不改脚本实例，这里盯住 pathname，变了就换用新页面的记忆。
+         * 用轮询而不是 history 钩子，是为了不跟站点自己的路由实现耦合。*/
+        try { clearInterval(window.__xyLauncherRouteTimer); } catch (e) {}
+        let lastPageKey = xyPageKey();
+        window.__xyLauncherRouteTimer = setInterval(() => {
+            const key = xyPageKey();
+            if (key === lastPageKey) return;
+            lastPageKey = key;
+            xySyncLauncherForPage();
+        }, 600);
 
         
         const bindSection = (hdrId, bodyId, arrId) => {
