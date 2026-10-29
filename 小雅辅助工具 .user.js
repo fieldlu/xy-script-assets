@@ -13144,39 +13144,18 @@ var XYExport = (function (Hinote) {  'use strict';
 
         /* ── 折叠状态机 ──
          * 面板与球是互斥的两态：expanded 只显示面板，collapsed 只显示球。
-         * 状态按「页面」分别记忆（路由归一化后作键），切页或刷新都能各回各的；
+         *
+         * 状态「跟人走」：改一次就记住，刷新、切页、前进后退都沿用它——
+         * 上一页是展开的，下一页就还是展开的。不再按页面各记一份（那样每进一个新
+         * 页面都会被打回收起，正是之前「切页就收起来」的来源）。
+         *
          * 所有显隐只走 xyApplyLauncherState 这一个出口，别的代码无权单独改其中一半。
          */
-        const LAUNCHER_STATE_KEY = 'xy_panel_page_state';
-        /**
-         * 每次都用 GM 里的最新副本：浏览器常常同时开着十几个小雅标签，
-         * 各自持一份内存 map 再整体覆盖写，后写的会把别人刚记的页面冲掉，
-         * 表现就是「明明展开过，切回来又是收起的」。所以写入一律「读—改—写」。
-         */
-        const xyLoadPageStateMap = () => {
+        const LAUNCHER_STATE_KEY = 'xy_launcher_state';
+        const xyReadLauncherState = () => {
             try {
-                const raw = GM_getValue(LAUNCHER_STATE_KEY, '{}');
-                const obj = typeof raw === 'string' ? JSON.parse(raw || '{}') : raw;
-                return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
-            } catch (e) { return {}; }
-        };
-        /**
-         * 页面键：pathname 去掉尾斜杠，数字/长 id 段折成 :id，让同一类页面共用一个键；
-         * 带 hash 一起算，兼容用 #/xxx 做路由的老式 SPA。
-         */
-        const xyPageKey = () => {
-            const p = (location.pathname || '/').replace(/\/+$/, '') || '/';
-            const h = location.hash || '';
-            return p.replace(/\/[0-9a-f]{8,}|\/\d+/gi, '/:id') + h;
-        };
-
-        const xyReadStateForPage = () => {
-            const v = xyLoadPageStateMap()[xyPageKey()];
-            if (v === 'expanded' || v === 'collapsed') return v;
-            /* 没记录过的页面一律收起。
-             * 之前这里会退回读全局旧值 xy_panel_collapsed，只要那个值是「展开」，
-             * 每个新页面都自动张开，看起来就像「按页面记忆根本没生效」。*/
-            return 'collapsed';
+                return GM_getValue(LAUNCHER_STATE_KEY, 'collapsed') === 'expanded' ? 'expanded' : 'collapsed';
+            } catch (e) { return 'collapsed'; }
         };
 
         /** 唯一出口：两种状态各自把两个元素一起写死，杜绝「球和面板同时在场」 */
@@ -13193,11 +13172,8 @@ var XYExport = (function (Hinote) {  'use strict';
         };
 
         const xyPersistLauncherState = (state) => {
-            const map = xyLoadPageStateMap();   // 读—改—写，保留别的标签写入的键
-            map[xyPageKey()] = state;
-            try { GM_setValue(LAUNCHER_STATE_KEY, JSON.stringify(map)); } catch (e) {}
+            try { GM_setValue(LAUNCHER_STATE_KEY, state); } catch (e) {}
         };
-
         const xyExpandPanel = () => {
             /* 先切态再量尺寸：display:none 时 offsetWidth/offsetHeight 都是 0，
              * 拿 0 去算落点会把面板顶到视口外 */
@@ -13226,12 +13202,7 @@ var XYExport = (function (Hinote) {  'use strict';
             xyPersistLauncherState('collapsed');
         };
 
-        /** 切页后按新页面的记忆恢复；没记录过的页面按默认收起 */
-        const xySyncLauncherForPage = () => {
-            xyApplyLauncherState(xyReadStateForPage());
-        };
         window.xyExpandPanel = xyExpandPanel;
-        window.xySyncLauncher = xySyncLauncherForPage;
 
         /* 不变量兜底：任何别处擅自改面板显隐，这里都会把另一个收掉，
          * 保证「同一时刻只有一种可见」不会因为某段旧代码而破功 */
@@ -13280,47 +13251,12 @@ var XYExport = (function (Hinote) {  'use strict';
         }
         if (handle) handle.style.cursor = 'grab';
 
-        /* 初始态：按当前页面自己的记忆恢复 */
-        xySyncLauncherForPage();
+        /* 初始态：沿用上次的状态（刷新后不变）。首次使用默认收起成一颗圆球。 */
+        xyApplyLauncherState(xyReadLauncherState());
 
-        /* ── 路由监听 ──
-         * SPA 切页不会重跑脚本实例，必须自己发现「换页了」。三条路一起上：
-         *   1. 包一层 history.pushState / replaceState：绝大多数 SPA 都走这里，能第一时间响应
-         *   2. popstate / hashchange：浏览器前进后退、锚点跳转
-         *   3. 250ms 轮询兜底：站点若用非常规方式改 URL（或钩子被别的脚本抢先），仍能跟上
-         * 三条都汇到 xyRouteSync，靠 lastPageKey 去重，重复触发无副作用。
-         */
-        try { clearInterval(window.__xyLauncherRouteTimer); } catch (e) {}
-        let lastPageKey = xyPageKey();
-
-        const xyRouteSync = (reason) => {
-            const key = xyPageKey();
-            if (key === lastPageKey) return;
-            lastPageKey = key;
-            const state = xyReadStateForPage();
-            xyApplyLauncherState(state);
-            try {
-                logMsg(`🗂 切换页面（${reason}）：${state === 'expanded' ? '恢复展开' : '恢复收起'}`, 'info', false);
-            } catch (e) {}
-        };
-
-        try {
-            ['pushState', 'replaceState'].forEach((fn) => {
-                const origin = history[fn];
-                if (typeof origin !== 'function' || origin.__xyHooked) return;
-                const hooked = function () {
-                    const result = origin.apply(this, arguments);
-                    setTimeout(() => xyRouteSync('history'), 0);
-                    return result;
-                };
-                hooked.__xyHooked = true;
-                history[fn] = hooked;
-            });
-            window.addEventListener('popstate', () => setTimeout(() => xyRouteSync('popstate'), 0), uiDocumentListenerOptions);
-            window.addEventListener('hashchange', () => setTimeout(() => xyRouteSync('hashchange'), 0), uiDocumentListenerOptions);
-        } catch (e) { /* 钩不上就靠轮询 */ }
-
-        window.__xyLauncherRouteTimer = setInterval(() => xyRouteSync('poll'), 250);
+        /* switchToZone 等地方会调这个：只按已存状态重排一次显隐，不改变状态本身。
+         * 切页不重置，所以「上一页展开，这一页也展开」。*/
+        window.xySyncLauncher = () => xyApplyLauncherState(xyReadLauncherState());
 
         
         const bindSection = (hdrId, bodyId, arrId) => {
