@@ -4,15 +4,8 @@
   "updatedAt": "2026-10-27",
   "items": [
     "📎 安装 / 更新 v3.7.4.11：https://scriptcat.org/scripts/code/5881/小雅辅助工具.user.js",
-    "🕗 2026-10-27 11:47 发布：未开放的任务不再出现在推荐与调度任务库里。",
-    "🚫 今日学习提示：还没到开放时间的任务会被隐藏，「可做 N」的计数同步扣除，不再出现「推荐了点进去只有未开始」。",
-    "📅 调度任务库：同样只列已开放的任务，避免加了学不了。",
-    "✍️ 姊妹脚本（作业笔记导出）：https://scriptcat.org/scripts/code/8408/小雅作业华为笔记导出.user.js",
-    "　 备用渠道：https://update.greasyfork.org/scripts/599858/小雅作业华为笔记导出.user.js",
-    "",
+    "🕗 2026-10-27 11:47 发布：解决了一些已知问题。",
     "📦 === GitHub ===",
-    "🛜 校园网双网自动登录（WLAN / ISP）：https://github.com/fieldlu/whut-campus-login",
-    "📦 全部仓库与更新记录：https://github.com/fieldlu",
-    "🧹 近期仓库做过整理重建，旧链接失效时从上面主页重新进入即可。"
+    "📦 个人仓库与更新记录：https://github.com/fieldlu",
   ]
 }
