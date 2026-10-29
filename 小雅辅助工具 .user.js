@@ -13160,10 +13160,14 @@ var XYExport = (function (Hinote) {  'use strict';
                 return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
             } catch (e) { return {}; }
         };
-        /** 路由归一化：把数字/长 id 段折成 :id，让同一类页面共用一个键 */
+        /**
+         * 页面键：pathname 去掉尾斜杠，数字/长 id 段折成 :id，让同一类页面共用一个键；
+         * 带 hash 一起算，兼容用 #/xxx 做路由的老式 SPA。
+         */
         const xyPageKey = () => {
             const p = (location.pathname || '/').replace(/\/+$/, '') || '/';
-            return p.replace(/\/[0-9a-f]{8,}|\/\d+/gi, '/:id');
+            const h = location.hash || '';
+            return p.replace(/\/[0-9a-f]{8,}|\/\d+/gi, '/:id') + h;
         };
 
         const xyReadStateForPage = () => {
