@@ -884,6 +884,28 @@
     /** 上次因预览重建而清零的时刻，用于防止一次刷新被反复触发、把进度永远清在 0 */
     let _xyDocResetAt = 0;
 
+    /**
+     * 最近一次 URL 变化的时刻。连播引擎据此避开「刚点进来就被拽走」。
+     * 单独用一个轻量轮询记录，不依赖站点的路由实现，也不跟面板生命周期绑定。
+     */
+    let xyLastNavAt = 0;
+    /** 最近一次「脚本主动跳转」的时刻与原因，用来区分是脚本干的还是页面自己跳的 */
+    let xyScriptNavAt = 0;
+    let xyScriptNavReason = '';
+    let _xyNavMemo = (typeof location !== 'undefined' ? location.href : '');
+    setInterval(() => {
+        try {
+            if (location.href === _xyNavMemo) return;
+            const from = _xyNavMemo;
+            const to = location.href;
+            _xyNavMemo = to;
+            xyLastNavAt = Date.now();
+            const byScript = xyScriptNavAt > 0 && (Date.now() - xyScriptNavAt < 3000);
+            const brief = (u) => String(u).replace(/^https?:\/\/[^/]+/, '').slice(0, 88);
+            logMsg(`🧭 页面跳转：${brief(from)} → ${brief(to)}（${byScript ? '脚本发起 · ' + xyScriptNavReason : '页面自己跳的'}）`, 'info', false);
+        } catch (e) {}
+    }, 400);
+
     /** 播放学习域：区域路由 / 引擎模式 / 跳转与任务完成状态 */
     const playState = {
         activeZone: ZONE.UNINITIALIZED,
@@ -2546,7 +2568,7 @@
             }
         }
         const prefix = xyCourseRoutePrefix();
-        window.location.href = `/app/jx-web/${prefix}/${encodeURIComponent(courseId)}/resource/${encodeURIComponent(targetParentId)}/${encodeURIComponent(nodeId)}`;
+        xyGoto(`/app/jx-web/${prefix}/${encodeURIComponent(courseId)}/resource/${encodeURIComponent(targetParentId)}/${encodeURIComponent(nodeId)}`, '学情直达任务');
     }
     /**
      * 路由变化时的概览状态同步。
@@ -6386,12 +6408,25 @@
      * 异常路径独立退避表 ERROR_DELAYS_MS，5 次休眠。两套阈值均在 BACKOFF 常量。
      * [DEEP-DOC]
      */
+    /**
+     * 脚本主动跳转的唯一出口：先记一行日志，再改 location。
+     * 出问题时可从日志直接看出「是谁把我带走的」，不必靠猜。
+     */
+    function xyGoto(url, reason) {
+        xyScriptNavAt = Date.now();
+        xyScriptNavReason = reason || '';
+        try { logMsg(`🧭 脚本跳转（${reason}）：${url}`, 'info', false); } catch (e) {}
+        window.location.href = url;
+    }
     async function tryJumpToNext() {
         if (isJumpingLock) return; 
         if (Date.now() < playState.jumpSleepUntil) return; 
         if (xyScheduleState.isRunning) return;
         /* [SLEEP-FIX] 手动休眠下绝不自主跳转（含全部后续 setTimeout 延迟跳转） */
         if (playState.mode === PLAY_MODE.MANUAL) return;
+        /* 刚手动进到某个页面就立刻把人拽走，是最招人烦的行为。
+         * 8 秒保护期不影响连播接力——两个节点的间隔远大于这个窗口。*/
+        if (Date.now() - xyLastNavAt < 8000) return;
 
         isJumpingLock = true;
         
@@ -6444,7 +6479,7 @@
                 setTimeout(() => { 
                     /* [SLEEP-FIX] 竞态复查：fetch 期间用户点了休眠/停调度则放弃跳转 */
                     if (playState.mode === PLAY_MODE.MANUAL || xyScheduleState.isRunning) { isJumpingLock = false; return; }
-                    window.location.href = `/app/jx-web/${pathPrefix}/${targetTask.group_id}/resource/${resId}/${targetTask.node_id}`; 
+                    xyGoto(`/app/jx-web/${pathPrefix}/${targetTask.group_id}/resource/${resId}/${targetTask.node_id}`, '连播下一项');
                 }, 500);
                 
                 setTimeout(() => { isJumpingLock = false; }, 5000);
@@ -7550,8 +7585,11 @@
         const groupId = getCourseGroupId();
         const nodeId = getNodeId();
 
+        /* 没有 nodeId 说明停在资源目录页（/resource/<id>），不是「学完了一个节点」。
+         * 手动/休眠状态下原地不动：这里是「用户自己在挑任务」，替他挑等于抢方向盘。
+         * 连播/循环仍按老逻辑接力，否则调度落到目录页就断了。*/
         if (!groupId || !nodeId) {
-            await tryJumpToNext();
+            if (playState.mode !== PLAY_MODE.MANUAL) await tryJumpToNext();
             return;
         }
 
@@ -8977,7 +9015,7 @@
                 /* [SLEEP-FIX] 竞态复查：延迟期间调度已被停止/休眠则放弃首跳 */
                 if (!xyScheduleState.isRunning || xyScheduleState.isPaused) return;
                 try { sessionStorage.setItem('xy_sch_jumping', '1'); } catch(e) {}
-                window.location.href = `/app/jx-web/${pathPrefix}/${firstTask.groupId}/resource/${firstTask.resourceId}/${firstTask.nodeId}`;
+                xyGoto(`/app/jx-web/${pathPrefix}/${firstTask.groupId}/resource/${firstTask.resourceId}/${firstTask.nodeId}`, '调度首项');
             }, 800);
         }
     }
@@ -9771,7 +9809,7 @@ const tid = e.target.getAttribute('data-tid');
                 /* [SLEEP-FIX] 延迟期间被停止/暂停则放弃 */
                 if (!xyScheduleState.isRunning || xyScheduleState.isPaused) { playState.isJumping = false; return; }
                 try { sessionStorage.setItem('xy_sch_jumping', '1'); } catch (e) {}
-                window.location.href = `/app/jx-web/${segPrefix}/${segTask.groupId}/resource/${segTask.resourceId}/${segTask.nodeId}`;
+                xyGoto(`/app/jx-web/${segPrefix}/${segTask.groupId}/resource/${segTask.resourceId}/${segTask.nodeId}`, '调度下一项');
             }, 800);
             setTimeout(() => { if (playState.isJumping) playState.isJumping = false; }, 15000);
         }
@@ -9961,7 +9999,7 @@ const tid = e.target.getAttribute('data-tid');
                     /* [SLEEP-FIX] 竞态复查：延迟期间调度被停止/暂停则放弃跳转 */
                     if (!xyScheduleState.isRunning || xyScheduleState.isPaused) { playState.isJumping = false; return; }
                     sessionStorage.setItem('xy_sch_jumping', '1'); 
-                    window.location.href = `/app/jx-web/${pathPrefix}/${currentTask.groupId}/resource/${currentTask.resourceId}/${currentTask.nodeId}`;
+                    xyGoto(`/app/jx-web/${pathPrefix}/${currentTask.groupId}/resource/${currentTask.resourceId}/${currentTask.nodeId}`, '调度继续');
                 }, 1500);
             }
             return;
@@ -12715,7 +12753,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     xyOverviewOpen(course.courseId);
                     return;
                 }
-                window.location.href = xyCourseDashboardResourceUrl(course.courseId);
+                xyGoto(xyCourseDashboardResourceUrl(course.courseId), '课程卡片进入课程');
             });
             courseDashboardList.addEventListener('toggle', event => {
                 const group = event.target.closest('.xy-course-dashboard-task-group');
@@ -12818,7 +12856,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 const link = e.target.closest('[data-dir-url]');
                 if (link) {
                     const url = link.getAttribute('data-dir-url');
-                    if (url) window.location.href = url;
+                    if (url) xyGoto(url, '目录跳转');
                     return;
                 }
                 const head = e.target.closest('.xy-dir-head');
@@ -13110,13 +13148,18 @@ var XYExport = (function (Hinote) {  'use strict';
          * 所有显隐只走 xyApplyLauncherState 这一个出口，别的代码无权单独改其中一半。
          */
         const LAUNCHER_STATE_KEY = 'xy_panel_page_state';
-        const LAUNCHER_LEGACY_KEY = 'xy_panel_collapsed';
-        let pageStateMap = {};
-        try {
-            pageStateMap = JSON.parse(GM_getValue(LAUNCHER_STATE_KEY, '{}')) || {};
-            if (typeof pageStateMap !== 'object' || Array.isArray(pageStateMap)) pageStateMap = {};
-        } catch (e) { pageStateMap = {}; }
-
+        /**
+         * 每次都用 GM 里的最新副本：浏览器常常同时开着十几个小雅标签，
+         * 各自持一份内存 map 再整体覆盖写，后写的会把别人刚记的页面冲掉，
+         * 表现就是「明明展开过，切回来又是收起的」。所以写入一律「读—改—写」。
+         */
+        const xyLoadPageStateMap = () => {
+            try {
+                const raw = GM_getValue(LAUNCHER_STATE_KEY, '{}');
+                const obj = typeof raw === 'string' ? JSON.parse(raw || '{}') : raw;
+                return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+            } catch (e) { return {}; }
+        };
         /** 路由归一化：把数字/长 id 段折成 :id，让同一类页面共用一个键 */
         const xyPageKey = () => {
             const p = (location.pathname || '/').replace(/\/+$/, '') || '/';
@@ -13124,12 +13167,12 @@ var XYExport = (function (Hinote) {  'use strict';
         };
 
         const xyReadStateForPage = () => {
-            const v = pageStateMap[xyPageKey()];
+            const v = xyLoadPageStateMap()[xyPageKey()];
             if (v === 'expanded' || v === 'collapsed') return v;
-            // 老版本只存了全局的折叠位，升级后先沿用他的习惯，之后按页面各记各的
-            try {
-                return GM_getValue(LAUNCHER_LEGACY_KEY, '1') === '0' ? 'expanded' : 'collapsed';
-            } catch (e) { return 'collapsed'; }
+            /* 没记录过的页面一律收起。
+             * 之前这里会退回读全局旧值 xy_panel_collapsed，只要那个值是「展开」，
+             * 每个新页面都自动张开，看起来就像「按页面记忆根本没生效」。*/
+            return 'collapsed';
         };
 
         /** 唯一出口：两种状态各自把两个元素一起写死，杜绝「球和面板同时在场」 */
@@ -13146,8 +13189,9 @@ var XYExport = (function (Hinote) {  'use strict';
         };
 
         const xyPersistLauncherState = (state) => {
-            pageStateMap[xyPageKey()] = state;
-            try { GM_setValue(LAUNCHER_STATE_KEY, JSON.stringify(pageStateMap)); } catch (e) {}
+            const map = xyLoadPageStateMap();   // 读—改—写，保留别的标签写入的键
+            map[xyPageKey()] = state;
+            try { GM_setValue(LAUNCHER_STATE_KEY, JSON.stringify(map)); } catch (e) {}
         };
 
         const xyExpandPanel = () => {
@@ -13235,16 +13279,44 @@ var XYExport = (function (Hinote) {  'use strict';
         /* 初始态：按当前页面自己的记忆恢复 */
         xySyncLauncherForPage();
 
-        /* 路由监听：SPA 切页不改脚本实例，这里盯住 pathname，变了就换用新页面的记忆。
-         * 用轮询而不是 history 钩子，是为了不跟站点自己的路由实现耦合。*/
+        /* ── 路由监听 ──
+         * SPA 切页不会重跑脚本实例，必须自己发现「换页了」。三条路一起上：
+         *   1. 包一层 history.pushState / replaceState：绝大多数 SPA 都走这里，能第一时间响应
+         *   2. popstate / hashchange：浏览器前进后退、锚点跳转
+         *   3. 250ms 轮询兜底：站点若用非常规方式改 URL（或钩子被别的脚本抢先），仍能跟上
+         * 三条都汇到 xyRouteSync，靠 lastPageKey 去重，重复触发无副作用。
+         */
         try { clearInterval(window.__xyLauncherRouteTimer); } catch (e) {}
         let lastPageKey = xyPageKey();
-        window.__xyLauncherRouteTimer = setInterval(() => {
+
+        const xyRouteSync = (reason) => {
             const key = xyPageKey();
             if (key === lastPageKey) return;
             lastPageKey = key;
-            xySyncLauncherForPage();
-        }, 600);
+            const state = xyReadStateForPage();
+            xyApplyLauncherState(state);
+            try {
+                logMsg(`🗂 切换页面（${reason}）：${state === 'expanded' ? '恢复展开' : '恢复收起'}`, 'info', false);
+            } catch (e) {}
+        };
+
+        try {
+            ['pushState', 'replaceState'].forEach((fn) => {
+                const origin = history[fn];
+                if (typeof origin !== 'function' || origin.__xyHooked) return;
+                const hooked = function () {
+                    const result = origin.apply(this, arguments);
+                    setTimeout(() => xyRouteSync('history'), 0);
+                    return result;
+                };
+                hooked.__xyHooked = true;
+                history[fn] = hooked;
+            });
+            window.addEventListener('popstate', () => setTimeout(() => xyRouteSync('popstate'), 0), uiDocumentListenerOptions);
+            window.addEventListener('hashchange', () => setTimeout(() => xyRouteSync('hashchange'), 0), uiDocumentListenerOptions);
+        } catch (e) { /* 钩不上就靠轮询 */ }
+
+        window.__xyLauncherRouteTimer = setInterval(() => xyRouteSync('poll'), 250);
 
         
         const bindSection = (hdrId, bodyId, arrId) => {
