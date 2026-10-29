@@ -2501,8 +2501,13 @@
             ? normalizedCourseId
             : '';
         xyOverviewState.pinnedCourseId = normalizedCourseId;
+        // 折叠成圆球时先把面板展开，否则学情面板会在 display:none 的外壳里加载
+        if (document.getElementById('xy-super-console')?.style.display === 'none'
+            && typeof window.xyExpandPanel === 'function') {
+            window.xyExpandPanel();
+        }
         const body = document.getElementById('xy-main-body');
-        if (body?.style.display === 'none') document.getElementById('xy-minimize')?.click();
+        if (body?.style.display === 'none') body.style.display = 'flex';
         switchToZone(ZONE.OVERVIEW);
         void xyOverviewLoad(normalizedCourseId, false);
     }
@@ -12499,6 +12504,8 @@ var XYExport = (function (Hinote) {  'use strict';
         
         /* ── §2 残留清理：旧面板实例与启动动画 ── */
         document.querySelectorAll('#xy-super-console').forEach(el => { try { el.remove(); } catch(e) {} });
+        // 圆球是面板的兄弟节点，重建时一并清掉，否则「刷新面板」会越堆越多
+        document.querySelectorAll('#xy-launcher-ball').forEach(el => { try { el.remove(); } catch(e) {} });
         
         ['xy-splash','xy-toast-box'].forEach(id => {
             const el = document.getElementById(id);
@@ -13011,25 +13018,123 @@ var XYExport = (function (Hinote) {  'use strict';
 
         /* ── §6 布局行为：最小化 / 分区折叠 / 主题 / 拖拽移动 / 收尾调度 ── */
         const handle = document.getElementById('xy-drag-handle'), minBtn = document.getElementById('xy-minimize'), body = document.getElementById('xy-main-body'), handleRow2 = document.getElementById('xy-handle-row2');
-        let isMin = false;
-        minBtn.onclick = () => {
-            isMin = !isMin;
-            body.style.display = isMin ? 'none' : 'flex';
-            if (handleRow2) handleRow2.style.display = isMin ? 'none' : 'flex';
-            /* 最小化时挂起自定义高度，避免隐藏内容后外壳仍被拖大的 height 撑成空白大框；展开时恢复 */
-            if (isMin && wrapper.style.height && Number(wrapper.style.height.replace('px', '')) > 0) {
-                wrapper.dataset.rsH = wrapper.style.height;
-                wrapper.style.height = '';
-                rsHeightTouched = false;
-            } else if (!isMin && wrapper.dataset.rsH) {
-                wrapper.style.height = wrapper.dataset.rsH;
-                rsHeightTouched = true;
-            }
-            handle.style.padding = isMin ? '8px 18px' : '14px 18px 12px 18px';
-            handle.style.cursor = isMin ? 'default' : 'grab';
-            minBtn.innerText = isMin ? '⊞' : '⊟';
-            minBtn.title = isMin ? '展开面板' : '最小化面板';
+        /* 最小化改成「收进圆球」后不再用到 isMin，但缩放分支仍读它，保留声明 */
+        const isMin = false;
+
+        /* ── 悬浮球 ──
+         * 折叠态屏幕上只留一颗圆钮，点一下展开面板，拖动可挪位置。
+         * 位置与折叠状态都进 GM 存储，刷新后保持原样；面板与球右边缘对齐，
+         * 展开时像是从球里长出来，收起时缩回同一角。
+         */
+        const BALL_SIZE = 56;
+        if (!document.getElementById('xy-launcher-style')) {
+            const st = document.createElement('style');
+            st.id = 'xy-launcher-style';
+            st.textContent = `
+                #xy-launcher-ball { transition: transform .26s cubic-bezier(.19,1,.22,1), box-shadow .26s; }
+                #xy-launcher-ball:hover { transform: scale(1.08); box-shadow: 0 8px 24px rgba(79,70,229,.48), 0 0 0 8px rgba(99,102,241,.14); }
+                #xy-launcher-ball:active { transform: scale(.95); }
+                #xy-launcher-ball.xy-ball-hide { display: none !important; }
+            `;
+            (document.head || document.documentElement).appendChild(st);
+        }
+
+        const ball = document.createElement('div');
+        ball.id = 'xy-launcher-ball';
+        ball.textContent = '雅';
+        ball.title = '小雅辅助工具 · 点击展开';
+        let ballPos = null;
+        try { ballPos = JSON.parse(GM_getValue('xy_ball_pos', '')) || null; } catch (e) { ballPos = null; }
+        if (!ballPos || typeof ballPos.x !== 'number') {
+            ballPos = { x: window.innerWidth - 88, y: window.innerHeight - 128 };
+        }
+        ball.style.cssText = `
+            position: fixed; left: ${Math.round(ballPos.x)}px; top: ${Math.round(ballPos.y)}px;
+            width: ${BALL_SIZE}px; height: ${BALL_SIZE}px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: linear-gradient(145deg, #6366F1, #4F46E5);
+            box-shadow: 0 6px 18px rgba(79,70,229,.42), 0 0 0 6px rgba(99,102,241,.10);
+            color: #fff; font-size: 21px; font-weight: 700; letter-spacing: 1px;
+            cursor: grab; user-select: none; -webkit-user-select: none;
+            z-index: 2147483646; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+        `;
+        document.body.appendChild(ball);
+
+        const xyExpandPanel = () => {
+            GM_setValue('xy_panel_collapsed', '0');
+            /* 必须先显示再量尺寸：display:none 的元素 offsetWidth/offsetHeight 都是 0，
+             * 拿 0 去算落点会把面板顶到视口外 */
+            wrapper.style.display = 'flex';
+            if (body) body.style.display = 'flex';
+            if (handleRow2) handleRow2.style.display = 'flex';
+            ball.classList.add('xy-ball-hide');
+
+            const w = wrapper.offsetWidth || 360;
+            const h = wrapper.offsetHeight || 480;
+            const x = Math.max(8, Math.min(ballPos.x + BALL_SIZE - w, window.innerWidth - w - 8));
+            const y = Math.max(8, Math.min(ballPos.y, window.innerHeight - h - 8));
+            wrapper.style.left = Math.round(x) + 'px';
+            wrapper.style.top = Math.round(y) + 'px';
         };
+
+        const xyCollapsePanel = () => {
+            /* 已经收起时再收起会读到 0 尺寸的矩形，把球甩到左上角 */
+            if (wrapper.style.display === 'none') return;
+            GM_setValue('xy_panel_collapsed', '1');
+            const rect = wrapper.getBoundingClientRect();
+            ballPos = {
+                x: Math.max(0, Math.min(rect.right - BALL_SIZE, window.innerWidth - BALL_SIZE)),
+                y: Math.max(0, Math.min(rect.top, window.innerHeight - BALL_SIZE))
+            };
+            ball.style.left = Math.round(ballPos.x) + 'px';
+            ball.style.top = Math.round(ballPos.y) + 'px';
+            GM_setValue('xy_ball_pos', JSON.stringify(ballPos));
+            ball.classList.remove('xy-ball-hide');
+            wrapper.style.display = 'none';
+        };
+        window.xyExpandPanel = xyExpandPanel;
+
+        /* 拖动：位移超过 3px 记作拖拽，松手时不触发展开 */
+        let ballDragging = false, ballMoved = false, ballDX = 0, ballDY = 0;
+        ball.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            ballDragging = true; ballMoved = false;
+            ballDX = e.clientX - ballPos.x; ballDY = e.clientY - ballPos.y;
+            ball.style.cursor = 'grabbing';
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!ballDragging) return;
+            const nx = Math.max(0, Math.min(e.clientX - ballDX, window.innerWidth - BALL_SIZE));
+            const ny = Math.max(0, Math.min(e.clientY - ballDY, window.innerHeight - BALL_SIZE));
+            if (Math.abs(nx - ballPos.x) > 3 || Math.abs(ny - ballPos.y) > 3) ballMoved = true;
+            ballPos = { x: nx, y: ny };
+            ball.style.left = Math.round(nx) + 'px';
+            ball.style.top = Math.round(ny) + 'px';
+        }, uiDocumentListenerOptions);
+        document.addEventListener('mouseup', () => {
+            if (!ballDragging) return;
+            ballDragging = false;
+            ball.style.cursor = 'grab';
+            if (ballMoved) GM_setValue('xy_ball_pos', JSON.stringify(ballPos));
+        }, uiDocumentListenerOptions);
+        ball.addEventListener('click', () => { if (!ballMoved) xyExpandPanel(); });
+
+        if (minBtn) {
+            minBtn.onclick = () => xyCollapsePanel();
+            minBtn.innerText = '⊟';
+            minBtn.title = '收进圆球';
+        }
+        if (handle) handle.style.cursor = 'grab';
+
+        /* 初始态：默认收起（记住上次选择） */
+        if (GM_getValue('xy_panel_collapsed', '1') === '1') {
+            ball.classList.remove('xy-ball-hide');
+            wrapper.style.display = 'none';
+        } else {
+            wrapper.style.display = 'flex';
+            ball.classList.add('xy-ball-hide');
+        }
 
         
         const bindSection = (hdrId, bodyId, arrId) => {
