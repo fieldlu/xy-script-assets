@@ -5738,7 +5738,7 @@
         const isLight = resolveTheme() === 'light';
         const surface = isLight ? 'rgba(255,255,255,.92)' : 'rgba(17,20,28,.90)';
         const stroke = isLight ? 'rgba(15,23,42,.07)' : 'rgba(255,255,255,.08)';
-        const textColor = isLight ? '#0f172a' : '#e8ecf4';
+        const textColor = isLight ? '#111827' : '#dfe5ef';
         const shadow = isLight
             ? '0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.10), 0 24px 48px -12px rgba(15,23,42,.16)'
             : '0 1px 2px rgba(0,0,0,.4), 0 10px 28px rgba(0,0,0,.45), 0 24px 56px -16px rgba(0,0,0,.6)';
@@ -5747,7 +5747,7 @@
         if (!container) {
             container = document.createElement('div');
             container.id = 'xy-toast-box';
-            container.style.cssText = 'position:fixed; left:50%; bottom:34px; transform:translateX(-50%); z-index:2147483647; display:flex; flex-direction:column-reverse; align-items:center; gap:10px; pointer-events:none;';
+            container.style.cssText = 'position:fixed; left:50%; top:22px; transform:translateX(-50%); z-index:2147483647; display:flex; flex-direction:column; align-items:center; gap:10px; pointer-events:none;';
             document.body.appendChild(container);
         }
 
@@ -5762,18 +5762,18 @@
                 }
                 .xy-toast {
                     display: flex; align-items: center; gap: 10px;
-                    max-width: min(520px, calc(100vw - 48px));
+                    max-width: min(520px, calc(100vw - 48px)); min-width: 168px;
                     padding: 12px 18px 12px 16px;
                     border-radius: 14px;
-                    font-size: 13px; font-weight: 500; letter-spacing: .2px; line-height: 1.5;
+                    font-size: 12.8px; font-weight: 500; letter-spacing: .3px; line-height: 1.55;
                     position: relative; overflow: hidden;
                     backdrop-filter: blur(18px) saturate(1.5);
                     -webkit-backdrop-filter: blur(18px) saturate(1.5);
-                    opacity: 0; transform: translateY(10px) scale(.98);
+                    opacity: 0; transform: translateY(-10px) scale(.98);
                     transition: transform .26s cubic-bezier(.22,1,.36,1), opacity .2s ease;
                 }
                 .xy-toast.is-in { opacity: 1; transform: translateY(0) scale(1); }
-                .xy-toast.is-out { opacity: 0; transform: translateY(-4px) scale(.985); transition: transform .2s ease, opacity .18s ease; }
+                .xy-toast.is-out { opacity: 0; transform: translateY(-6px) scale(.985); transition: transform .2s ease, opacity .18s ease; }
                 .xy-toast-dot {
                     width: 6px; height: 6px; border-radius: 50%; flex: none;
                     position: relative;
@@ -5797,7 +5797,7 @@
         /* 最多同时三条：超出时把最老的一条立刻收掉，避免糊成一片 */
         const alive = [...container.children];
         if (alive.length >= 3) {
-            const oldest = alive[0];
+            const oldest = alive[alive.length - 1];   // 顶部排列，最老的在最下面
             oldest.classList.add('is-out');
             setTimeout(() => oldest.remove(), 200);
         }
@@ -5817,7 +5817,7 @@
         bar.style.background = accent;
         bar.style.animation = 'xy-toast-bar 3.2s linear forwards';
 
-        container.appendChild(toast);
+        container.prepend(toast);   // 最新的一条贴着顶部出现，旧的往下让位
         void toast.offsetWidth;
         requestAnimationFrame(() => toast.classList.add('is-in'));
 
