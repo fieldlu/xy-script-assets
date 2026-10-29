@@ -2169,8 +2169,7 @@
      * [DEEP-DOC]
      */
     function xyTodayPromptRenderCourse(summary) {
-        /* 状态由 is-xxx 的配色表达，标题前不再放符号 */
-        const icon = '';
+        const icon = summary.state === 'urgent' ? '⏱' : summary.state === 'continue' ? '🎯' : summary.state === 'waiting' ? '🕒' : summary.state === 'unknown' ? '⚠' : '✓';
         const actions = summary.actions.slice(0, 3).map((task, index) => {
             const canOpen = !!task.nodeId;
             const deadline = task.deadlineAt ? xyOverviewDeadlineText(task.endTime || task.end_time) : '';
@@ -2227,7 +2226,7 @@
                     </div>
                 </div>`;
         }).join('');
-        const stateIcon = '';
+        const stateIcon = summary.state === 'urgent' ? '🧭' : summary.state === 'partial' ? '⚠' : summary.state === 'waiting' ? '🕒' : '✓';
         // 面板写着「可做 6」却只列 3 条，用户会以为漏了；把差额明说出来，比静默截断诚实
         const hiddenCount = Math.max(0, (summary.counts.actionable || 0) - summary.actions.length);
         container.innerHTML = `
