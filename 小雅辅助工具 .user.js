@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         小雅辅助工具
 // @namespace    https://gitee.com/fieldlu/xy-script-assets
-// @version      3.7.4.11
+// @version      3.7.4.12
 // @description  小雅平台浏览器用户脚本：课程资料批量下载与离线归档、视频本地保存与断点续播、作业查看与导出 Word（题目·答案·批改结果自由组合）、Markdown 转 Word、课件预览一键转 PDF（纯前端 OW365 打印桥）、统一打包下载、学情总览等常用学习辅助功能集成
 // @author       Confidential
 // @license      GPL-3.0-or-later
@@ -8124,10 +8124,10 @@
      * 只放安装入口和一句版本说明，避免兜底内容随版本迭代越堆越长、最后没人维护。
      */
     const EMBEDDED_NOTICE = {
-        "title": "新版本已发布",
+        "title": "✅ v3.7.4.12 已发布",
         "items": [
-            "安装 / 更新：https://scriptcat.org/scripts/code/5881/小雅辅助工具.user.js",
-            "修复了一些已知问题。"
+            "📎 安装 / 更新 v3.7.4.12：https://scriptcat.org/scripts/code/5881/小雅辅助工具.user.js",
+            "🕗 2026-10-29 21:52 发布：修复了一些已知问题。"
         ]
     };
     /** 一键互动组合拳：串行执行 autoLikeAction + autoReplyAction（点赞完再回
