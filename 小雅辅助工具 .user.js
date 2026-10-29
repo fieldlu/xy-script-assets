@@ -4086,7 +4086,6 @@
                 switchToZone('disc');
                 return;
             } else if (routeKind === ZONE.DIR) {
-                if (playState.activeZone !== 'dir') logMsg( '目录页 · 已切换至课程目录区', 'success', true );
                 switchToZone('dir');
                 setTimeout(loadCourseDirectory, 200);
             } else if (routeKind === ZONE.OVERVIEW) {
@@ -4151,14 +4150,12 @@
         if (taskType === 1) { switchToZone(ZONE.COURSE); return; }
         else if (taskType === 6) { switchToZone(ZONE.DISC); return; }
         else if (taskType > 1 && taskType <= 5) {
-            if (playState.activeZone !== ZONE.HW) logMsg( '测验作业页 · 已切换至作业区', 'success', true );
             switchToZone(ZONE.HW);
             setTimeout(hwProactiveFetchData, 300);
             return;
         }
 
         if (window.location.href.includes('/course_paper/')) {
-            if (playState.activeZone !== ZONE.HW) logMsg( '作业页 · 已切换至作业区', 'success', true );
             switchToZone(ZONE.HW);
             setTimeout(hwProactiveFetchData, 300);
             return;
@@ -4174,7 +4171,6 @@
             return;
         }
         if (routeKind === ZONE.DIR) {
-            if (playState.activeZone !== 'dir') logMsg( '目录页 · 已切换至课程目录区', 'success', true );
             switchToZone('dir');
             setTimeout(loadCourseDirectory, 200);
             return;
@@ -5828,12 +5824,59 @@
      * console（默认关键日志才打，避免刷屏）。silent 类型仅入库不上屏。
      * [DEEP-DOC]
      */
+    /**
+     * 同一句话的去重窗口。
+     *
+     * 轮询类日志（任务总览达标、拦截提示、区域侦测）原本每次检测都会追加一条，
+     * 十秒一轮地刷屏，日志里真正有用的信息被淹没。同一句话 8 秒内重复，
+     * 只是噪音，不带来新信息，直接丢弃。
+     */
+    const _xyLogSeen = new Map();
+    /**
+     * 日志语义色：与 toast 同源，深浅主题各一套。
+     *
+     * 原来颜色被写死在每条日志里，切换主题后历史日志不会跟着变；
+     * 现在只存类型，渲染时再按当前主题取色。
+     */
+    function xyLogColor(type) {
+        const light = resolveTheme() === 'light';
+        const dark = { success: '#34d399', warning: '#fbbf24', error: '#fb7185', info: '#818cf8', silent: '#94a3b8' };
+        const lite = { success: '#059669', warning: '#b45309', error: '#be123c', info: '#4338ca', silent: '#94a3b8' };
+        const table = light ? lite : dark;
+        return table[type] || table.info;
+    }
+    /**
+     * 日志行渲染：时间戳与正文分成两段。
+     *
+     * 原来整行一个 innerText，开头的方括号和正文一样重，二十几行叠在一起时
+     * 眼睛没有落点。拆开后时间戳压到 38% 不透明度、等宽数字对齐，正文独占主色，
+     * 扫读时先看到内容、需要时才去对时间。
+     */
+    function xyRenderLogLine(text, color) {
+        const el = document.createElement('div');
+        el.style.cssText = 'display:flex; align-items:flex-start; gap:7px; margin-bottom:3px; line-height:1.6;';
+        el.style.color = color;
+        const m = String(text).match(/^\[(\d{2}:\d{2}:\d{2})\]\s*([\s\S]*)$/);
+        const ts = document.createElement('span');
+        ts.style.cssText = 'flex:none; opacity:.38; font-variant-numeric:tabular-nums; letter-spacing:-.2px;';
+        ts.textContent = m ? m[1] : '';
+        const tx = document.createElement('span');
+        tx.style.cssText = 'flex:1; min-width:0; overflow-wrap:anywhere;';
+        tx.textContent = m ? m[2] : String(text);
+        el.append(ts, tx);
+        return el;
+    }
     function logMsg(msg, type = 'info', isSilent = false) {
-        const colors = { success: '#10b981', warning: '#f59e0b', error: '#ef4444', info: '#38bdf8', silent: '#94a3b8' };
-        const color = isSilent ? colors.silent : (colors[type] || colors.info);
+        const nowTs = Date.now();
+        if (_xyLogSeen.size > 80) _xyLogSeen.clear();
+        if (nowTs - (_xyLogSeen.get(msg) || 0) < 8000) return;
+        _xyLogSeen.set(msg, nowTs);
+
+        const kind = isSilent ? 'silent' : (['success', 'warning', 'error', 'info'].includes(type) ? type : 'info');
+        const color = xyLogColor(kind);
         const time = new Date().toLocaleTimeString('zh-CN', {hour12: false});
         const logStr = `[${time}] ${msg}`;
-        sessionLogs.push({ text: logStr, color: color });
+        sessionLogs.push({ text: logStr, type: kind, color: color });
         if (sessionLogs.length > 80) sessionLogs.shift();
         
         
@@ -5842,7 +5885,7 @@
         // 追加到终端视图（若已渲染）
         const logBox = document.getElementById('xy-activity-log');
         if (logBox) {
-            const el = document.createElement('div'); el.style.color = color; el.style.marginBottom = '4px'; el.style.lineHeight = '1.5'; el.innerText = logStr; logBox.appendChild(el);
+            logBox.appendChild(xyRenderLogLine(logStr, color));
             logBox.scrollTop = logBox.scrollHeight;
             if (logBox.children.length > 80) logBox.removeChild(logBox.firstChild);
         }
@@ -6703,9 +6746,15 @@
                             forceSubmit: true,      // 任务总览已判完成，本地判据不适用，直接交卷
                             typeLabel: '任务总览任务'
                         });
-                        if (res.ok) logMsg( '当前任务已在总览达成', 'success', false );
+                        /* 边沿触发：只在「第一次判定达标」时记一次，
+                         * 之后每轮轮询都记会把日志刷满 */
+                        if (res.ok && !playState._overviewDoneLogged) {
+                            playState._overviewDoneLogged = true;
+                            logMsg( '当前任务已在总览达成', 'success', false );
+                        }
                     }
                 } else { 
+                    playState._overviewDoneLogged = false;
                     if (playState.isTaskCompleted || (document.getElementById('xy-status-banner') && document.getElementById('xy-status-banner').innerText.includes('初始化'))) { 
                         playState.isTaskCompleted = false; updateCourseUI(); 
                     } 
@@ -6731,7 +6780,7 @@
                             const btns = Array.from(box.querySelectorAll('button, .el-button, [role="button"]'));
                             targetBtn = btns.find(b => { const t = (b.innerText || "").replace(/\s+/g, ''); return t.length <= 8 && /确定|继续|是|我知道了|恢复|确认/.test(t); });
                         }
-                        if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg( '已拦截系统提示框', 'success', true ); }, 300); return true; }
+                        if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); xyLogPopupBlocked(); }, 300); return true; }
                     }
                 }
             }
@@ -6739,14 +6788,21 @@
             if (/长时间.*操作|无操作|没有操作|任务暂停|休息一下|确认打开|是否确认打开文件/.test(bodyText)) {
                 const allButtons = Array.from(doc.querySelectorAll('button, [role="button"], .btn, span[class*="btn"]'));
                 const targetBtn = allButtons.find(b => { const t = ((b.innerText || "")).replace(/\s+/g, ''); return b.offsetParent !== null && t.length <= 8 && /确定|继续|恢复|我知道了|确认/.test(t); });
-                if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg( '已拦截系统提示框', 'success', true ); }, 500); return true; }
+                if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); xyLogPopupBlocked(); }, 500); return true; }
             }
         } catch(e) {} return false;
     }
+    /**
+     * 拦截提示的限流：平台每十秒弹一次「长时间未操作」，逐条记录会把日志刷满。
+     * 首次拦截记一条，之后每分钟最多一条。
+     */
+    function xyLogPopupBlocked() {
+        const nowTs = Date.now();
+        if (nowTs - (playState._popupLogAt || 0) < 60000) return;
+        playState._popupLogAt = nowTs;
+        logMsg( '已拦截系统提示框', 'success', true );
+    }
 
-
-    
-    
     let mouseSimTimer = null;
     let simMouseX = Math.random() * window.innerWidth;
     let simMouseY = Math.random() * window.innerHeight;
@@ -7224,7 +7280,6 @@
                 recordIntervalTimer = createPersistentInterval(sendRecordRequest, 30000, 20);
             }
         }, 10000);
-        logMsg( '[保活] 巡检已启动 · 10 秒一次', 'silent', true );
     }
 
 
@@ -12657,7 +12712,7 @@ var XYExport = (function (Hinote) {  'use strict';
         /* ── §4 会话日志回放：恢复历史终端输出 ── */
         const logBox = document.getElementById('xy-activity-log');
         if (logBox && sessionLogs.length > 0) {
-            logBox.innerHTML = ''; sessionLogs.forEach(log => { const el = document.createElement('div'); el.style.color = log.color === '#64748b' ? '#94a3b8' : (log.color === '#38bdf8' ? '#10b981' : log.color); el.style.marginBottom = '4px'; el.style.lineHeight = '1.5'; el.innerText = log.text; logBox.appendChild(el); });
+            logBox.innerHTML = ''; sessionLogs.forEach(log => { const el = xyRenderLogLine(log.text, log.type ? xyLogColor(log.type) : log.color); logBox.appendChild(el); });
             logBox.scrollTop = logBox.scrollHeight;
         } else {
             logMsg('=============================', 'silent', true);
