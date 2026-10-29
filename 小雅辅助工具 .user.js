@@ -5707,24 +5707,124 @@
      * document.body 未就绪时静默丢弃（启动期保护）。
      * [DEEP-DOC]
      */
+    /**
+     * 轻量提示条（toast）。
+     *
+     * 设计取向：不用 emoji、不用高饱和色块、不做弹跳。
+     *   · 结构：一枚 6px 的语义光点 + 一行 13px 正文字，信息只有这两层；
+     *   · 表面：深色玻璃 + 1px 极淡描边 + 两层柔和阴影，靠材质而不是靠颜色抢眼；
+     *   · 动效：从下往上 10px 缓入（cubic-bezier(.22,1,.36,1)），240ms，退出更快更轻；
+     *   · 底部一条 1.5px 的进度线，只在 50% 透明度下微微收敛，提示还剩多久。
+     * 位置放在底部居中：视线落点低，不遮挡内容，也更像系统级提示。
+     *
+     * @param {string} msg  正文（会做 HTML 转义）
+     * @param {'success'|'warning'|'error'|'info'} [type='info'] 语义类型
+     */
     function showToast(msg, type = 'info') {
-        
         if (!document.body) {
             setTimeout(() => showToast(msg, type), 500);
             return;
         }
-        
-        const colors = { success: { bg: T('rgba(15,23,42,0.95)','#ffffff'), icon: '🎉', accent: '#34d399', border: T('rgba(52,211,153,0.25)','#a7f3d0'), text: T('#e2e8f0','#0f172a') }, warning: { bg: T('rgba(15,23,42,0.95)','#ffffff'), icon: '⚠️', accent: '#fbbf24', border: T('rgba(251,191,36,0.25)','#fde68a'), text: T('#e2e8f0','#0f172a') }, error: { bg: T('rgba(15,23,42,0.95)','#ffffff'), icon: '❌', accent: '#f87171', border: T('rgba(248,113,113,0.25)','#fecaca'), text: T('#e2e8f0','#0f172a') }, info: { bg: T('rgba(15,23,42,0.95)','#ffffff'), icon: 'ℹ️', accent: '#818cf8', border: T('rgba(129,140,248,0.25)','#c7d2fe'), text: T('#e2e8f0','#0f172a') } };
-        const currentType = colors[type] || colors.info;
+
+        /* 语义色只用于那枚光点和进度线，表面始终是同一块中性玻璃 */
+        const accents = {
+            success: '#34d399',
+            warning: '#fbbf24',
+            error: '#fb7185',
+            info: '#818cf8'
+        };
+        const accent = accents[type] || accents.info;
+        /* 走 resolveTheme：auto 模式下按昼夜取，不能直接看 settingsState.theme */
+        const isLight = resolveTheme() === 'light';
+        const surface = isLight ? 'rgba(255,255,255,.92)' : 'rgba(17,20,28,.90)';
+        const stroke = isLight ? 'rgba(15,23,42,.07)' : 'rgba(255,255,255,.08)';
+        const textColor = isLight ? '#0f172a' : '#e8ecf4';
+        const shadow = isLight
+            ? '0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.10), 0 24px 48px -12px rgba(15,23,42,.16)'
+            : '0 1px 2px rgba(0,0,0,.4), 0 10px 28px rgba(0,0,0,.45), 0 24px 56px -16px rgba(0,0,0,.6)';
+
         let container = document.getElementById('xy-toast-box');
-        if (!container) { container = document.createElement('div'); container.id = 'xy-toast-box'; container.style.cssText = `position:fixed; top:32px; left:50%; transform:translateX(-50%); z-index:9999999; display:flex; flex-direction:column; gap:16px; pointer-events:none;`; document.body.appendChild(container); }
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'xy-toast-box';
+            container.style.cssText = 'position:fixed; left:50%; bottom:34px; transform:translateX(-50%); z-index:2147483647; display:flex; flex-direction:column-reverse; align-items:center; gap:10px; pointer-events:none;';
+            document.body.appendChild(container);
+        }
+
+        if (!document.getElementById('xy-toast-style')) {
+            const style = document.createElement('style');
+            style.id = 'xy-toast-style';
+            style.textContent = `
+                .xy-toast::before {
+                    content: ""; position: absolute; inset: 0; border-radius: inherit;
+                    background: linear-gradient(180deg, var(--xy-toast-sheen), transparent 46%);
+                    pointer-events: none;
+                }
+                .xy-toast {
+                    display: flex; align-items: center; gap: 10px;
+                    max-width: min(520px, calc(100vw - 48px));
+                    padding: 12px 18px 12px 16px;
+                    border-radius: 14px;
+                    font-size: 13px; font-weight: 500; letter-spacing: .2px; line-height: 1.5;
+                    position: relative; overflow: hidden;
+                    backdrop-filter: blur(18px) saturate(1.5);
+                    -webkit-backdrop-filter: blur(18px) saturate(1.5);
+                    opacity: 0; transform: translateY(10px) scale(.98);
+                    transition: transform .26s cubic-bezier(.22,1,.36,1), opacity .2s ease;
+                }
+                .xy-toast.is-in { opacity: 1; transform: translateY(0) scale(1); }
+                .xy-toast.is-out { opacity: 0; transform: translateY(-4px) scale(.985); transition: transform .2s ease, opacity .18s ease; }
+                .xy-toast-dot {
+                    width: 6px; height: 6px; border-radius: 50%; flex: none;
+                    position: relative;
+                }
+                .xy-toast-dot::after {
+                    content: ""; position: absolute; inset: -3px; border-radius: 50%;
+                    background: currentColor; opacity: .18;
+                }
+                .xy-toast-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+                .xy-toast-bar {
+                    position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+                    transform-origin: left center; opacity: .32;
+                }
+                @keyframes xy-toast-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+                @keyframes xy-spin { to { transform: rotate(360deg); } }
+                @keyframes xy-indeterminate { 0% { transform: translateX(-100%); } 50% { transform: translateX(150%); } 100% { transform: translateX(350%); } }
+            `;
+            (document.head || document.documentElement).appendChild(style);
+        }
+
+        /* 最多同时三条：超出时把最老的一条立刻收掉，避免糊成一片 */
+        const alive = [...container.children];
+        if (alive.length >= 3) {
+            const oldest = alive[0];
+            oldest.classList.add('is-out');
+            setTimeout(() => oldest.remove(), 200);
+        }
+
         const toast = document.createElement('div');
-        toast.style.cssText = `background:${currentType.bg}; color:${currentType.text}; padding:14px 22px; border-radius:10px; font-weight:600; font-size:14px; box-shadow:${T('0 12px 30px rgba(0,0,0,0.4)','0 8px 24px rgba(0,0,0,0.08)')}, 0 0 0 1px ${currentType.border}; transition:all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55); opacity:0; transform:translateY(-30px) scale(0.9); backdrop-filter: ${T('blur(12px)','none')}; display:flex; align-items:center; overflow:hidden; position:relative;`;
-        toast.innerHTML = `<span style="margin-right:10px; font-size:18px;">${currentType.icon}</span><span style="flex:1; z-index:1; line-height: 1.4;">${escapeHtml(msg)}</span><div style="position:absolute; bottom:0; left:0; height:3px; background:${currentType.accent}; width:100%; transform-origin:left; animation: xy-toast-progress 3s linear forwards; opacity: 0.5;"></div>`;
+        toast.className = 'xy-toast';
+        toast.style.background = surface;
+        toast.style.border = `1px solid ${stroke}`;
+        toast.style.boxShadow = shadow;
+        toast.style.color = textColor;
+        toast.style.setProperty('--xy-toast-sheen', isLight ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.055)');
+        toast.innerHTML = '<span class="xy-toast-dot"></span><span class="xy-toast-text"></span><span class="xy-toast-bar"></span>';
+        toast.querySelector('.xy-toast-dot').style.color = accent;
+        toast.querySelector('.xy-toast-dot').style.background = accent;
+        toast.querySelector('.xy-toast-text').textContent = msg;
+        const bar = toast.querySelector('.xy-toast-bar');
+        bar.style.background = accent;
+        bar.style.animation = 'xy-toast-bar 3.2s linear forwards';
+
         container.appendChild(toast);
-        if(!document.getElementById('xy-toast-style')) { const style = document.createElement('style'); style.id = 'xy-toast-style'; style.innerHTML = `@keyframes xy-toast-progress{from{transform:scaleX(1)}to{transform:scaleX(0)}}@keyframes xy-spin{to{transform:rotate(360deg)}}@keyframes xy-indeterminate{0%{transform:translateX(-100%)}50%{transform:translateX(150%)}100%{transform:translateX(350%)}}`; document.head.appendChild(style); }
-        requestAnimationFrame(() => { toast.style.opacity = '1'; toast.style.transform = 'translateY(0) scale(1)'; });
-        setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(-20px) scale(0.9)'; setTimeout(() => toast.remove(), 400); }, 3000);
+        void toast.offsetWidth;
+        requestAnimationFrame(() => toast.classList.add('is-in'));
+
+        setTimeout(() => {
+            toast.classList.add('is-out');
+            setTimeout(() => toast.remove(), 220);
+        }, 3000);
     }
     /**
      * 统一日志管线 —— 全脚本的诊断信息出口。
@@ -13082,9 +13182,20 @@ var XYExport = (function (Hinote) {  'use strict';
             st.id = 'xy-launcher-style';
             st.textContent = `
                 #xy-launcher-ball {
-                    transition: transform .26s cubic-bezier(.19,1,.22,1), box-shadow .26s, filter .26s;
+                    transition: transform .26s cubic-bezier(.19,1,.22,1), box-shadow .26s,
+                                opacity .16s ease, filter .26s;
                     isolation: isolate;
                 }
+                /* 球退场：缩小 + 淡出，交棒给面板 */
+                #xy-launcher-ball.xy-ball-out { opacity: 0; transform: scale(.5); pointer-events: none; }
+                /* 面板入场：以球心为原点由 .94 放大到 1，配合淡入 */
+                #xy-super-console {
+                    transition: opacity .18s ease, transform .24s cubic-bezier(.22,1,.36,1);
+                    will-change: opacity, transform;
+                }
+                #xy-super-console.xy-panel-pre { opacity: 0; transform: scale(.94); }
+                /* 首次挂载与代码内同步时临时关掉过渡，避免页面一打开就看到动画 */
+                #xy-super-console.xy-no-anim { transition: none !important; }
                 /* 顶部椭圆高光：让圆球有体积感，不是一块平的色块 */
                 #xy-launcher-ball::before {
                     content: ''; position: absolute; left: 9%; right: 9%; top: 6%; height: 44%;
@@ -13152,43 +13263,104 @@ var XYExport = (function (Hinote) {  'use strict';
          * 所有显隐只走 xyApplyLauncherState 这一个出口，别的代码无权单独改其中一半。
          */
         const LAUNCHER_STATE_KEY = 'xy_launcher_state';
+        /** 过渡时长：与 CSS 的 transform .24s 对齐，取整留一点余量 */
+        const ANIM_MS = 240;
+        /** 当前状态（内存真相）。GM 只做持久化，运行期以这个为准，避免读到旧值 */
+        let launcherState = 'collapsed';
+        /** 过渡进行中：这期间允许两个元素同时存在（一个在淡出），互斥守卫要放行 */
+        let launcherAnimating = false;
+        let launcherAnimTimer = 0;
+
         const xyReadLauncherState = () => {
             try {
                 return GM_getValue(LAUNCHER_STATE_KEY, 'collapsed') === 'expanded' ? 'expanded' : 'collapsed';
             } catch (e) { return 'collapsed'; }
         };
 
-        /** 唯一出口：两种状态各自把两个元素一起写死，杜绝「球和面板同时在场」 */
-        const xyApplyLauncherState = (state) => {
-            if (state === 'expanded') {
-                wrapper.style.display = 'flex';
-                if (body) body.style.display = 'flex';
-                if (handleRow2) handleRow2.style.display = 'flex';
-                ball.classList.add('xy-ball-hide');
-            } else {
-                wrapper.style.display = 'none';
-                ball.classList.remove('xy-ball-hide');
-            }
-        };
-
         const xyPersistLauncherState = (state) => {
             try { GM_setValue(LAUNCHER_STATE_KEY, state); } catch (e) {}
         };
+
+        /** 球的可达性：读屏与键盘也要能用 */
+        const xySyncBallA11y = () => {
+            if (!ball) return;
+            ball.setAttribute('role', 'button');
+            ball.setAttribute('tabindex', '0');
+            ball.setAttribute('aria-expanded', launcherState === 'expanded' ? 'true' : 'false');
+            ball.setAttribute('aria-label', launcherState === 'expanded' ? '收起小雅辅助工具面板' : '展开小雅辅助工具面板');
+            ball.title = launcherState === 'expanded' ? '小雅辅助工具 · 点击收起' : '小雅辅助工具 · 点击展开';
+        };
+
+        /**
+         * 原子的「立即落位」：不带动画，供初始化与外部同步用。
+         * 两态各自把两个元素的显隐一次写死，任何时刻只有一种可见。
+         */
+        const xyApplyLauncherStateNow = (state) => {
+            wrapper.classList.add('xy-no-anim');
+            if (state === 'expanded') {
+                wrapper.classList.remove('xy-panel-pre');
+                wrapper.style.display = 'flex';
+                if (body) body.style.display = 'flex';
+                if (handleRow2) handleRow2.style.display = 'flex';
+                ball.classList.remove('xy-ball-out');
+                ball.classList.add('xy-ball-hide');
+            } else {
+                wrapper.style.display = 'none';
+                wrapper.classList.remove('xy-panel-pre');
+                ball.classList.remove('xy-ball-out');
+                ball.classList.remove('xy-ball-hide');
+            }
+            launcherState = state;
+            launcherAnimating = false;
+            xySyncBallA11y();
+            /* 下一帧恢复过渡，否则后续动画会被这条规则吃掉 */
+            requestAnimationFrame(() => wrapper.classList.remove('xy-no-anim'));
+        };
+
+        /**
+         * 展开：先摆位（此时面板还是透明的，不会闪），再让面板从球心放大淡入、球缩退。
+         * 位置必须在动画开始前算好：scale 不影响 offsetWidth，但入场后再改 left/top 会跳。
+         */
         const xyExpandPanel = () => {
-            /* 先切态再量尺寸：display:none 时 offsetWidth/offsetHeight 都是 0，
-             * 拿 0 去算落点会把面板顶到视口外 */
-            xyApplyLauncherState('expanded');
+            if (launcherState === 'expanded' && wrapper.style.display !== 'none') return;
+            clearTimeout(launcherAnimTimer);
+            wrapper.classList.remove('xy-no-anim');
+            wrapper.classList.add('xy-panel-pre');
+            wrapper.style.display = 'flex';
+            if (body) body.style.display = 'flex';
+            if (handleRow2) handleRow2.style.display = 'flex';
+
             const w = wrapper.offsetWidth || 360;
             const h = wrapper.offsetHeight || 480;
             const x = Math.max(8, Math.min(ballPos.x + BALL_SIZE - w, window.innerWidth - w - 8));
             const y = Math.max(8, Math.min(ballPos.y, window.innerHeight - h - 8));
             wrapper.style.left = Math.round(x) + 'px';
             wrapper.style.top = Math.round(y) + 'px';
+            /* 以球心为原点：视觉上面板就是从球里长出来的 */
+            wrapper.style.transformOrigin = `${Math.round(ballPos.x + BALL_SIZE / 2 - x)}px ${Math.round(ballPos.y + BALL_SIZE / 2 - y)}px`;
+
+            ball.classList.remove('xy-ball-hide');
+            ball.classList.add('xy-ball-out');
+            launcherState = 'expanded';
+            launcherAnimating = true;
+            xySyncBallA11y();
             xyPersistLauncherState('expanded');
+
+            void wrapper.offsetWidth;   // 提交起始态，过渡才会真的发生
+            requestAnimationFrame(() => wrapper.classList.remove('xy-panel-pre'));
+
+            launcherAnimTimer = setTimeout(() => {
+                ball.classList.add('xy-ball-hide');
+                ball.classList.remove('xy-ball-out');
+                launcherAnimating = false;
+            }, ANIM_MS);
         };
 
+        /**
+         * 收起：球先在面板右上角就位并放大浮现，面板同时缩回原点再隐藏。
+         * 球的位置取自面板当前包围盒，所以收起后球就停在面板右上角，位置连贯。
+         */
         const xyCollapsePanel = () => {
-            /* 已经收起时再收起会读到 0 尺寸的矩形，把球甩到左上角 */
             if (wrapper.style.display === 'none') return;
             const rect = wrapper.getBoundingClientRect();
             ballPos = {
@@ -13198,16 +13370,38 @@ var XYExport = (function (Hinote) {  'use strict';
             ball.style.left = Math.round(ballPos.x) + 'px';
             ball.style.top = Math.round(ballPos.y) + 'px';
             GM_setValue('xy_ball_pos', JSON.stringify(ballPos));
-            xyApplyLauncherState('collapsed');
+
+            clearTimeout(launcherAnimTimer);
+            wrapper.classList.remove('xy-no-anim');
+            ball.style.transformOrigin = 'center center';
+            ball.classList.remove('xy-ball-hide');
+            ball.classList.add('xy-ball-out');
+            launcherState = 'collapsed';
+            launcherAnimating = true;
+            xySyncBallA11y();
             xyPersistLauncherState('collapsed');
+
+            void ball.offsetWidth;
+            requestAnimationFrame(() => ball.classList.remove('xy-ball-out'));
+            wrapper.classList.add('xy-panel-pre');
+
+            launcherAnimTimer = setTimeout(() => {
+                wrapper.style.display = 'none';
+                wrapper.classList.remove('xy-panel-pre');
+                launcherAnimating = false;
+            }, ANIM_MS);
         };
 
+        /** 供 switchToZone 调用：按已存状态重排一次，不动状态本身，也不播动画 */
+        window.xySyncLauncher = () => xyApplyLauncherStateNow(xyReadLauncherState());
         window.xyExpandPanel = xyExpandPanel;
 
         /* 不变量兜底：任何别处擅自改面板显隐，这里都会把另一个收掉，
          * 保证「同一时刻只有一种可见」不会因为某段旧代码而破功 */
         try { window.__xyLauncherObserver?.disconnect(); } catch (e) {}
         window.__xyLauncherObserver = new MutationObserver(() => {
+            /* 过渡中球正在淡出/淡入，两个元素同时可见是正常的，别在这里抢着收 */
+            if (launcherAnimating) return;
             const panelVisible = wrapper.style.display !== 'none';
             const ballVisible = !ball.classList.contains('xy-ball-hide');
             if (panelVisible && ballVisible) {
@@ -13251,12 +13445,36 @@ var XYExport = (function (Hinote) {  'use strict';
         }
         if (handle) handle.style.cursor = 'grab';
 
-        /* 初始态：沿用上次的状态（刷新后不变）。首次使用默认收起成一颗圆球。 */
-        xyApplyLauncherState(xyReadLauncherState());
+        /* 初始态：沿用上次的状态（刷新后不变），首屏不做动画，避免一闪。
+         * 首次使用默认收起成一颗圆球。*/
+        xyApplyLauncherStateNow(xyReadLauncherState());
 
-        /* switchToZone 等地方会调这个：只按已存状态重排一次显隐，不改变状态本身。
-         * 切页不重置，所以「上一页展开，这一页也展开」。*/
-        window.xySyncLauncher = () => xyApplyLauncherState(xyReadLauncherState());
+        /* Esc 收起：面板开着的时候按一下就回到圆球，比去找 ⊟ 快 */
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if (launcherState !== 'expanded') return;
+            xyCollapsePanel();
+        }, uiDocumentListenerOptions);
+
+        /* 键盘可达：球聚焦后回车/空格可展开 */
+        if (ball) {
+            ball.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                xyExpandPanel();
+            });
+        }
+
+        /* 窗口尺寸变化后把球拉回可视区，避免缩窗后它停在屏幕外 */
+        window.addEventListener('resize', () => {
+            if (launcherState === 'expanded') return;
+            const nx = Math.max(0, Math.min(ballPos.x, window.innerWidth - BALL_SIZE));
+            const ny = Math.max(0, Math.min(ballPos.y, window.innerHeight - BALL_SIZE));
+            if (nx === ballPos.x && ny === ballPos.y) return;
+            ballPos = { x: nx, y: ny };
+            ball.style.left = Math.round(nx) + 'px';
+            ball.style.top = Math.round(ny) + 'px';
+        }, uiDocumentListenerOptions);
 
         
         const bindSection = (hdrId, bodyId, arrId) => {
