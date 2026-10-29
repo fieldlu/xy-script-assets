@@ -1173,7 +1173,7 @@
         if (playState.mode !== PLAY_MODE.MANUAL) {
             playState.mode = PLAY_MODE.MANUAL;
             try { GM_setValue('xy_play_mode', PLAY_MODE.MANUAL); } catch (e) {}
-            try { logMsg( '新会话 · 默认手动休眠', 'info', true ); } catch (e) {}
+            try { logMsg( '新会话 · 默认休眠', 'info', true ); } catch (e) {}
         }
 
         /**
@@ -1202,7 +1202,7 @@
                 GM_setValue('xy_jump_retry_count', 0);
                 GM_setValue('xy_jump_retry_key', '');
             } catch (e) {}
-            try { logMsg( '重开浏览器 · 调度队列已清空', 'info', true ); } catch (e) {}
+            try { logMsg( '重新打开 · 队列已清空', 'info', true ); } catch (e) {}
         }
     })();
 
@@ -3833,8 +3833,8 @@
         }
 
         if (oldZone !== ZONE.UNINITIALIZED) {
-            const zoneName = newZone === ZONE.COURSE ? '视频/文档自动引擎' : newZone === ZONE.COURSES ? '进行中课程总览' : newZone === ZONE.OVERVIEW ? '课程学习数据概览' : newZone === ZONE.DISC ? '互动协作引擎' : newZone === ZONE.DOWNLOAD ? '课件归档区' : newZone === ZONE.HW ? '作业查看台' : '课程目录区';
-            logMsg( `已切换至【${zoneName}】`, 'success', true );
+            const zoneName = newZone === ZONE.COURSE ? '学习页' : newZone === ZONE.COURSES ? '课程列表' : newZone === ZONE.OVERVIEW ? '学情' : newZone === ZONE.DISC ? '讨论区' : newZone === ZONE.DOWNLOAD ? '资料' : newZone === ZONE.HW ? '作业' : '课程目录';
+            logMsg( `进入${zoneName}`, 'success', true );
         }
 
         if (newZone === ZONE.COURSE) {
@@ -4021,7 +4021,7 @@
              * —— 视频的达标条件是「看完」，用户会以为看够 N 分钟就行。
              * [WATCH-DISPLAY]
              */
-            logMsg( `时长要求 ${needMin} 分钟 · 文档对齐交卷线，视频以播完为准`, 'info', true );
+            logMsg( `本项要求 ${needMin} 分钟 · 文档按时间，视频按播完`, 'info', true );
             return needMin;
         } catch (e) {
             // 任务总览不可用时保持默认阈值，不阻断主循环
@@ -4134,7 +4134,7 @@
                          *
                          * 正确做法：走统一收口，让步进逻辑读**服务端确认结果**。
                          */
-                        logMsg( '任务已在总览达成 · 交统一收口确认', 'success', true );
+                        logMsg( '本项已达标 · 交由统一流程确认', 'success', true );
                         await xyEngineCompleteAndAdvance({
                             silent: true,
                             forceSubmit: true,   // 外部信号判定完成，跳过本地判据
@@ -5233,7 +5233,7 @@
         if (!controller) return;
         controller.abort();
         dlState.downloadPaused = false;
-        logMsg( mode === 'single' ? '已终止单文件下载' : '已终止批量下载', 'info', true );
+        logMsg( mode === 'single' ? '已停止单文件下载' : '已停止批量下载', 'info', true );
     }
     /**
      * 下载队列执行器 —— 单文件与批量共用的核心引擎。
@@ -5913,7 +5913,7 @@
         if (refreshCountdownTimer) clearInterval(refreshCountdownTimer);
         
         const targetTime = Date.now() + delayMs;
-        logMsg( `动态重载 · ${Math.round(delayMs/60000)} 分钟后刷新（${reason}）`, 'silent', true );
+        logMsg( `${Math.round(delayMs/60000)} 分钟后自动刷新（${reason}）`, 'silent', true );
         
         const updateVisuals = () => {
             const statusEl = document.getElementById('xy-refresh-status');
@@ -5932,7 +5932,7 @@
         refreshCountdownTimer = setInterval(updateVisuals, 1000);
 
         dynamicRefreshTimeoutId = setTimeout(() => {
-            logMsg( '动态重载 · 即将刷新页面', 'info', true );
+            logMsg( '即将自动刷新', 'info', true );
             window.location.reload();
         }, delayMs);
     }
@@ -5960,7 +5960,7 @@
         }
         
         if (cleared) {
-            logMsg( '动态重载已挂起 · 当前区域强停', 'silent', true );
+            logMsg( '自动刷新已暂停', 'silent', true );
         }
     }
     /**
@@ -6094,7 +6094,7 @@
             if (added) {
                 GM_setValue('xy_target_names', JSON.stringify(discState.targetNames));
                 renderTargetList(document.getElementById('xy-name-search')?.value || '');
-                if(playState.activeZone === ZONE.DISC) logMsg( `捕获 ${discState.targetNames.length - beforeCount} 位新用户`, 'info', true );
+                if(playState.activeZone === ZONE.DISC) logMsg( `新增 ${discState.targetNames.length - beforeCount} 位参与者`, 'info', true );
             }
         }
     }
@@ -6234,11 +6234,11 @@
         if (xyShouldKeepDashboardOverview(getCourseGroupId())) return;
         discState.discLockedUrl = window.location.href; 
         if (playState.activeZone !== ZONE.DISC) { 
-            logMsg( '已识别交流区网络流', 'success', false ); 
+            logMsg( '已连接讨论区', 'success', false ); 
             switchToZone('disc'); 
         }
         
-        logMsg( '检测到新交流区 · 清空旧名单并重新采集', 'info', false );
+        logMsg( '已切换讨论区 · 名单已重置', 'info', false );
         discState.targetNames = [];
         discState.selectedNames.clear();
         GM_setValue('xy_target_names', JSON.stringify([]));
@@ -6318,7 +6318,7 @@
                 if (rTask && rTask.finish !== 2) {
                     taskId = rTask.task_id || rTask.id;
                 } else if (!rTask || rTask.finish === 2) {
-                    if (!silent) logMsg( '任务已在后台完成 · 无需提交', 'success', false );
+                    if (!silent) logMsg( '本项已在后台完成 · 无需再交', 'success', false );
                     confirmed = true;
                     return done(true); 
                 }
@@ -6355,15 +6355,15 @@
             const finishData = await finishRes.json();
             
             if (finishData.success === true || finishData.code === 200 || finishData.code === 0) {
-                if (!silent) { logMsg( '任务时长达标 · 服务端已确认', 'success', false ); }
+                if (!silent) { logMsg( '学习时长达标 · 平台已确认', 'success', false ); }
                 confirmed = true;
                 return done(true);
             } else {
-                if (!silent) logMsg( '时长验证未通过 · 等待下次心跳', 'warning', true );
+                if (!silent) logMsg( '时长未达标 · 等待下次上报', 'warning', true );
                 return done(false);
             }
         } catch(e) { 
-            if (!silent) logMsg( '提交请求异常', 'error', true ); 
+            if (!silent) logMsg( '提交失败', 'error', true ); 
         } finally {
             isSubmittingLock = false;
         }
@@ -6509,7 +6509,7 @@
          *               措辞不能写成「达标」（任务总览里该项仍是未完成状态）
          *   正常路径  → 服务端已确认
          */
-        logMsg( forcePass ? `${typeLabel}已达放行线 · 跳过等待（服务端未确认）` : `${typeLabel}已获服务端确认`, forcePass ? 'warning' : 'success', silent );
+        logMsg( forcePass ? `${typeLabel}已超等待上限 · 直接跳过` : `${typeLabel}已确认`, forcePass ? 'warning' : 'success', silent );
 
         // 去向分流：调度独占跳转权，避免与任务总览跳转双头打架
         if (xyScheduleState.isRunning) {
@@ -6562,7 +6562,7 @@
             const currentGroupId = getCourseGroupId(); 
             const currentNodeId = getNodeId(); 
             
-            logMsg( '正在匹配下一项自主观看任务', 'info', true );
+            logMsg( '正在匹配下一项', 'info', true );
             
             _radarCache.time = 0; 
             const unfinishData = await fetchRadarCached();
@@ -6599,7 +6599,7 @@
             if (targetTask) {
                 const resId = await getTaskResourceId(targetTask);
 
-                logMsg( `锁定目标 ${targetTask.name} · 跨节点跳转`, 'success', false );
+                logMsg( `前往「${targetTask.name}」`, 'success', false );
 
                 const pathPrefix = xyCourseRoutePrefix();
 
@@ -6621,14 +6621,14 @@
             const delay = delays[Math.min(failCount - 1, delays.length - 1)];
 
             if (failCount >= BACKOFF.MAX_SUCCESS_FAILS) {
-                 logMsg( '连续 6 次探测无新任务 · 10 分钟后重载', 'warning', true );
+                 logMsg( '暂无新任务 · 10 分钟后再试', 'warning', true );
                  playState.jumpSleepUntil = Date.now() + BACKOFF.SLEEP_MS;
                  playState.jumpFailCount = 0;
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
                  const waitSec = Math.round(delay / 1000);
-                 logMsg( `探测无新任务 · ${waitSec} 秒后重试（第 ${failCount} 次）`, 'warning', true );
+                 logMsg( `暂无新任务 · ${waitSec} 秒后重试（第 ${failCount} 次）`, 'warning', true );
                  setTimeout(() => { isJumpingLock = false; }, delay);
             }
 
@@ -6639,13 +6639,13 @@
             const delay = delays[Math.min(failCount - 1, delays.length - 1)];
 
             if (failCount >= BACKOFF.MAX_ERROR_FAILS) {
-                 logMsg( '网络探测连续 5 次异常 · 10 分钟后重试', 'warning', true );
+                 logMsg( '网络异常 · 10 分钟后再试', 'warning', true );
                  playState.jumpSleepUntil = Date.now() + BACKOFF.SLEEP_MS;
                  playState.jumpFailCount = 0;
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
-                 logMsg( `任务总览连通异常 · ${Math.round(delay / 1000)} 秒后重试（第 ${failCount} 次）`, 'error', false );
+                 logMsg( `任务列表连不上 · ${Math.round(delay / 1000)} 秒后重试`, 'error', false );
                  setTimeout(() => { isJumpingLock = false; }, delay);
             }
         }
@@ -6750,7 +6750,7 @@
                          * 之后每轮轮询都记会把日志刷满 */
                         if (res.ok && !playState._overviewDoneLogged) {
                             playState._overviewDoneLogged = true;
-                            logMsg( '当前任务已在总览达成', 'success', false );
+                            logMsg( '本项已达标', 'success', false );
                         }
                     }
                 } else { 
@@ -6800,7 +6800,7 @@
         const nowTs = Date.now();
         if (nowTs - (playState._popupLogAt || 0) < 60000) return;
         playState._popupLogAt = nowTs;
-        logMsg( '已拦截系统提示框', 'success', true );
+        logMsg( '已关闭平台弹窗', 'success', true );
     }
 
     let mouseSimTimer = null;
@@ -7067,7 +7067,7 @@
         }
         recordFailCount++;
         if (recordFailCount >= 10) {
-            logMsg( '学习记录连续失败 10 次 · 请检查网络或登录状态', 'error', false );
+            logMsg( '学习记录上传失败 10 次 · 请检查网络或重新登录', 'error', false );
             recordFailCount = 0;
         }
         throw lastError || new Error('sendRecord failed');
@@ -7270,12 +7270,12 @@
             
             const gap = Date.now() - keepaliveLastBeatTime;
             if (gap > 75000) {
-                logMsg( '[保活] 心跳缺口' + Math.round(gap / 1000) + 's · 强制补发', 'warning', true );
+                logMsg( '学习记录延迟' + Math.round(gap / 1000) + ' 秒 · 已补发', 'warning', true );
                 sendRecordRequest().then(() => { keepaliveLastBeatTime = Date.now(); });
             }
             
             if (!recordIntervalTimer && recState.recordActive) {
-                logMsg( '[保活] 心跳定时器丢失 · 已重建', 'warning', true );
+                logMsg( '上传定时器已恢复', 'warning', true );
                 if (recordIntervalTimer) recordIntervalTimer.clear();
                 recordIntervalTimer = createPersistentInterval(sendRecordRequest, 30000, 20);
             }
@@ -7309,7 +7309,7 @@
         const timeoutLimit = xyScheduleState.isRunning ? 1800000 : 180000; 
         if (Date.now() - watchdogLastActiveTime > timeoutLimit) {
             sessionStorage.setItem('xy_reload_reason', '防死锁刷新');
-            logMsg( '检测到死锁 · 重新加载', 'error', false );
+            logMsg( '页面卡住 · 已重新加载', 'error', false );
             setTimeout(() => window.location.reload(), 1000);
             return;
         }
@@ -7370,7 +7370,7 @@
                              * 活动信号，最终误判「死锁」并重新加载页面 —— 表现为视频反复从头开始。
                              * 改为弹回后继续走完本轮逻辑即可。
                              */
-                            logMsg( '拖动进度条 · 已弹回原位', 'warning', true );
+                            logMsg( '已恢复播放位置', 'warning', true );
                             video.currentTime = playState.videoLastTime;
                         }
 
@@ -7500,9 +7500,9 @@
                                 && playState.mode === PLAY_MODE.LOOP) {
                                 const forceLine = xyDocEffectiveForceSeconds();
                                 if ((playState.videoWatchSeconds || 0) >= forceLine) {
-                                    logMsg( '安全循环 · 服务端未放行，即将刷新重置', 'warning', true );
+                                    logMsg( '平台未放行 · 即将刷新', 'warning', true );
                                     setTimeout(() => {
-                                        logMsg( '安全循环 · 播完即重载', 'info', true );
+                                        logMsg( '播完自动重载', 'info', true );
                                         window.location.reload();
                                     }, 1500);
                                 }
@@ -7528,7 +7528,7 @@
                     _xyDocResetAt = nowTs;
                     playState.docReadTime = 0;
                     playState.lastDocSubmitTime = 0;
-                    logMsg( '文档阅读 · 从 0 开始计时', 'info', true );
+                    logMsg( '文档计时归零', 'info', true );
                 };
                 /**
                  * 硬判据：文档计时不可能比本页存在得还久。
@@ -7542,7 +7542,7 @@
                 if (playState.docReadTime > aliveSec + 3) {
                     playState.docReadTime = 0;
                     playState.lastDocSubmitTime = 0;
-                    logMsg( '文档计时为继承值 · 已归零', 'info', true );
+                    logMsg( '文档计时已重置', 'info', true );
                 }
                 /**
                  * 调度面板上的「⏱ 已驻留」也要跟着归零 —— 它存在 GM 的队列里，
@@ -7555,7 +7555,7 @@
                 if (curSchedTask && Number(curSchedTask.elapsedSec || 0) > aliveSec + 3) {
                     curSchedTask.elapsedSec = 0;
                     try { saveScheduleState(); } catch (e) {}
-                    logMsg( '驻留计时为继承值 · 已归零', 'info', true );
+                    logMsg( '停留计时已重置', 'info', true );
                 }
 
                 const docPreviewEl = document.querySelector(
@@ -7703,12 +7703,12 @@
             if (!xyScheduleState.isRunning && xyScheduleState.autoStart && nowHM === xyScheduleState.autoStart && xyScheduleState.queue.length > 0) {
                 lastAutoActionMinute = nowHM;
                 if (typeof xySchStart === 'function') xySchStart();
-                logMsg( `定时启动 · ${nowHM} 已触发计划调度`, 'success' );
+                logMsg( `${nowHM} · 定时启动`, 'success' );
             }
             if (xyScheduleState.isRunning && xyScheduleState.autoStop && nowHM === xyScheduleState.autoStop) {
                 lastAutoActionMinute = nowHM;
                 if (typeof xySchStop === 'function') xySchStop();
-                logMsg( `定时停止 · ${nowHM} 已交还主控`, 'warning' );
+                logMsg( `${nowHM} · 定时停止`, 'warning' );
             }
         }
 
@@ -7792,7 +7792,7 @@
         const elapsedSince = lastAttempt > 0 ? (nowTick - lastAttempt) : Infinity;
         if (elapsedSince < gap) return;   // 距上次尝试不足重试间隔，等下一轮
 
-        logMsg( isDoc ? (lastAttempt > 0 ? `文档未达标 · 周期重试提交（${playState.docReadTime}s）` : `${Math.floor(needSeconds / 60)} 分 ${needSeconds % 60} 秒已到 · 发起首次文档验证`) : (lastAttempt > 0 ? `视频未获放行 · 周期重试提交（${playState.videoWatchSeconds || 0}s）` : `已达进度 · 发起视频验证`), 'info', true );
+        logMsg( isDoc ? (lastAttempt > 0 ? `文档还差一点 · ${playState.docReadTime} 秒后再试` : `${Math.floor(needSeconds / 60)} 分 ${needSeconds % 60} 秒已读满 · 开始验证文档`) : (lastAttempt > 0 ? `视频还没放行 · ${playState.videoWatchSeconds || 0} 秒后再试` : `时长已够 · 开始验证视频`), 'info', true );
 
         const ok = await xyEngineCompleteAndAdvance({ typeLabel });
         /**
@@ -7822,10 +7822,10 @@
         const forceLine = xyDocEffectiveForceSeconds();
         const elapsed = isDoc ? playState.docReadTime : (playState.videoWatchSeconds || 0);
         if (elapsed >= forceLine) {
-            logMsg( `${typeLabel}超 ${Math.round(forceLine / 60)} 分钟未确认 · 强制提交放行`, 'warning', false );
+            logMsg( `${typeLabel}等待超 ${Math.round(forceLine / 60)} 分钟 · 已强制提交`, 'warning', false );
             await xyEngineCompleteAndAdvance({ forcePass: true, typeLabel });
         } else {
-            logMsg( `${typeLabel}验证未通过 · ${gap} 秒后重试（${elapsed}/${forceLine} 秒）`, 'warning', false );
+            logMsg( `${typeLabel}未通过 · ${gap} 秒后重试`, 'warning', false );
         }
     }, 5000, 10);
 
@@ -7873,12 +7873,12 @@
      */
     async function fetchCurrentUsers() {
         if (playState.activeZone !== ZONE.DISC) return;
-        if(!discState.discussionId) { logMsg( '未捕获到交流区 ID · 请点击任一评论', 'warning' ); return; }
+        if(!discState.discussionId) { logMsg( '未识别到讨论区 · 请点击任一评论', 'warning' ); return; }
         const btn = document.getElementById('xy-btn-fetch-users'); const originalText = btn ? btn.innerText : '';
         const stopBtn = document.getElementById('xy-btn-stop-scrape');
         if(btn) { btn.disabled = true; btn.innerText = "深潜抓取中"; }
 
-        logMsg( '正在扫描全部评论页 · 自动去重收录', 'info' );
+        logMsg( '正在扫描评论 · 自动去重', 'info' );
 
         try {
             playState.discScrapeAbort = false;
@@ -7886,7 +7886,7 @@
             let pageIndex = 1;
             const seenIds = new Set();
             while (true) {
-                if (playState.discScrapeAbort) { logMsg( '已手动停止深度抓取', 'warning' ); break; }
+                if (playState.discScrapeAbort) { logMsg( '已停止扫描', 'warning' ); break; }
                 if(btn) btn.innerText = `深潜抓取中（第 ${pageIndex} 页）`;
                 const list = await fetchDiscussions(20, pageIndex);
                 if (!list || list.length === 0) break;
@@ -7917,8 +7917,8 @@
 
             GM_setValue('xy_target_names', JSON.stringify(discState.targetNames));
             renderTargetList(document.getElementById('xy-name-search')?.value || '');
-            logMsg( playState.discScrapeAbort ? `已停止 · 总库 ${discState.targetNames.length} 人` : `扫描到底 · 总库 ${discState.targetNames.length} 人`, 'success' );
-        } catch (error) { logMsg( '抓取失败 · 请检查网络或刷新重试', 'error' ); } finally { if(stopBtn) stopBtn.style.display = 'none'; if(btn) { btn.disabled = false; btn.innerText = originalText || "手动刷新名单"; } }
+            logMsg( playState.discScrapeAbort ? `已停止 · 共 ${discState.targetNames.length} 人` : `扫描完成 · 共 ${discState.targetNames.length} 人`, 'success' );
+        } catch (error) { logMsg( '抓取失败 · 请检查网络', 'error' ); } finally { if(stopBtn) stopBtn.style.display = 'none'; if(btn) { btn.disabled = false; btn.innerText = originalText || "手动刷新名单"; } }
     }
     /** 勾选名单导出：Set → Array。定向点赞/回复的目标集合唯一来源。
      * [DEEP-DOC]
@@ -7934,12 +7934,12 @@
      */
     async function autoLikeAction(isTargeted = false) {
         if (playState.activeZone !== ZONE.DISC) return;
-        if(!discState.discussionId) { logMsg( '网络流未就绪 · 请点击任一评论触发抓包', 'warning' ); return; }
+        if(!discState.discussionId) { logMsg( '尚未连接 · 请点击任一评论', 'warning' ); return; }
         const checkedNames = isTargeted ? getCheckedTargetNames() : [];
-        if (isTargeted && checkedNames.length === 0) { logMsg( '请先勾选目标人物', 'warning' ); return; }
+        if (isTargeted && checkedNames.length === 0) { logMsg( '请先勾选目标', 'warning' ); return; }
 
         const btn = document.getElementById(isTargeted ? 'xy-btn-target-like' : 'xy-btn-like');
-        if (!btn) { logMsg( '按钮未就绪 · 请刷新页面', 'error' ); return; }
+        if (!btn) { logMsg( '页面未就绪 · 请刷新', 'error' ); return; }
         const originalText = btn.innerText;
         btn.disabled = true;
 
@@ -7966,13 +7966,13 @@
                 if (pageIndex > 300) break;
             }
             
-            if (targets.length === 0) { logMsg( '未找到匹配的目标列表', 'warning' ); return; }
+            if (targets.length === 0) { logMsg( '未找到匹配的目标', 'warning' ); return; }
             
             targets = targets.slice(0, MAX_LIKES);
             const uniqueTargets = []; const seenIds = new Set();
             for (const t of targets) { if (!seenIds.has(t.id)) { seenIds.add(t.id); uniqueTargets.push(t); } }
 
-            let successCount = 0; const token = await getAuthToken(); logMsg( `锁定 ${uniqueTargets.length} 个目标 · 开始批量互动`, 'info' );
+            let successCount = 0; const token = await getAuthToken(); logMsg( `${uniqueTargets.length} 个目标 · 开始互动`, 'info' );
             
             btn.innerText = `互动处理中`;
             for (let i = 0; i < uniqueTargets.length; i++) {
@@ -7982,8 +7982,8 @@
                     const likeData = await likeRes.json(); if (likeData.success || likeData.code === 200 || likeData.code === 0) { successCount++; }
                 } catch(e) { console.warn('[小雅] 互动处理失败', e); } await sleep(Math.floor(Math.random() * 700) + 800); 
             }
-            logMsg( `互动完成 · 成功 ${successCount} 次 · 即将刷新`, 'success' ); setTimeout(() => { window.location.reload(); }, 1500);
-        } catch (e) { logMsg( '互动异常', 'error' ); } finally { btn.disabled = false; btn.innerText = originalText; }
+            logMsg( `互动完成 · ${successCount} 次 · 即将刷新`, 'success' ); setTimeout(() => { window.location.reload(); }, 1500);
+        } catch (e) { logMsg( '互动失败', 'error' ); } finally { btn.disabled = false; btn.innerText = originalText; }
     }
     /**
      * 回复文案选取：useCustomReply 开启且 customReplies 非空 → 随机取用户自定义
@@ -8009,7 +8009,7 @@
             if (validCustoms.length > 0) {
                 return validCustoms[Math.floor(Math.random() * validCustoms.length)];
             } else {
-                logMsg( '回复库无合规句 · 已回退默认语料', 'warning', true );
+                logMsg( '回复库无可用语句 · 已用默认', 'warning', true );
             }
         }
         return templates[Math.floor(Math.random() * templates.length)];
@@ -8046,9 +8046,9 @@
      */
     async function autoReplyAction(isTargeted = false) {
         if (playState.activeZone !== ZONE.DISC) return;
-        if(!discState.discussionId) { logMsg( '网络流未就绪 · 请点击任一评论触发抓包', 'warning' ); return; }
+        if(!discState.discussionId) { logMsg( '尚未连接 · 请点击任一评论', 'warning' ); return; }
         const checkedNames = isTargeted ? getCheckedTargetNames() : [];
-        if (isTargeted && checkedNames.length === 0) { logMsg( '请先勾选目标人物', 'warning' ); return; }
+        if (isTargeted && checkedNames.length === 0) { logMsg( '请先勾选目标', 'warning' ); return; }
 
         const btnId = isTargeted ? 'xy-btn-target-reply' : 'xy-btn-reply';
         const btn = document.getElementById(btnId); 
@@ -8078,13 +8078,13 @@
                 if (pageIndex > 300) break;
             }
             
-            if (targets.length === 0) { logMsg( '未找到匹配的回复目标', 'warning' ); return; }
+            if (targets.length === 0) { logMsg( '未找到匹配的目标', 'warning' ); return; }
             
             targets = targets.slice(0, MAX_REPLIES);
             const uniqueTargets = []; const seenIds = new Set();
             for (const t of targets) { if (!seenIds.has(t.id)) { seenIds.add(t.id); uniqueTargets.push(t); } }
 
-            let successCount = 0; const token = await getAuthToken(); logMsg( `锁定 ${uniqueTargets.length} 个目标 · 开始自动回复`, 'info' );
+            let successCount = 0; const token = await getAuthToken(); logMsg( `${uniqueTargets.length} 个目标 · 开始回复`, 'info' );
             
             if (btn) btn.innerText = `回复发射中`;
             for (let i = 0; i < uniqueTargets.length; i++) {
@@ -8112,9 +8112,9 @@
                 } catch(e) { console.warn('[小雅] 讨论回复失败', e); } 
                 await sleep(Math.floor(Math.random() * 1200) + 1800); 
             }
-            logMsg( `回复完成 · 成功 ${successCount} 次 · 即将刷新`, 'success' ); 
+            logMsg( `回复完成 · ${successCount} 次 · 即将刷新`, 'success' ); 
             setTimeout(() => { window.location.reload(); }, 2000);
-        } catch (e) { logMsg( '回复异常', 'error' ); } finally { if (btn) { btn.disabled = false; btn.innerText = originalText; } }
+        } catch (e) { logMsg( '回复失败', 'error' ); } finally { if (btn) { btn.disabled = false; btn.innerText = originalText; } }
     }
 
     
@@ -9028,7 +9028,7 @@
         }
         saveScheduleState();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg( `排课完成 · ${xyScheduleState.queue.length} 个任务已按紧迫度交错排序`, 'success', false );
+        logMsg( `已排好 ${xyScheduleState.queue.length} 项 · 按时限穿插`, 'success', false );
         showToast(`已导入 ${xyScheduleState.queue.length} 个任务`, 'success');
     }
     /**
@@ -9059,7 +9059,7 @@
             return;
         }
 
-        logMsg( '连播 · 正在扫描未完成任务', 'info', true );
+        logMsg( '正在扫描待办', 'info', true );
 
         const allTasks = await fetchGlobalTasks();
 
@@ -9074,7 +9074,7 @@
         });
 
         if (pendingTasks.length === 0) {
-            logMsg( '连播 · 未发现可学习任务', 'warning', false );
+            logMsg( '没有可学的任务', 'warning', false );
             showToast('没有待完成的任务', 'warning');
             return;
         }
@@ -9109,7 +9109,7 @@
         saveScheduleState();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
 
-        logMsg( `连播 · 已导入 ${xyScheduleState.queue.length} 个任务 · 按紧迫度排序`, 'success', false );
+        logMsg( `已加入 ${xyScheduleState.queue.length} 项 · 按时限排序`, 'success', false );
         showToast(`已导入 ${xyScheduleState.queue.length} 个任务 · 开始连播`, 'success');
 
         
@@ -9131,7 +9131,7 @@
         const firstTask = xyScheduleState.queue[0];
         if (firstTask) {
             const pathPrefix = xyCourseRoutePrefix();
-            logMsg( `连播 · 前往「${(firstTask.name||'未知').substring(0,12)}」`, 'success', false );
+            logMsg( `前往「${(firstTask.name||'未知').substring(0,12)}」`, 'success', false );
             setTimeout(() => {
                 /**
                  * [JUMP-HOME-FIX] 首跳 URL 必须与调度 tick 同形（含 resource 段）：
@@ -9174,7 +9174,7 @@
 
         try {
             if (btn) { btn.innerText = '快速确认中'; btn.disabled = true; }
-            logMsg( '快速确认 · 正在提交', 'info', true );
+            logMsg( '正在提交', 'info', true );
 
             /**
              * autoSubmitCurrentTask 返回的是**结果对象** `{ok, skipped, confirmed}`，
@@ -9186,20 +9186,20 @@
             const res = await autoSubmitCurrentTask();
 
             if (res.ok) {
-                logMsg( '快速确认成功 · 任务已提交', 'success', false );
+                logMsg( '已提交', 'success', false );
                 showToast('已提交', 'success');
                 playState.isTaskCompleted = true;
                 updateCourseUI();
             } else if (res.skipped) {
                 // 被并发锁挡回：已有一次提交在途，这不是失败，只是时机不对
-                logMsg( '已有提交在途 · 请稍候', 'info', false );
+                logMsg( '上次提交还没完成 · 请稍候', 'info', false );
                 showToast('已有提交在途', 'warning');
             } else {
-                logMsg( '快速确认失败 · 需先积累学习时长', 'warning', false );
+                logMsg( '提交未通过 · 学习时长不足', 'warning', false );
                 showToast('快速确认失败 · 请先积累学习时长', 'warning');
             }
         } catch(e) {
-            logMsg( '快速确认异常', 'error', false );
+            logMsg( '提交失败', 'error', false );
         } finally {
             quickKillRunning = false;
             if (btn) { btn.innerText = origText; btn.disabled = false; }
@@ -9740,7 +9740,7 @@ const tid = e.target.getAttribute('data-tid');
             updateSchCard();
             try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
             renderQueueList();
-            logMsg( '调度已接管 · 准备跳转', 'success' );
+            logMsg( '调度接手 · 准备跳转', 'success' );
         };
 
         pauseBtn.onclick = () => {
@@ -9753,7 +9753,7 @@ const tid = e.target.getAttribute('data-tid');
             updateSchButtons();
             updateSchCard();
             updateCourseUI();
-            logMsg( xyScheduleState.isPaused ? '计划调度已暂停 · 进度已保存' : '计划调度已继续', 'success' );
+            logMsg( xyScheduleState.isPaused ? '调度已暂停 · 进度已存' : '调度已继续', 'success' );
         };
 
         stopBtn.onclick = () => {
@@ -9772,7 +9772,7 @@ const tid = e.target.getAttribute('data-tid');
             updateSchButtons();
             updateSchCard();
             renderQueueList();
-            logMsg( '计划调度已强停 · 控制权交还主引擎', 'warning' );
+            logMsg( '调度已停止 · 交还手动', 'warning' );
         };
 
         const autoStartInput = document.getElementById('xy-sch-auto-start');
@@ -9887,18 +9887,18 @@ const tid = e.target.getAttribute('data-tid');
             xyScheduleState.currentIdx = fp >= 0 ? fp : 0;
             saveScheduleState();
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-            logMsg( `已清理 ${removed} 个过期任务：${removedNames.join('、')}${removed > 5 ? '等' : ''}`, 'warning', false );
+            logMsg( `清理 ${removed} 项过期任务`, 'warning', false );
         }
         return removed;
     };
 
     window.xySchStart = () => {
-        if (xyScheduleState.queue.length === 0) { logMsg( '队列为空 · 无法启动调度', 'warning' ); return; }
+        if (xyScheduleState.queue.length === 0) { logMsg( '队列为空 · 无法开始', 'warning' ); return; }
         if (xyScheduleState.isRunning) return;
         /* [EXPIRE-FIX] 队列全部处于过期/失效状态（无一个 pending/running）则拒绝启动 */
         const runnable = xyScheduleState.queue.filter(q => q.status === 'pending' || q.status === 'running');
         if (runnable.length === 0) {
-            logMsg( '队列无可执行任务 · 请先清理队列', 'error', false );
+            logMsg( '队列里没有可执行的任务', 'error', false );
             showToast('队列无可执行任务 · 请先清理队列', 'warning');
             return;
         }
@@ -9926,7 +9926,7 @@ const tid = e.target.getAttribute('data-tid');
         updateSchCard();
         try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg( '计划调度已启动', 'success' );
+        logMsg( '调度已开始', 'success' );
         /**
          * [SEGMENT-FIX] 启动即跳转任务总览联播：不再等调度 tick 发现节点不齐才跳。
          * 目标 = 队列第一个待办任务（用户在调度中心设置的板块），URL 形态与
@@ -9937,7 +9937,7 @@ const tid = e.target.getAttribute('data-tid');
         if (segTask && (getCourseGroupId() != segTask.groupId || getNodeId() != segTask.nodeId)) {
             playState.isJumping = true;
             const segPrefix = xyCourseRoutePrefix();
-            logMsg( `计划调度 · 前往「${(segTask.name || '未知').substring(0, 12)}」`, 'success', false );
+            logMsg( `前往「${(segTask.name || '未知').substring(0, 12)}」`, 'success', false );
             setTimeout(() => {
                 /* [SLEEP-FIX] 延迟期间被停止/暂停则放弃 */
                 if (!xyScheduleState.isRunning || xyScheduleState.isPaused) { playState.isJumping = false; return; }
@@ -9960,7 +9960,7 @@ const tid = e.target.getAttribute('data-tid');
         const pb = document.getElementById('xy-sch-pause-btn');
         if (pb) pb.innerText = xyScheduleState.isPaused ? '继续调度' : '暂停调度';
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg( xyScheduleState.isPaused ? '计划调度已暂停' : '计划调度已继续', 'success' );
+        logMsg( xyScheduleState.isPaused ? '调度已暂停' : '调度已继续', 'success' );
     };
 
     window.xySchStop = () => {
@@ -9976,7 +9976,7 @@ const tid = e.target.getAttribute('data-tid');
         updateCourseUI();
         updateSchCard();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg( '计划调度已强停', 'warning' );
+        logMsg( '调度已停止', 'warning' );
     };
 
     window.xySchSkip = () => {
@@ -9989,7 +9989,7 @@ const tid = e.target.getAttribute('data-tid');
         updateCourseUI();
         updateSchCard();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg( '已跳过当前任务', 'info' );
+        logMsg( '已跳过这一项', 'info' );
     };
 
     window.xySchRestart = () => {
@@ -10008,7 +10008,7 @@ const tid = e.target.getAttribute('data-tid');
         updateSchCard();
         try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg( '计划调度已重新启动', 'success' );
+        logMsg( '调度已重新开始', 'success' );
     };
 
     
@@ -10021,7 +10021,7 @@ const tid = e.target.getAttribute('data-tid');
         const currentTask = xyScheduleState.queue[xyScheduleState.currentIdx];
         
         if (!currentTask) {
-            logMsg( '全部任务已完成 · 切换手动休眠', 'success', false );
+            logMsg( '全部完成 · 转为休眠', 'success', false );
 
             xyScheduleState.isRunning = false;
             xyScheduleHeartbeatClear();
@@ -10104,7 +10104,7 @@ const tid = e.target.getAttribute('data-tid');
                     xyScheduleHeartbeatClear();
                     saveScheduleState();
                     updateSchCard();
-                    logMsg( '连续 3 次跳转失败 · 调度已暂停', 'error', false );
+                    logMsg( '连续 3 次跳转失败 · 已暂停调度', 'error', false );
                     return;
                 }
 
@@ -10122,11 +10122,11 @@ const tid = e.target.getAttribute('data-tid');
                 setTimeout(() => {
                     if (playState.isJumping) {
                         playState.isJumping = false;
-                        logMsg( `跳转超时 · 已复位调度，稍后重试（${playState.jumpRetryCount}/3）`, 'warning', false );
+                        logMsg( `跳转超时 · 稍后重试（${playState.jumpRetryCount}/3）`, 'warning', false );
                     }
                 }, 15000);
 
-                logMsg( `计划调度 · 前往「${(currentTask.name||'未知').substring(0,10)}」`, 'info', false );
+                logMsg( `前往「${(currentTask.name||'未知').substring(0,10)}」`, 'info', false );
                 
                 setTimeout(() => {
                     /* [SLEEP-FIX] 竞态复查：延迟期间调度被停止/暂停则放弃跳转 */
@@ -10224,7 +10224,7 @@ const tid = e.target.getAttribute('data-tid');
              * 日志口径与两套引擎统一：同为「已获服务器确认达标」。
              * 调度只负责切项，不再复述引擎已经报过的话，避免同一事实两处措辞。
              */
-            logMsg( `「${(currentTask.name||'未知').substring(0,8)}」已确认达标 · 切换下一项`, 'success', false );
+            logMsg( `「${(currentTask.name||'未知').substring(0,8)}」已达标 · 下一项`, 'success', false );
             currentTask.status = 'completed';
             saveScheduleState();
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
@@ -10786,11 +10786,11 @@ const tid = e.target.getAttribute('data-tid');
      * [DEEP-DOC]
      */
     async function hwExportDocx(scope,fontPt){
-        if(!hwQuestionsData.length){logMsg( '未读取到题目数据', 'error' );return}
+        if(!hwQuestionsData.length){logMsg( '还没读到题目', 'error' );return}
         const{Document,Packer,Paragraph,TextRun,HeadingLevel,AlignmentType}=window.docx;const{saveAs}=window;
-        if(!Document||!Packer||!saveAs){logMsg( 'docx 库未加载 · 请刷新重试', 'error' );return}
+        if(!Document||!Packer||!saveAs){logMsg( '导出组件未就绪 · 请刷新', 'error' );return}
         const S=Math.max(18,Math.round((fontPt||11)*2));   // pt → half-points
-        logMsg( '正在下载题目图片', 'info', true );
+        logMsg( '正在下载图片', 'info', true );
         const res=hwSubmissionResult,qrs=(res&&Array.isArray(res.questionResults))?res.questionResults:[];
         const rm=new Map(qrs.map(r=>[String(r.id),r]));
         const extra=[];
@@ -10798,13 +10798,13 @@ const tid = e.target.getAttribute('data-tid');
         if(scope===undefined||scope.mine!==false){qrs.forEach(r=>{if(r.rawUserAnswer){const p=hwParseRichContent(r.rawUserAnswer);(p.images||[]).forEach(im=>{if(im.src)extra.push({src:im.src})})}})}
         const imMap=await hwHydrateImageMap(extra,450,scope===undefined||scope.q!==false);
         const okC=Array.from(imMap.values()).filter(r=>r.ok).length,failC=Array.from(imMap.values()).filter(r=>!r.ok).length;
-        logMsg( '正在生成 .docx', 'info', true );
+        logMsg( '正在生成文档', 'info', true );
         const dc=[];dc.push(new Paragraph({text:'小雅辅助工具 题目与批改结果',heading:HeadingLevel.TITLE,alignment:AlignmentType.CENTER,spacing:{after:200}}));dc.push(new Paragraph({text:'导出时间：'+new Date().toLocaleString(),alignment:AlignmentType.CENTER,spacing:{after:300}}));
         if(res&&res.state==='submitted'&&(scope===undefined||scope.mine!==false)){const wc=qrs.filter(r=>r.tone==='bad').length,pc=qrs.filter(r=>r.tone==='pending').length;dc.push(new Paragraph({children:[new TextRun({text:String(res.actualScore??'-'),size:S+22,bold:true}),new TextRun({text:' / '+(res.totalScore??'-')+'分',size:S+6,color:'#6b7280'})],alignment:AlignmentType.CENTER,spacing:{after:120}}));dc.push(new Paragraph({children:[new TextRun({text:(res.correctNum??'-')+'正确 · '+wc+'错误 · '+pc+'待批改',size:S,color:'#4b5563'})],alignment:AlignmentType.CENTER,spacing:{after:300}}))}
         for(let i=0;i<hwPdfQuestions.length;i++){const pq=hwPdfQuestions[i],qd=hwQuestionsData[i],ri=qd?rm.get(String(qd.id)):null;dc.push(...hwBuildQuestionContent(pq,qd,ri,imMap,scope,S))}
         const doc=new Document({creator:'小雅辅助工具',description:'题目与批改结果导出',title:'小雅辅助工具 题目与批改结果',styles:{paragraphStyles:[{id:'Normal',name:'Normal',run:{font:'Microsoft YaHei',size:S},paragraph:{spacing:{line:360,before:0,after:0}}}]},sections:[{properties:{},children:dc}]});
         const blob=await Packer.toBlob(doc);const now=new Date(),pad=v=>String(v).padStart(2,'0');const stamp=now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());saveAs(blob,'小雅辅助_题目与批改结果_'+stamp+'.docx');
-        logMsg( '.docx 已导出', 'success' );
+        logMsg( '文档已导出', 'success' );
     }
     /** 组装最终 AI 提示词：hwExtractedText 模板（含内容格式规范）为基底，用户在
      * 输入框追加的补充指令非空时附加到头部。返回纯文本串供复制。
@@ -10867,12 +10867,12 @@ const tid = e.target.getAttribute('data-tid');
      */
     /** [R3-09] hwCopyText 现为 async，调用点相应改为 await */
     async function hwCopyAiPrompt() {
-    if (!hwQuestionsData.length) { logMsg( '未读取到题目数据 · 无法复制', 'error' ); return; }
+    if (!hwQuestionsData.length) { logMsg( '还没读到题目 · 无法复制', 'error' ); return; }
     const text = hwBuildAiPrompt();
     hwExtractedText = text;
     const copied = await hwCopyText(text);
-    if (copied) { logMsg( `已复制 ${hwQuestionsData.length} 道题 · 可粘贴至 AI`, 'success' ); showToast('已复制题目模板', 'success'); }
-    else { logMsg( '复制失败 · 请手动复制', 'error' ); showToast('复制失败，请手动复制', 'error'); }
+    if (copied) { logMsg( `已复制 ${hwQuestionsData.length} 题 · 粘贴给 AI`, 'success' ); showToast('已复制题目模板', 'success'); }
+    else { logMsg( '复制失败 · 请手动选择', 'error' ); showToast('复制失败，请手动复制', 'error'); }
     }
     /**
      * 作答记录 ID 多形态提取：直取 answer_record.id / answer_record_id /
@@ -11072,13 +11072,13 @@ const tid = e.target.getAttribute('data-tid');
      * [DEEP-DOC]
      */
     async function hwSaveAnswers(aiText) {
-        if (!hwQuestionsData.length) { logMsg( '未读取到题目数据 · 无法保存', 'error' ); return; }
-        if (!String(aiText || '').trim()) { logMsg( '请先粘贴 AI 返回的答案', 'error' ); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
-        logMsg( '正在初始化提交参数', 'info', true );
+        if (!hwQuestionsData.length) { logMsg( '还没读到题目 · 无法保存', 'error' ); return; }
+        if (!String(aiText || '').trim()) { logMsg( '请先粘贴 AI 的答案', 'error' ); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
+        logMsg( '正在准备提交', 'info', true );
         try {
             hwRecordId = await hwGetRecordId();
         } catch(e) {
-            logMsg( '初始化提交参数失败 · ' + e.message, 'error' );
+            logMsg( '准备提交失败 · ' + e.message, 'error' );
             showToast('保存失败：' + e.message, 'error');
             return;
         }
@@ -11087,7 +11087,7 @@ const tid = e.target.getAttribute('data-tid');
         for (let i = 0; i < blocks.length; i++) {
             const block = blocks[i];
             const qd = hwQuestionsData.find(q => String(q.index) === String(block.index));
-            if (!qd) { fail++; logMsg( `第 ${block.index} 题不在题目列表中 · 已跳过`, 'warning' ); continue; }
+            if (!qd) { fail++; logMsg( `第 ${block.index} 题未找到 · 已跳过`, 'warning' ); continue; }
             const payload = hwBuildAnswerPayload(qd, block.answer);
             if (!payload) { skip++; continue; }
             try {
@@ -11109,12 +11109,12 @@ const tid = e.target.getAttribute('data-tid');
             const shouldReload=hwShouldReloadAfterSave(ok,fail,skip);
             showToast(shouldReload ? `已保存 ${ok} 道题 · 正在刷新` : `已保存 ${ok} 道题` + (refreshed ? ' · 结果已刷新' : ''), 'success');
             if(shouldReload){
-                logMsg( '全部答案已保存 · 即将刷新', 'success' );
+                logMsg( '全部已保存 · 即将刷新', 'success' );
                 hwSchedulePageReload();
             }
         } else {
             showToast(`未保存任何答案（成功 ${ok} / 失败 ${fail} / 跳过 ${skip}）`, fail ? 'error' : 'warning');
-            logMsg( `保存汇总 · 成功 ${ok} · 失败 ${fail} · 跳过 ${skip}`, fail ? 'error' : 'warning' );
+            logMsg( `汇总 · 成功 ${ok} · 失败 ${fail} · 跳过 ${skip}`, fail ? 'error' : 'warning' );
         }
     }
     /**
@@ -11810,7 +11810,7 @@ var XYExport = (function (Hinote) {  'use strict';
             }
             showToast('已导出图片 · ' + pages.length + '页', 'success');
         }
-        logMsg( `已导出 · ${items.length} 题 · ${pages.length} 页 · ${fmt}${imMap.size ? ' · 图' + imMap.size + '张' : ''}`, 'success' );
+        logMsg( `已导出 · ${items.length} 题 · ${pages.length} 页 · ${fmt}${imMap.size ? ' · 图 ' + imMap.size + ' 张' : ''}`, 'success' );
     }
 
 
@@ -12715,9 +12715,8 @@ var XYExport = (function (Hinote) {  'use strict';
             logBox.innerHTML = ''; sessionLogs.forEach(log => { const el = xyRenderLogLine(log.text, log.type ? xyLogColor(log.type) : log.color); logBox.appendChild(el); });
             logBox.scrollTop = logBox.scrollHeight;
         } else {
-            logMsg('=============================', 'silent', true);
-            logMsg( '任务总览已就绪', 'info', true );
-            logMsg( '任务总览扫描中 · 10 秒一次', 'silent', true );
+            logMsg( '任务列表已就绪', 'info', true );
+            logMsg( '正在扫描任务列表', 'silent', true );
         }
 
         /* ── §5 事件装配：控件绑定委托给 xyBindPanelEvents ── */
@@ -12918,7 +12917,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 btnQuickMute.style.background = guardState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
                 btnQuickMute.style.color = guardState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
                 document.querySelectorAll('video, audio').forEach(m => { m.muted = guardState.hardwareMute; });
-                logMsg( `底层音轨拦截已${guardState.hardwareMute ? '启动' : '关闭'}`, guardState.hardwareMute ? 'success' : 'warning', false );
+                logMsg( `静音拦截已${guardState.hardwareMute ? '开启' : '关闭'}`, guardState.hardwareMute ? 'success' : 'warning', false );
             };
         }
 
@@ -12942,18 +12941,18 @@ var XYExport = (function (Hinote) {  'use strict';
             };
         }
 
-        xySafeEl('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg( '终端日志已清空', 'silent', true ); };
-        xySafeEl('btn-clear-progress').onclick = () => { recState.recordCount = 0; recState.totalTime = 0; recState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg( '时长记录已归零', 'error', false ); };
+        xySafeEl('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg( '日志已清空', 'silent', true ); };
+        xySafeEl('btn-clear-progress').onclick = () => { recState.recordCount = 0; recState.totalTime = 0; recState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg( '学习时长已清零', 'error', false ); };
 
         xySafeEl('btn-mode-man').onclick = () => {
             if (xyScheduleState.isRunning) { xySchStop(); }
             playState.mode = PLAY_MODE.MANUAL;
             GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
             clearDynamicRefresh();
-            logMsg( '已暂停 · 调度与自动跳转全部终止', 'success' );
+            logMsg( '已暂停 · 调度与跳转已停止', 'success' );
             updateCourseUI();
         };
-        xySafeEl('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg( '安全循环模式已开启', 'success' ); updateCourseUI(); globalTaskStatusChecker(true); };
+        xySafeEl('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg( '安全循环已开启', 'success' ); updateCourseUI(); globalTaskStatusChecker(true); };
         xySafeEl('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
 
         // 防休眠/后台保活/活动保持/状态保持 UI 已删除——引擎按默认状态自动运行，无手动开关
@@ -13006,11 +13005,11 @@ var XYExport = (function (Hinote) {  'use strict';
 
         const hwSaveBtn = document.getElementById('xy-hw-save-btn');
         if (hwSaveBtn) hwSaveBtn.onclick = async () => {
-            if (!hwQuestionsData.length) { logMsg( '未读取到题目数据 · 无法保存', 'error' ); return; }
+            if (!hwQuestionsData.length) { logMsg( '还没读到题目 · 无法保存', 'error' ); return; }
             const aiText = document.getElementById('xy-hw-ai-input')?.value || '';
-            if (!aiText.trim()) { logMsg( '请先输入 AI 返回的答案', 'warning' ); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
+            if (!aiText.trim()) { logMsg( '请先输入 AI 的答案', 'warning' ); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
             hwSaveBtn.disabled = true; hwSaveBtn.textContent = '正在保存';
-            try { await hwSaveAnswers(aiText); } catch(e) { logMsg( '保存异常 · ' + e.message, 'error' ); }
+            try { await hwSaveAnswers(aiText); } catch(e) { logMsg( '保存失败 · ' + e.message, 'error' ); }
             hwSaveBtn.disabled = false; hwSaveBtn.textContent = '提交并保存';
         };
 
@@ -13018,7 +13017,7 @@ var XYExport = (function (Hinote) {  'use strict';
         xyExpBindPanel();
 
         const toggleDomScan = document.getElementById('xy-toggle-dom-scan');
-        if(toggleDomScan) { toggleDomScan.onchange = (e) => { playState.enableDomScan = e.target.checked; logMsg( e.target.checked ? '智能提取已开启' : '智能提取已暂停', 'info', true ); }; }
+        if(toggleDomScan) { toggleDomScan.onchange = (e) => { playState.enableDomScan = e.target.checked; logMsg( e.target.checked ? '智能识别已开启' : '智能识别已暂停', 'info', true ); }; }
 
         const toggleCustomReply = document.getElementById('xy-toggle-custom-reply');
         if(toggleCustomReply) { toggleCustomReply.onchange = (e) => { discState.useCustomReply = e.target.checked; GM_setValue('xy_use_custom_reply', discState.useCustomReply); }; }
@@ -13138,10 +13137,10 @@ var XYExport = (function (Hinote) {  'use strict';
             for(let i = 0; i < Math.min(discState.targetNames.length, 15); i++) { discState.selectedNames.add(discState.targetNames[i]); }
             renderTargetList(document.getElementById('xy-name-search')?.value || '');
             showToast('已全选前 15 名 · 已达上限', 'success');
-            logMsg( '已全选 · 上限 15 人', 'silent', true ); 
+            logMsg( '已全选 15 人 · 已达上限', 'silent', true ); 
         };
         xySafeEl('xy-btn-deselect-all').onclick = () => { 
-            discState.selectedNames.clear(); renderTargetList(document.getElementById('xy-name-search')?.value || ''); logMsg('已清空勾选', 'silent', true); 
+            discState.selectedNames.clear(); renderTargetList(document.getElementById('xy-name-search')?.value || ''); logMsg('已取消勾选', 'silent', true); 
         };
         xySafeEl('xy-btn-copy-names').onclick = async () => {
             const names = Array.from(discState.selectedNames).join('\n');
@@ -13163,9 +13162,9 @@ var XYExport = (function (Hinote) {  'use strict';
                 playState.enableDomScan = false;
                 const toggle = document.getElementById('xy-toggle-dom-scan');
                 if(toggle) toggle.checked = false;
-                logMsg( '已清空全库 · 智能提取已暂停', 'silent', true ); 
+                logMsg( '已清空 · 智能识别已暂停', 'silent', true ); 
             } else {
-                logMsg('已清空名单库', 'silent', true); 
+                logMsg('名单已清空', 'silent', true); 
             }
         };
         
@@ -13910,7 +13909,7 @@ var XYExport = (function (Hinote) {  'use strict';
             if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
             _saveAs(blob, fname + '.docx');
             xyMdSetStatus('Word 已导出：' + fname + '.docx', T('#6ee7b7', '#059669'), sfx);
-            logMsg( '已导出 Word · ' + fname + '.docx', 'success', true );
+            logMsg( '已导出 · ' + fname + '.docx', 'success', true );
         } catch (e) {
             console.warn('[小雅] MD→Word 失败:', e);
             xyMdSetStatus('Word 导出失败：' + (e.message || e), T('#f87171', '#dc2626'), sfx);
@@ -14163,7 +14162,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     const f = targets[i];
                     const isPdf = pdfRe.test(String(f.name || ''));
                     if (btn) btn.textContent = '' + (isPdf ? '下载' : '转换') + (i + 1) + '/' + targets.length + '';
-                    logMsg( '(' + (i + 1) + '/' + targets.length + ') ' + (isPdf ? '直下 PDF · ' : '转换中 · ') + f.name, 'info', true );
+                    logMsg( (i + 1) + '/' + targets.length + ' · ' + (isPdf ? '下载 ' : '转换 ') + f.name, 'info', true );
                     try {
                         if (isPdf) {
                             /* PDF 本身就是目标格式：走既有下载链（签发直链 + 落盘），原文件保存 */
@@ -14171,13 +14170,13 @@ var XYExport = (function (Hinote) {  'use strict';
                             if (!u) throw new Error('下载地址签发失败');
                             await downloadFile(u, f.name, null);
                             okCnt++;
-                            logMsg( '已下载 PDF · ' + f.name, 'success', true );
+                            logMsg( '已下载 · ' + f.name, 'success', true );
                         } else {
                             const r = await xyOw365ConvertOne(f);
                             const name = String(f.name || '课件').replace(/\.[^.]+$/, '') + '.pdf';
                             _saveAs(new Blob([r.buf], { type: 'application/pdf' }), name);
                             okCnt++;
-                            logMsg( '已转 PDF · ' + name, 'success', true );
+                            logMsg( '已转换 · ' + name, 'success', true );
                         }
                     } catch (e) {
                         failCnt++;
@@ -14185,8 +14184,8 @@ var XYExport = (function (Hinote) {  'use strict';
                     }
                     await sleep(800);
                 }
-                showToast('转换完成 · 成功' + okCnt + (failCnt ? ' · 失败' + failCnt : ''), okCnt ? 'success' : 'error');
-                logMsg( '批量转 PDF 完成 · 成功' + okCnt + (failCnt ? ' · 失败' + failCnt : ''), okCnt ? 'success' : 'error', true );
+                showToast('转换完成 · 成功 ' + okCnt + (failCnt ? ' · 失败' + failCnt : ''), okCnt ? 'success' : 'error');
+                logMsg( '批量转换完成 · 成功 ' + okCnt + (failCnt ? ' · 失败' + failCnt : ''), okCnt ? 'success' : 'error', true );
             } else {
                 /* 单文件模式：转当前预览（无勾选时） */
                 const r = await xyBridgeConvertCurrentPdf();
@@ -14195,11 +14194,11 @@ var XYExport = (function (Hinote) {  'use strict';
                 if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
                 _saveAs(new Blob([r.buf], { type: 'application/pdf' }), name);
                 showToast('已导出 PDF · ' + name, 'success');
-                logMsg( '已转 PDF · OW365 服务端转换 · ' + name, 'success', true );
+                logMsg( '已转换 · ' + name, 'success', true );
             }
         } catch (e) {
             showToast('转 PDF 失败：' + (e.message || e), 'error');
-            logMsg( '转 PDF 失败 · ' + (e.message || e), 'error', true );
+            logMsg( '转换失败 · ' + (e.message || e), 'error', true );
         } finally {
             if (btn) { btn.disabled = false; btn.textContent = '转 PDF'; }
         }
