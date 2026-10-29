@@ -889,20 +889,13 @@
      * 单独用一个轻量轮询记录，不依赖站点的路由实现，也不跟面板生命周期绑定。
      */
     let xyLastNavAt = 0;
-    /** 最近一次「脚本主动跳转」的时刻与原因，用来区分是脚本干的还是页面自己跳的 */
-    let xyScriptNavAt = 0;
-    let xyScriptNavReason = '';
+    /** 最近一次页面地址变化的时刻，连播的 8 秒保护期据此判断「用户刚进来」 */
     let _xyNavMemo = (typeof location !== 'undefined' ? location.href : '');
     setInterval(() => {
         try {
             if (location.href === _xyNavMemo) return;
-            const from = _xyNavMemo;
-            const to = location.href;
-            _xyNavMemo = to;
+            _xyNavMemo = location.href;
             xyLastNavAt = Date.now();
-            const byScript = xyScriptNavAt > 0 && (Date.now() - xyScriptNavAt < 3000);
-            const brief = (u) => String(u).replace(/^https?:\/\/[^/]+/, '').slice(0, 88);
-            logMsg( `页面跳转 ${brief(from)} → ${brief(to)}（${byScript ? '脚本发起 · ' + xyScriptNavReason : '页面发起'}）`, 'info', true );
         } catch (e) {}
     }, 400);
 
@@ -2569,7 +2562,7 @@
             }
         }
         const prefix = xyCourseRoutePrefix();
-        xyGoto(`/app/jx-web/${prefix}/${encodeURIComponent(courseId)}/resource/${encodeURIComponent(targetParentId)}/${encodeURIComponent(nodeId)}`, '学情直达任务');
+        xyGoto(`/app/jx-web/${prefix}/${encodeURIComponent(courseId)}/resource/${encodeURIComponent(targetParentId)}/${encodeURIComponent(nodeId)}`);
     }
     /**
      * 路由变化时的概览状态同步。
@@ -6507,14 +6500,9 @@
      * 异常路径独立退避表 ERROR_DELAYS_MS，5 次休眠。两套阈值均在 BACKOFF 常量。
      * [DEEP-DOC]
      */
-    /**
-     * 脚本主动跳转的唯一出口：先记一行日志，再改 location。
-     * 出问题时可从日志直接看出「是谁把我带走的」，不必靠猜。
-     */
-    function xyGoto(url, reason) {
-        xyScriptNavAt = Date.now();
-        xyScriptNavReason = reason || '';
-        try { logMsg( `脚本跳转（${reason}）${url}`, 'info', true ); } catch (e) {}
+    /** 脚本主动跳转的唯一出口：刷新最近导航时刻，再改 location */
+    function xyGoto(url) {
+        xyLastNavAt = Date.now();
         window.location.href = url;
     }
     async function tryJumpToNext() {
@@ -6578,7 +6566,7 @@
                 setTimeout(() => { 
                     /* [SLEEP-FIX] 竞态复查：fetch 期间用户点了休眠/停调度则放弃跳转 */
                     if (playState.mode === PLAY_MODE.MANUAL || xyScheduleState.isRunning) { isJumpingLock = false; return; }
-                    xyGoto(`/app/jx-web/${pathPrefix}/${targetTask.group_id}/resource/${resId}/${targetTask.node_id}`, '连播下一项');
+                    xyGoto(`/app/jx-web/${pathPrefix}/${targetTask.group_id}/resource/${resId}/${targetTask.node_id}`);
                 }, 500);
                 
                 setTimeout(() => { isJumpingLock = false; }, 5000);
@@ -9107,7 +9095,7 @@
                 /* [SLEEP-FIX] 竞态复查：延迟期间调度已被停止/休眠则放弃首跳 */
                 if (!xyScheduleState.isRunning || xyScheduleState.isPaused) return;
                 try { sessionStorage.setItem('xy_sch_jumping', '1'); } catch(e) {}
-                xyGoto(`/app/jx-web/${pathPrefix}/${firstTask.groupId}/resource/${firstTask.resourceId}/${firstTask.nodeId}`, '调度首项');
+                xyGoto(`/app/jx-web/${pathPrefix}/${firstTask.groupId}/resource/${firstTask.resourceId}/${firstTask.nodeId}`);
             }, 800);
         }
     }
@@ -9901,7 +9889,7 @@ const tid = e.target.getAttribute('data-tid');
                 /* [SLEEP-FIX] 延迟期间被停止/暂停则放弃 */
                 if (!xyScheduleState.isRunning || xyScheduleState.isPaused) { playState.isJumping = false; return; }
                 try { sessionStorage.setItem('xy_sch_jumping', '1'); } catch (e) {}
-                xyGoto(`/app/jx-web/${segPrefix}/${segTask.groupId}/resource/${segTask.resourceId}/${segTask.nodeId}`, '调度下一项');
+                xyGoto(`/app/jx-web/${segPrefix}/${segTask.groupId}/resource/${segTask.resourceId}/${segTask.nodeId}`);
             }, 800);
             setTimeout(() => { if (playState.isJumping) playState.isJumping = false; }, 15000);
         }
@@ -10091,7 +10079,7 @@ const tid = e.target.getAttribute('data-tid');
                     /* [SLEEP-FIX] 竞态复查：延迟期间调度被停止/暂停则放弃跳转 */
                     if (!xyScheduleState.isRunning || xyScheduleState.isPaused) { playState.isJumping = false; return; }
                     sessionStorage.setItem('xy_sch_jumping', '1'); 
-                    xyGoto(`/app/jx-web/${pathPrefix}/${currentTask.groupId}/resource/${currentTask.resourceId}/${currentTask.nodeId}`, '调度继续');
+                    xyGoto(`/app/jx-web/${pathPrefix}/${currentTask.groupId}/resource/${currentTask.resourceId}/${currentTask.nodeId}`);
                 }, 1500);
             }
             return;
@@ -12845,7 +12833,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     xyOverviewOpen(course.courseId);
                     return;
                 }
-                xyGoto(xyCourseDashboardResourceUrl(course.courseId), '课程卡片进入课程');
+                xyGoto(xyCourseDashboardResourceUrl(course.courseId));
             });
             courseDashboardList.addEventListener('toggle', event => {
                 const group = event.target.closest('.xy-course-dashboard-task-group');
@@ -12948,7 +12936,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 const link = e.target.closest('[data-dir-url]');
                 if (link) {
                     const url = link.getAttribute('data-dir-url');
-                    if (url) xyGoto(url, '目录跳转');
+                    if (url) xyGoto(url);
                     return;
                 }
                 const head = e.target.closest('.xy-dir-head');
