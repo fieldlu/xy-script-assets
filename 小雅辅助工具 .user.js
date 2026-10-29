@@ -346,7 +346,7 @@
                         if (!manual && hasNew) {
                             const notifyKey = `xy_update_notified_${info.version}`;
                             if (GM_getValue(notifyKey, '0') !== '1') {
-                                showToast(`🎉 发现脚本新版本 ${info.version}，点击面板「↻ 检查更新」可查看`, 'success');
+                                showToast(`发现新版本 ${info.version} · 面板「↻ 检查更新」可查看`, 'success');
                                 GM_setValue(notifyKey, '1');
                             }
                         }
@@ -2563,7 +2563,7 @@
                 if (resources) targetParentId = xyCourseDashboardResolveTaskParentId(resources, nodeId);
             } catch (e) { /* 反查失败走下方兜底提示 */ }
             if (!targetParentId) {
-                showToast('未能定位任务所在章节，已取消跳转', 'warning');
+                showToast('未能定位任务所在章节 · 已取消跳转', 'warning');
                 return;
             }
         }
@@ -5265,7 +5265,7 @@
         const queue = Array.isArray(files) ? files.filter(file => file && file.name) : [];
         if (queue.length === 0) return;
         if (dlState.downloadAbortController) {
-            showToast('已有下载任务进行中，请等待完成或先终止当前任务', 'warning');
+            showToast('已有下载任务进行中 · 请等待或先终止', 'warning');
             return;
         }
 
@@ -5333,11 +5333,11 @@
                 updateDownloadProgress(done + failed, total, file.name, fileSucceeded ? 100 : lastProgress.percent, lastProgress.receivedBytes, lastProgress.totalBytes);
                 if (done + failed < total && !dlState.downloadPaused) await sleep(500);
             }
-            showToast('下载完成: ' + done + '/' + total + ' 个文件' + (failed > 0 ? ' (' + failed + ' 个失败)' : ''), 'success');
+            showToast('下载完成 ' + done + '/' + total + (failed > 0 ? ' · 失败 ' + failed : ''), 'success');
         } catch (error) {
             if (error?.name === 'AbortError') {
                 updateDownloadProgress(done + failed, total);
-                showToast('下载已终止: ' + done + '/' + total + ' 个文件', 'warning');
+                showToast('下载已终止 ' + done + '/' + total, 'warning');
             } else {
                 console.warn('[小雅] 下载任务失败:', error);
                 showToast(error?.message || '文件下载失败', 'error');
@@ -5463,7 +5463,7 @@
         }
         if (quoteId === null) {
             console.warn('[小雅] 单文件下载缺少 quote_id:', { fid, fileName, button: singleButton });
-            showToast('找不到下载资源编号，请刷新下载列表', 'error');
+            showToast('找不到下载资源编号 · 请刷新列表', 'error');
             return;
         }
 
@@ -7820,7 +7820,7 @@
      * [DEEP-DOC]
      */
     async function fetchDiscussions(pageSize = 20, pageIndex = 1) {
-        if (!discState.discussionId || !discState.discGroupId) { showToast('未捕获到ID，请重刷页面获取截包！', 'warning'); return null; }
+        if (!discState.discussionId || !discState.discGroupId) { showToast('未捕获到 ID · 请刷新页面重试', 'warning'); return null; }
         try {
             const token = await getAuthToken(); 
             const res = await xyFetch(`https://${domain}/api/jx-iresource/discussion/queryDiscussion?discussion_id=${discState.discussionId}&group_id=${discState.discGroupId}&sort_type=1&sort_way=desc&page_index=${pageIndex}&page_size=${pageSize}&channel=`, { headers: { "authorization": `Bearer ${token}` } });
@@ -8323,7 +8323,7 @@
             discState.customReplies = lines;
             GM_setValue('xy_custom_replies', JSON.stringify(lines));
             closeModal();
-            showToast(`语料库已保存 (${lines.length} 条)`, 'success');
+            showToast(`语料库已保存 · ${lines.length} 条`, 'success');
         };
     }
     /**
@@ -8588,7 +8588,7 @@
             }
 
             if (successCount > 0) { 
-                showToast(`🎉 成功完成 ${successCount} 个学习任务！`, 'success');
+                showToast(`已完成 ${successCount} 个学习任务`, 'success');
             }
 
         } catch(e) { console.warn('[小雅] 全局任务执行失败', e); }
@@ -8968,7 +8968,7 @@
         const watchTasks = xyBrushFilterPlayable(tasks).filter(t => xyBrushIsPlayableName(t));
 
         if (watchTasks.length === 0) {
-            showToast('未发现可优化的视频/文档任务', 'warning');
+            showToast('没有可优化的任务', 'warning');
             return;
         }
 
@@ -8995,7 +8995,7 @@
         saveScheduleState();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
         logMsg(`🧠 智能排课完成：${xyScheduleState.queue.length} 个任务已按 DDL紧迫度×类型交错 优化排序`, 'success', false);
-        showToast(`已优化导入 ${xyScheduleState.queue.length} 个任务`, 'success');
+        showToast(`已导入 ${xyScheduleState.queue.length} 个任务`, 'success');
     }
     /**
      * 一键任务连播：全网扫描 → 过滤未完成且已开始的视频/文档 → DDL 升序排序
@@ -9005,7 +9005,7 @@
      */
     async function oneClickRadarPlay() {
         if (xyScheduleState.isRunning) {
-            showToast('计划调度正在运行中，请先停止后再启动', 'warning');
+            showToast('计划调度运行中 · 请先停止', 'warning');
             return;
         }
         /**
@@ -9026,7 +9026,6 @@
         }
 
         logMsg('🔊 任务连播：正在扫描全网未完成任务...', 'info', false);
-        showToast('正在扫描全网任务...', 'info');
 
         const allTasks = await fetchGlobalTasks();
 
@@ -9042,7 +9041,7 @@
 
         if (pendingTasks.length === 0) {
             logMsg('🔊 任务连播：全网未发现可学习的待完成任务', 'warning', false);
-            showToast('未发现待完成的视频/文档任务', 'warning');
+            showToast('没有待完成的任务', 'warning');
             return;
         }
 
@@ -9077,7 +9076,7 @@
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
 
         logMsg(`🔊 任务连播：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
-        showToast(`已导入 ${xyScheduleState.queue.length} 个任务，启动任务连播`, 'success');
+        showToast(`已导入 ${xyScheduleState.queue.length} 个任务 · 开始连播`, 'success');
 
         
         xyScheduleState.lastMode = playState.mode;
@@ -9130,7 +9129,7 @@
      * [DEEP-DOC]
      */
     async function quickKillCurrentTask() {
-        if (quickKillRunning) { showToast('极速快速确认正在执行中', 'warning'); return; }
+        if (quickKillRunning) { showToast('快速确认进行中', 'warning'); return; }
         const groupId = getCourseGroupId();
         const nodeId = getNodeId();
         if (!groupId || !nodeId) { showToast('当前页面无任务可提交', 'warning'); return; }
@@ -9154,7 +9153,7 @@
 
             if (res.ok) {
                 logMsg('✅ 极速快速确认成功！当前任务已提交', 'success', false);
-                showToast('快速确认成功！', 'success');
+                showToast('已提交', 'success');
                 playState.isTaskCompleted = true;
                 updateCourseUI();
             } else if (res.skipped) {
@@ -9163,7 +9162,7 @@
                 showToast('已有提交在途', 'warning');
             } else {
                 logMsg('❌ 快速确认失败：可能需要先学习积累时长', 'warning', false);
-                showToast('快速确认失败，请先学习积累时长', 'warning');
+                showToast('快速确认失败 · 请先积累学习时长', 'warning');
             }
         } catch(e) {
             logMsg('❌ 极速快速确认异常', 'error', false);
@@ -9535,7 +9534,7 @@ const tid = e.target.getAttribute('data-tid');
     const task = window.xyGlobalTaskMap.get(String(tid));
                     // 没有 node_id 的条目定位不到具体资源，加进去只会渲染成空行
                     if (!task || !task.node_id) {
-                        showToast('该条目不是可学习的任务节点，无法加入队列', 'warning');
+                        showToast('该条目不是可学习的任务', 'warning');
                         e.target.disabled = false;
                         return;
                     }
@@ -9566,7 +9565,7 @@ const tid = e.target.getAttribute('data-tid');
 
                         e.target.innerText = originalText;
                         e.target.disabled = false;
-                        showToast(`已添加：${task.name.substring(0,8)}...`, 'success');
+                        showToast(`已加入 · ${task.name.substring(0,8)}`, 'success');
                     }
                 };
             });
@@ -9647,7 +9646,7 @@ const tid = e.target.getAttribute('data-tid');
         /* [EXPIRE-FIX] 打开调度中心即比对当前任务集，自动清理跨学期残留旧课程 */
         try {
             const pruned = window.xyPruneExpiredQueue && window.xyPruneExpiredQueue(tasks);
-            if (pruned > 0) showToast(`🧹 已自动清理 ${pruned} 个过期课程任务`, 'warning');
+            if (pruned > 0) showToast(`已清理 ${pruned} 个过期任务`, 'warning');
         } catch (e) { console.warn('[小雅] 过期任务清理失败', e); }
         renderLibraryList(tasks);
         renderQueueList();
@@ -9686,7 +9685,7 @@ const tid = e.target.getAttribute('data-tid');
         }
 
         startBtn.onclick = () => {
-            if (xyScheduleState.queue.length === 0) { showToast('队列为空，请先添加任务', 'warning'); return; }
+            if (xyScheduleState.queue.length === 0) { showToast('队列为空 · 请先添加任务', 'warning'); return; }
 
             const allDone = xyScheduleState.queue.every(q => q.status === 'completed');
             if (allDone) {
@@ -9747,12 +9746,12 @@ const tid = e.target.getAttribute('data-tid');
         if (autoStartInput) autoStartInput.onchange = () => {
             xyScheduleState.autoStart = autoStartInput.value;
             GM_setValue('xy_schedule_auto_start', xyScheduleState.autoStart);
-            showToast(autoStartInput.value ? `定时启动已设为 ${autoStartInput.value}` : '定时启动已关闭', 'success');
+            showToast(autoStartInput.value ? `定时启动 · ${autoStartInput.value}` : '定时启动已关闭', 'success');
         };
         if (autoStopInput) autoStopInput.onchange = () => {
             xyScheduleState.autoStop = autoStopInput.value;
             GM_setValue('xy_schedule_auto_stop', xyScheduleState.autoStop);
-            showToast(autoStopInput.value ? `定时停止已设为 ${autoStopInput.value}` : '定时停止已关闭', 'success');
+            showToast(autoStopInput.value ? `定时停止 · ${autoStopInput.value}` : '定时停止已关闭', 'success');
         };
     }
     /**
@@ -9866,7 +9865,7 @@ const tid = e.target.getAttribute('data-tid');
         const runnable = xyScheduleState.queue.filter(q => q.status === 'pending' || q.status === 'running');
         if (runnable.length === 0) {
             logMsg('⚠️ 队列中没有可执行的任务（可能全部已完成或已过期），请到调度中心清理后重新添加', 'error', false);
-            showToast('队列无可执行任务，请打开调度中心清理后重新添加', 'warning');
+            showToast('队列无可执行任务 · 请先清理队列', 'warning');
             return;
         }
         const allDone = xyScheduleState.queue.every(q => q.status === 'completed');
@@ -10761,7 +10760,7 @@ const tid = e.target.getAttribute('data-tid');
      * [DEEP-DOC]
      */
     async function hwExportDocx(scope,fontPt){
-        if(!hwQuestionsData.length){logMsg('还没有读取到题目数据，无法导出','error');return}
+        if(!hwQuestionsData.length){logMsg('尚未读取到题目数据','error');return}
         const{Document,Packer,Paragraph,TextRun,HeadingLevel,AlignmentType}=window.docx;const{saveAs}=window;
         if(!Document||!Packer||!saveAs){logMsg('docx库未加载完成，请刷新页面重试','error');return}
         const S=Math.max(18,Math.round((fontPt||11)*2));   // pt → half-points
@@ -10847,7 +10846,7 @@ const tid = e.target.getAttribute('data-tid');
     const text = hwBuildAiPrompt();
     hwExtractedText = text;
     const copied = await hwCopyText(text);
-    if (copied) { logMsg(`✅ 已复制 ${hwQuestionsData.length} 道题给 AI，去聊天窗口粘贴吧`,'success'); showToast('📋 题目模板已复制', 'success'); }
+    if (copied) { logMsg(`✅ 已复制 ${hwQuestionsData.length} 道题给 AI，去聊天窗口粘贴吧`,'success'); showToast('已复制题目模板', 'success'); }
     else { logMsg('复制失败，请手动复制','error'); showToast('复制失败，请手动复制', 'error'); }
     }
     /**
@@ -11083,7 +11082,7 @@ const tid = e.target.getAttribute('data-tid');
             hwUpdateUI();
             logMsg(`✅ 保存完成：成功 ${ok} 题，失败 ${fail} 题，跳过 ${skip} 题`,'success');
             const shouldReload=hwShouldReloadAfterSave(ok,fail,skip);
-            showToast(shouldReload ? `✅ 已保存 ${ok} 道题，正在刷新页面…` : `✅ 已保存 ${ok} 道题` + (refreshed ? '，结果已刷新' : ''), 'success');
+            showToast(shouldReload ? `已保存 ${ok} 道题 · 正在刷新` : `已保存 ${ok} 道题` + (refreshed ? ' · 结果已刷新' : ''), 'success');
             if(shouldReload){
                 logMsg('全部答案已保存，1 秒后刷新页面同步状态','success');
                 hwSchedulePageReload();
@@ -11746,7 +11745,7 @@ var XYExport = (function (Hinote) {  'use strict';
     /** 统一导出入口（面板「生成并下载」）。 */
     async function xyExpGenerate() {
         if (!xyExpScopeOk()) { showToast('请至少勾选一项导出内容', 'warn'); return; }
-        if (!(hwQuestionsData && hwQuestionsData.length)) { showToast('还没有读取到题目数据，无法导出', 'warn'); return; }
+        if (!(hwQuestionsData && hwQuestionsData.length)) { showToast('尚未读取到题目数据', 'warn'); return; }
         const go = document.getElementById('xy-exp-go');
         if (go) { go.disabled = true; go.textContent = '⏳ 正在生成...'; }
         try {
@@ -11778,13 +11777,13 @@ var XYExport = (function (Hinote) {  'use strict';
             const jpegs = await Promise.all(pages.map(p => xyExpCanvasToJPEG(p, 0.92)));
             const pdf = XYExport.makePDF(jpegs, 595.28, 841.89);
             xyHWSave(new Blob([pdf], { type: 'application/pdf' }), title + '.pdf');
-            showToast('✅ 已导出 PDF（' + pages.length + ' 页）', 'success');
+            showToast('已导出 PDF · ' + pages.length + ' 页', 'success');
         } else {
             for (let p = 0; p < pages.length; p++) {
                 const jp = await xyExpCanvasToJPEG(pages[p], 0.92);
                 xyHWSave(new Blob([jp.data], { type: 'image/jpeg' }), title + '_p' + (p + 1) + '.jpg');
             }
-            showToast('✅ 已导出图片（' + pages.length + ' 页）', 'success');
+            showToast('已导出图片 · ' + pages.length + ' 页', 'success');
         }
         logMsg('📄 题目与批改结果已导出：' + items.length + ' 题 / ' + pages.length + ' 页 / ' + fmt + (imMap.size ? ' / 图 ' + imMap.size + ' 张' : ''), 'success');
     }
@@ -13113,7 +13112,7 @@ var XYExport = (function (Hinote) {  'use strict';
             discState.selectedNames.clear();
             for(let i = 0; i < Math.min(discState.targetNames.length, 15); i++) { discState.selectedNames.add(discState.targetNames[i]); }
             renderTargetList(document.getElementById('xy-name-search')?.value || '');
-            showToast('已智能全选前15名 (安全限制上限)', 'success');
+            showToast('已全选前 15 名 · 已达上限', 'success');
             logMsg('已全选（触发互动安全人数限制：最多15人）', 'silent', true); 
         };
         xySafeEl('xy-btn-deselect-all').onclick = () => { 
@@ -13124,7 +13123,7 @@ var XYExport = (function (Hinote) {  'use strict';
             if (!names) { showToast('当前未选择任何目标', 'warning'); return; }
             try {
                 await navigator.clipboard.writeText(names);
-                showToast(`成功复制 ${discState.selectedNames.size} 个人名到剪贴板！`, 'success');
+                showToast(`已复制 ${discState.selectedNames.size} 个人名`, 'success');
             } catch(e) { showToast('复制失败，可能是浏览器限制', 'error'); }
         };
         xySafeEl('xy-btn-fetch-users').onclick = fetchCurrentUsers;
@@ -13155,7 +13154,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     if(e.target.checked) {
                         if (discState.selectedNames.size >= 15) {
                             e.target.checked = false;
-                            showToast('为防风控，最多只允许勾选15个互动目标！', 'warning');
+                            showToast('防风控 · 上限 15 个目标', 'warning');
                         } else { discState.selectedNames.add(e.target.value); }
                     } else { discState.selectedNames.delete(e.target.value); }
                     updateCheckedCount();
@@ -13496,7 +13495,7 @@ var XYExport = (function (Hinote) {  'use strict';
             else settingsState.theme = 'auto';
             GM_setValue('xy_theme', settingsState.theme);
             applyTheme();
-            showToast(settingsState.theme === 'auto' ? '🌓 主题：跟随系统' : settingsState.theme === 'light' ? '☀️ 主题：浅色模式' : '🌙 主题：深色模式', 'info');
+            showToast(settingsState.theme === 'auto' ? '主题 · 跟随系统' : settingsState.theme === 'light' ? '主题 · 浅色' : '主题 · 深色', 'info');
         };
 
         
@@ -13612,7 +13611,6 @@ var XYExport = (function (Hinote) {  'use strict';
             GM_setValue('xy_panel_height', '');
             wrapper.style.width = '360px';
             wrapper.style.height = '';
-            showToast('面板尺寸已复位为默认 (宽360 · 高度自适应)', 'info');
         };
 
         setTimeout(() => syncHardwareMute(), 100);
@@ -14162,7 +14160,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     }
                     await sleep(800);
                 }
-                showToast('转换完成：成功 ' + okCnt + (failCnt ? ' · 失败 ' + failCnt : ''), okCnt ? 'success' : 'error');
+                showToast('转换完成 · 成功 ' + okCnt + (failCnt ? ' · 失败 ' + failCnt : ''), okCnt ? 'success' : 'error');
                 logMsg('🖥 批量转 PDF 结束（成功 ' + okCnt + (failCnt ? ' · 失败 ' + failCnt : '') + '）', okCnt ? 'success' : 'error', true);
             } else {
                 /* 单文件模式：转当前预览（无勾选时） */
@@ -14171,7 +14169,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 const _saveAs = (typeof saveAs === 'function') ? saveAs : window.saveAs;
                 if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
                 _saveAs(new Blob([r.buf], { type: 'application/pdf' }), name);
-                showToast('✅ PDF 已导出：' + name, 'success');
+                showToast('已导出 PDF · ' + name, 'success');
                 logMsg('🖥 课件预览已转 PDF（OW365 服务端转换 · 纯前端）: ' + name, 'success', true);
             }
         } catch (e) {
