@@ -6135,7 +6135,6 @@
                 const response = await _hw_nativeFetch.apply(this, arguments);
                 // 参数学习后置 + 仅采信成功响应：防止主动拉取的 404 探测自我污染参数缓存
                 if (response.ok) {
-                    console.log('[小雅辅助·作业区] 已捕获 fetch 题目数据包(200)');
                     hwCaptureParams(rawUrl);
                 }
                 try {
@@ -6164,7 +6163,6 @@
                 self.addEventListener('load', function() {
                     // 参数学习后置 + 仅采信成功响应（与 fetch 监听器同策略）
                     if (self.status === 200) {
-                        console.log('[小雅辅助·作业区] 已捕获 XHR 题目数据包(200)');
                         hwCaptureParams(self._hw_url);
                     }
                 });
@@ -10434,7 +10432,6 @@ const tid = e.target.getAttribute('data-tid');
         clearTimeout(window._hwResetGuard);
         _hwDataJustLoaded = true;
         setTimeout(() => { _hwDataJustLoaded = false; }, 3000);
-        console.log('[小雅辅助·作业区] 开始处理题目数据，题目数:', json.data.questions.length);
         hwPaperId=hwPaperId||json.data.paper_id||json.data.paperId||json.data.id||'';
         if(!hwGroupId)hwGroupId=json.data.group_id;
         if(!hwNodeId)hwNodeId=getNodeId()||'';
@@ -10518,7 +10515,6 @@ const tid = e.target.getAttribute('data-tid');
         else if(q.type===13){const li=sItems.filter(it=>it&&it.is_target_opt!==true),ri=sItems.filter(it=>it&&it.is_target_opt===true);tpl+='左侧：\n';li.forEach((opt,ii)=>{const ol=String.fromCharCode(65+ii);const po=hwParseRichContent(opt.value);const ot=po.text,segs=po.segments&&po.segments.length?po.segments:(ot?[{type:'text',value:ot}]:[]);hwCollectImages(qi,po,ol);const d={id:opt.id,letter:ol,text:ot,segments:segs};mLeft.push(d);pq.matchingLeftItems.push(d);tpl+='   '+ol+'. '+ot+'\n'});tpl+='\n   右侧候选：\n';ri.forEach((opt,ii)=>{const ol=String.fromCharCode(97+ii);const po=hwParseRichContent(opt.value);const ot=po.text,segs=po.segments&&po.segments.length?po.segments:(ot?[{type:'text',value:ot}]:[]);hwCollectImages(qi,po,ol);const d={id:opt.id,letter:ol,text:ot,segments:segs};mRight.push(d);pq.matchingRightItems.push(d);tpl+='   '+ol+'. '+ot+'\n'})}
         tpl+='\n';hwQuestionsData.push({index:qi,id:q.id,type:q.type,score:q.score,titleText:qTitle,options:rOpts,matchingLeftItems:mLeft,matchingRightItems:mRight,sItems});hwPdfQuestions.push(pq)});
         hwExtractedText=tpl;hwActiveTaskKey=hwBuildTaskKey(hwGroupId,hwNodeId,hwPaperId);hwSubmissionResult=hwBuildSubmissionResult(json.data);hwActiveTab='answer';
-        console.log('[小雅辅助·作业区] 数据清洗完毕：', hwQuestionsData.length, '题,', hwImageAssets.length, '图, 已提交:', hwSubmissionResult.state);
         if(hwQuestionsData.length && !xyShouldKeepDashboardOverview(hwGroupId || getCourseGroupId())) switchToZone(ZONE.HW);
         hwUpdateUI();
     }
@@ -10567,12 +10563,10 @@ const tid = e.target.getAttribute('data-tid');
                        ② survey/course/queryStuPaper/v2?paper_id={quote_id}&group_id&node_id={paperNodeId}
                          一次拿全 questions + answer_record（批改状态） */
                     const resUrl = `https://${domain}/api/jx-iresource/resource/queryResource/v3?node_id=${encodeURIComponent(paperId)}`;
-                    console.log('[小雅辅助·作业区] resource 页面用 queryResource/v3');
                     const res = await xyNativeFetch(resUrl, { headers: { 'Authorization': `Bearer ${token}` } }, 30000);
                     const data = await res.json();
                     if (data && data.success && data.data && data.data.resource && Array.isArray(data.data.resource.questions)) {
                         const questions = data.data.resource.questions;
-                        console.log('[小雅辅助·作业区] queryResource/v3 获取到题目:', questions.length, '题');
                         const paperIdFromRes = data.data.resource.id || paperId;
                         hwGroupId = groupId;
                         hwNodeId = paperId;
@@ -10583,7 +10577,6 @@ const tid = e.target.getAttribute('data-tid');
                             const stuRes = await xyNativeFetch(stuUrl, { headers: { 'Authorization': `Bearer ${token}` } }, 45000);
                             const stuData = await stuRes.json();
                             if (stuData && stuData.success && stuData.data && Array.isArray(stuData.data.questions)) {
-                                console.log('[小雅辅助·作业区] survey/course/queryStuPaper/v2 获取到完整试卷数据');
                                 hwProcessPaperData(stuData);
                                 _hwProactiveFetching = false;
                                 return;
@@ -10625,14 +10618,12 @@ const tid = e.target.getAttribute('data-tid');
                 return;
             }
             if (!groupId || !nodeId || !paperId) {
-                console.log('[小雅辅助·作业区] 主动拉取参数缺失:', { groupId, nodeId, paperId });
                 return;
             }
             _hwProactiveFetching = true;
             hwGroupId = groupId;
             hwNodeId = nodeId;
             hwPaperId = paperId;
-            console.log('[小雅辅助·作业区] 主动拉取参数:', { groupId, nodeId, paperId, isResourcePage: window.location.href.includes('/resource/') });
             const token = getCookie();
             if (!token) { _hwProactiveFetching = false; return; }
             
@@ -10649,7 +10640,6 @@ const tid = e.target.getAttribute('data-tid');
                 if (attempt < 5) await sleep(200 * Math.pow(2, attempt)); 
             }
             if (data) {
-                console.log('[小雅辅助·作业区] 主动拉取题目数据成功');
                 if (hwQuestionsData.length > 0 && hwSubmissionResult.state === 'waiting') {
                     hwSubmissionResult.state = 'not_submitted';
                     hwUpdateUI();
@@ -10753,7 +10743,6 @@ const tid = e.target.getAttribute('data-tid');
         if(scope===undefined||scope.mine!==false){qrs.forEach(r=>{if(r.rawUserAnswer){const p=hwParseRichContent(r.rawUserAnswer);(p.images||[]).forEach(im=>{if(im.src)extra.push({src:im.src})})}})}
         const imMap=await hwHydrateImageMap(extra,450,scope===undefined||scope.q!==false);
         const okC=Array.from(imMap.values()).filter(r=>r.ok).length,failC=Array.from(imMap.values()).filter(r=>!r.ok).length;
-        console.log('[小雅辅助] docx图片: '+imMap.size+' URL, '+okC+'成功, '+failC+'失败');
         logMsg( '正在生成 .docx', 'info', true );
         const dc=[];dc.push(new Paragraph({text:'小雅辅助工具 题目与批改结果',heading:HeadingLevel.TITLE,alignment:AlignmentType.CENTER,spacing:{after:200}}));dc.push(new Paragraph({text:'导出时间：'+new Date().toLocaleString(),alignment:AlignmentType.CENTER,spacing:{after:300}}));
         if(res&&res.state==='submitted'&&(scope===undefined||scope.mine!==false)){const wc=qrs.filter(r=>r.tone==='bad').length,pc=qrs.filter(r=>r.tone==='pending').length;dc.push(new Paragraph({children:[new TextRun({text:String(res.actualScore??'-'),size:S+22,bold:true}),new TextRun({text:' / '+(res.totalScore??'-')+'分',size:S+6,color:'#6b7280'})],alignment:AlignmentType.CENTER,spacing:{after:120}}));dc.push(new Paragraph({children:[new TextRun({text:(res.correctNum??'-')+'正确 · '+wc+'错误 · '+pc+'待批改',size:S,color:'#4b5563'})],alignment:AlignmentType.CENTER,spacing:{after:300}}))}
