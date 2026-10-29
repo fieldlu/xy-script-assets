@@ -3529,12 +3529,12 @@
         const btn = document.getElementById('xy-theme-toggle');
         if (btn) {
             if (settingsState.theme === 'auto') {
-                btn.textContent = '自动';
+                btn.textContent = '🌓';
                 btn.title = '自动模式 (' + effective + ') - 点击切换';
             } else if (settingsState.theme === 'light') {
-                btn.textContent = '浅色'; btn.title = '浅色模式 - 点击切换';
+                btn.textContent = '☀️'; btn.title = '浅色模式 - 点击切换';
             } else {
-                btn.textContent = '深色'; btn.title = '深色模式 - 点击切换';
+                btn.textContent = '🌙'; btn.title = '深色模式 - 点击切换';
             }
         }
     }
@@ -12341,7 +12341,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     <div style="display:flex; align-items:center; gap:2px;">
                         <button id="xy-overview-open" class="xy-overview-icon" type="button" title="课程学习数据概览" aria-label="打开课程学习数据概览"></button>
                         <div id="xy-theme-toggle" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 6px; border-radius: 6px; font-size: 14px; transition: 0.2s;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}';" onmouseout="this.style.background='transparent';"></div>
-                        <div id="xy-minimize" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 7px; border-radius: 6px; font-size: 14px; transition: 0.2s; font-weight:700;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}'; this.style.color='${T('#e2e8f0','#0f172a')}';" onmouseout="this.style.background='transparent'; this.style.color='${T('#64748b','#94a3b8')}';">⊟</div>
+                        <div id="xy-minimize" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 7px; border-radius: 6px; font-size: 14px; transition: 0.2s; font-weight:700;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}'; this.style.color='${T('#e2e8f0','#0f172a')}';" onmouseout="this.style.background='transparent'; this.style.color='${T('#64748b','#94a3b8')}';">➖</div>
                     </div>
                 </div>
                 <div id="xy-handle-row2" class="xy-seg">
@@ -13463,7 +13463,7 @@ var XYExport = (function (Hinote) {  'use strict';
 
         if (minBtn) {
             minBtn.onclick = () => xyCollapsePanel();
-            minBtn.innerText = '⊟';
+            minBtn.innerText = '➖';
             minBtn.title = '收进圆球';
         }
         if (handle) handle.style.cursor = 'grab';
@@ -13472,7 +13472,7 @@ var XYExport = (function (Hinote) {  'use strict';
          * 首次使用默认收起成一颗圆球。*/
         xyApplyLauncherStateNow(xyReadLauncherState());
 
-        /* Esc 收起：面板开着的时候按一下就回到圆球，比去找 ⊟ 快 */
+        /* Esc 收起：面板开着的时候按一下就回到圆球，比去找按钮快 */
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
             if (launcherState !== 'expanded') return;
