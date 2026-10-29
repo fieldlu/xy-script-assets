@@ -13043,9 +13043,31 @@ var XYExport = (function (Hinote) {  'use strict';
             const st = document.createElement('style');
             st.id = 'xy-launcher-style';
             st.textContent = `
-                #xy-launcher-ball { transition: transform .26s cubic-bezier(.19,1,.22,1), box-shadow .26s; }
-                #xy-launcher-ball:hover { transform: scale(1.08); box-shadow: 0 8px 24px rgba(79,70,229,.48), 0 0 0 8px rgba(99,102,241,.14); }
-                #xy-launcher-ball:active { transform: scale(.95); }
+                #xy-launcher-ball {
+                    transition: transform .26s cubic-bezier(.19,1,.22,1), box-shadow .26s, filter .26s;
+                    isolation: isolate;
+                }
+                /* 顶部椭圆高光：让圆球有体积感，不是一块平的色块 */
+                #xy-launcher-ball::before {
+                    content: ''; position: absolute; left: 9%; right: 9%; top: 6%; height: 44%;
+                    border-radius: 50% / 100% 100% 0 0;
+                    background: linear-gradient(180deg, rgba(255,255,255,.13), rgba(255,255,255,0));
+                    pointer-events: none; z-index: -1;
+                }
+                /* 三层边缘：外圈 1px 受光、内缩 6px 一道极细的内环、底部内阴影压出球体 */
+                #xy-launcher-ball::after {
+                    content: ''; position: absolute; inset: 0; border-radius: 50%;
+                    box-shadow: inset 0 0 0 1px rgba(255,255,255,.15),
+                                inset 0 0 0 6px rgba(255,255,255,.07),
+                                inset 0 -10px 16px rgba(0,0,0,.30);
+                    pointer-events: none;
+                }
+                #xy-launcher-ball svg { width: 28px; height: 28px; display: block; filter: drop-shadow(0 1px 3px rgba(18,12,50,.55)); }
+                #xy-launcher-ball:hover {
+                    transform: scale(1.06) rotate(8deg);
+                    box-shadow: 0 16px 34px rgba(30,22,90,.6), 0 2px 6px rgba(0,0,0,.25), 0 0 0 1px rgba(255,255,255,.12);
+                }
+                #xy-launcher-ball:active { transform: scale(.94); }
                 #xy-launcher-ball.xy-ball-hide { display: none !important; }
             `;
             (document.head || document.documentElement).appendChild(st);
@@ -13053,8 +13075,19 @@ var XYExport = (function (Hinote) {  'use strict';
 
         const ball = document.createElement('div');
         ball.id = 'xy-launcher-ball';
-        ball.textContent = '雅';
         ball.title = '小雅辅助工具 · 点击展开';
+        /* 图标：细长四角星 + 右下一颗微光。
+         *
+         * 试过汉字、书本、学士帽、文档、字母组合：汉字在圆里显笨，线描图形缩到
+         * 28px 就糊成一团。星形只有四条曲线，越小越干净；主星偏左上、副星压低，
+         * 让构图有重心而不是死板居中。*/
+        ball.innerHTML = `
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M11.1 3.4c.36 4.85 2.42 6.91 7.27 7.27-4.85.36-6.91 2.42-7.27 7.27-.36-4.85-2.42-6.91-7.27-7.27 4.85-.36 6.91-2.42 7.27-7.27z"
+                      fill="#fff"/>
+                <path d="M17.9 15.9c.18 2.4 1.2 3.42 3.6 3.6-2.4.18-3.42 1.2-3.6 3.6-.18-2.4-1.2-3.42-3.6-3.6 2.4-.18 3.42-1.2 3.6-3.6z"
+                      fill="#fff" opacity=".62"/>
+            </svg>`;
         let ballPos = null;
         try { ballPos = JSON.parse(GM_getValue('xy_ball_pos', '')) || null; } catch (e) { ballPos = null; }
         if (!ballPos || typeof ballPos.x !== 'number') {
@@ -13064,10 +13097,9 @@ var XYExport = (function (Hinote) {  'use strict';
             position: fixed; left: ${Math.round(ballPos.x)}px; top: ${Math.round(ballPos.y)}px;
             width: ${BALL_SIZE}px; height: ${BALL_SIZE}px; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            background: linear-gradient(145deg, #6366F1, #4F46E5);
-            box-shadow: 0 6px 18px rgba(79,70,229,.42), 0 0 0 6px rgba(99,102,241,.10);
-            color: #fff; font-size: 21px; font-weight: 700; letter-spacing: 1px;
-            cursor: grab; user-select: none; -webkit-user-select: none;
+            background: radial-gradient(116% 116% at 30% 15%, #6E6AF0 0%, #443ABE 44%, #1E1656 100%);
+            box-shadow: 0 12px 28px rgba(30,22,90,.52), 0 2px 4px rgba(0,0,0,.22), 0 0 0 1px rgba(255,255,255,.06);
+            cursor: grab; user-select: none; -webkit-user-select: none; overflow: hidden;
             z-index: 2147483646; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
         `;
         document.body.appendChild(ball);
