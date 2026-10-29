@@ -144,7 +144,7 @@
      *   2. 以较长的段数为准逐位比较，短的一方缺失位按 0 补齐（3.7 == 3.7.0）；
      *   3. 首个不相等的位决定大小；全部相等返回 0。
      *
-     * @param {string|number} a - 待比较版本号（null/undefined 按 '0' 处理）
+     * @param {string|number} a - 待比较版本号（null/undefined 按'0'处理）
      * @param {string|number} b - 基准版本号
      * @returns {number} a 较新返回 1；b 较新返回 -1；完全一致返回 0
      * [DEEP-DOC]
@@ -203,10 +203,10 @@
         btn.classList.remove('is-new', 'is-checking');
         if (xyUpdateState.isChecking) {
             btn.classList.add('is-checking');
-            btn.innerHTML = '⏳ 检查中<span class="xy-seg-dot"></span>';
+            btn.innerHTML = '检查中<span class="xy-seg-dot"></span>';
         } else if (xyUpdateState.hasNew) {
             btn.classList.add('is-new');
-            btn.innerHTML = '🎉 有新版<span class="xy-seg-dot"></span>';
+            btn.innerHTML = '有新版<span class="xy-seg-dot"></span>';
         } else {
             btn.innerHTML = '↻ 检查更新<span class="xy-seg-dot"></span>';
         }
@@ -238,8 +238,8 @@
         const hasInfo = !!info.version;
         const hasNew = hasInfo && compareVersion(latest, current) > 0;
         const statusText = xyUpdateState.isChecking
-            ? '⏳ 正在检查更新...'
-            : (xyUpdateState.error ? `❌ 检查失败：${escapeHtml(xyUpdateState.error)}` : (hasInfo ? (hasNew ? `🎉 发现新版本 ${escapeHtml(latest)}` : '✅ 当前已是最新版本') : '尚未检查'));
+            ? '正在检查更新'
+            : (xyUpdateState.error ? `检查失败：${escapeHtml(xyUpdateState.error)}` : (hasInfo ? (hasNew ? `发现新版本 ${escapeHtml(latest)}` : '当前已是最新版本') : '尚未检查'));
         const statusColor = xyUpdateState.error ? T('#f87171', '#dc2626') : (hasNew ? T('#34d399', '#059669') : T('#818cf8', '#4f46e5'));
         const notes = Array.isArray(info.notes) ? info.notes : [];
         const downloadURL = info.downloadURL || SCRIPT_UPDATE.downloadURL;
@@ -266,12 +266,12 @@
                 </div>
                 <div style="color: ${statusColor}; font-size: 13px; font-weight: 800; margin-bottom: 14px;">${statusText}</div>
                 ${notes.length ? `<div style="margin-bottom: 14px; padding: 12px 14px; background: ${T('rgba(129,140,248,0.06)', '#f8fafc')}; border: 1px solid ${T('rgba(71,85,105,0.2)', '#e2e8f0')}; border-radius: 12px;">
-                    <div style="font-size: 12px; font-weight: 800; color: ${T('#e2e8f0', '#0f172a')}; margin-bottom: 7px;">📋 更新内容</div>
+                    <div style="font-size: 12px; font-weight: 800; color: ${T('#e2e8f0', '#0f172a')}; margin-bottom: 7px;">更新内容</div>
                     <ul style="margin: 0; padding-left: 18px; color: ${T('#cbd5e1', '#475569')}; line-height: 1.7; font-size: 13px;">${notes.map(n => `<li style="margin: 3px 0;">${escapeHtml(n)}</li>`).join('')}</ul>
                 </div>` : ''}
                 <div style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
-                    <button id="xy-upd-check" style="padding: 10px 20px; border: 1px solid ${T('rgba(129,140,248,0.3)', '#c7d2fe')}; background: ${T('rgba(129,140,248,0.1)', '#eef2ff')}; color: ${T('#a5b4fc', '#4f46e5')}; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;" ${xyUpdateState.isChecking ? 'disabled' : ''}>${xyUpdateState.isChecking ? '⏳ 检查中...' : '↻ 重新检查'}</button>
-                    <button id="xy-upd-open" data-url="${escapeHtml(downloadURL)}" style="padding: 10px 20px; border: none; background: linear-gradient(135deg, #818cf8, #6366f1); color: white; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(99,102,241,0.25); transition: all 0.2s; font-family: inherit;" ${hasNew ? '' : 'disabled'}>${hasNew ? '⬇ 打开更新文件' : '已是最新'}</button>
+                    <button id="xy-upd-check" style="padding: 10px 20px; border: 1px solid ${T('rgba(129,140,248,0.3)', '#c7d2fe')}; background: ${T('rgba(129,140,248,0.1)', '#eef2ff')}; color: ${T('#a5b4fc', '#4f46e5')}; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;" ${xyUpdateState.isChecking ? 'disabled' : ''}>${xyUpdateState.isChecking ? '检查中' : '↻ 重新检查'}</button>
+                    <button id="xy-upd-open" data-url="${escapeHtml(downloadURL)}" style="padding: 10px 20px; border: none; background: linear-gradient(135deg, #818cf8, #6366f1); color: white; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(99,102,241,0.25); transition: all 0.2s; font-family: inherit;" ${hasNew ? '' : 'disabled'}>${hasNew ? '打开更新文件' : '已是最新'}</button>
                     <button id="xy-upd-log" data-url="${escapeHtml(changelogURL)}" style="padding: 10px 20px; border: 1px solid ${T('rgba(71,85,105,0.3)', '#e2e8f0')}; background: ${T('rgba(30,41,59,0.4)', '#ffffff')}; color: ${T('#cbd5e1', '#475569')}; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit;">查看发布页</button>
                 </div>
             </div>`;
@@ -558,7 +558,7 @@
                 
                 const card = document.createElement('div');
                 card.className = 'cd';
-                card.innerHTML = '<div class="sc"></div><div class="cr cr-tl"></div><div class="cr cr-tr"></div><div class="cr cr-bl"></div><div class="cr cr-br"></div><div class="icon">⚡</div><div class="title">小雅辅助工具</div><div class="sub">系 统 启 动 中</div><div class="ver">版本 ' + SCRIPT_VERSION + '</div><div class="po"><div class="pi" id="xy-sp"></div><div class="ps"></div></div><div class="ft">初 始 化 引 擎</div>';
+                card.innerHTML = '<div class="sc"></div><div class="cr cr-tl"></div><div class="cr cr-tr"></div><div class="cr cr-bl"></div><div class="cr cr-br"></div><div class="icon"></div><div class="title">小雅辅助工具</div><div class="sub">系 统 启 动 中</div><div class="ver">版本' + SCRIPT_VERSION + '</div><div class="po"><div class="pi" id="xy-sp"></div><div class="ps"></div></div><div class="ft">初 始 化 引 擎</div>';
                 el.appendChild(card);
 
                 document.body.appendChild(el);
@@ -902,7 +902,7 @@
             xyLastNavAt = Date.now();
             const byScript = xyScriptNavAt > 0 && (Date.now() - xyScriptNavAt < 3000);
             const brief = (u) => String(u).replace(/^https?:\/\/[^/]+/, '').slice(0, 88);
-            logMsg(`🧭 页面跳转：${brief(from)} → ${brief(to)}（${byScript ? '脚本发起 · ' + xyScriptNavReason : '页面自己跳的'}）`, 'info', false);
+            logMsg( `页面跳转 ${brief(from)} → ${brief(to)}（${byScript ? '脚本发起 · ' + xyScriptNavReason : '页面发起'}）`, 'info', true );
         } catch (e) {}
     }, 400);
 
@@ -1015,7 +1015,7 @@
     let hwExtractedText = '';
     let hwImageAssets = [];
     let hwPdfQuestions = [];
-    let hwSubmissionResult = { state: 'waiting', message: '等待题目数据加载...' };
+    let hwSubmissionResult = { state: 'waiting', message: '等待题目数据加载' };
     let hwGroupId = '', hwNodeId = '', hwPaperId = '';
     let hwActiveTaskKey = '';
     let hwRecordId = '';            
@@ -1045,7 +1045,7 @@
     function hwResetState(reason) {
         if (!hwActiveTaskKey && !hwQuestionsData.length) return;
         hwQuestionsData = []; hwExtractedText = ''; hwImageAssets = []; hwPdfQuestions = [];
-        hwSubmissionResult = { state: 'waiting', message: '等待题目数据加载...' };
+        hwSubmissionResult = { state: 'waiting', message: '等待题目数据加载' };
         hwGroupId = ''; hwNodeId = ''; hwPaperId = ''; hwActiveTaskKey = '';
         hwRecordId = ''; hwResultFilter = 'all'; hwResultOpen = false; hwActiveTab = 'answer';
         hwUpdateUI();
@@ -1121,11 +1121,11 @@
         const st = document.getElementById('xy-hw-status');
         if (st) {
             if (hwSubmissionResult.state === 'submitted') {
-                st.textContent = `✅ 已提交 · ${hwQuestionsData.length} 题 · ${hwSubmissionResult.actualScore ?? '-'}/${hwSubmissionResult.totalScore ?? '-'} 分`;
+                st.textContent = `已提交 · ${hwQuestionsData.length} 题 · ${hwSubmissionResult.actualScore ?? '-'}/${hwSubmissionResult.totalScore ?? '-'} 分`;
             } else if (hwQuestionsData.length) {
-                st.textContent = `📝 ${hwQuestionsData.length} 道题已捕获`;
+                st.textContent = ` ${hwQuestionsData.length} 道题已捕获`;
             } else {
-                st.textContent = '等待题目数据...';
+                st.textContent = '等待题目数据';
             }
         }
         
@@ -1180,7 +1180,7 @@
         if (playState.mode !== PLAY_MODE.MANUAL) {
             playState.mode = PLAY_MODE.MANUAL;
             try { GM_setValue('xy_play_mode', PLAY_MODE.MANUAL); } catch (e) {}
-            try { logMsg('😴 新会话默认进入手动休眠', 'info', false); } catch (e) {}
+            try { logMsg( '新会话 · 默认手动休眠', 'info', true ); } catch (e) {}
         }
 
         /**
@@ -1209,7 +1209,7 @@
                 GM_setValue('xy_jump_retry_count', 0);
                 GM_setValue('xy_jump_retry_key', '');
             } catch (e) {}
-            try { logMsg('🧹 重开浏览器，调度队列已清空', 'info', false); } catch (e) {}
+            try { logMsg( '重开浏览器 · 调度队列已清空', 'info', true ); } catch (e) {}
         }
     })();
 
@@ -1373,7 +1373,7 @@
     let lastRefreshStrategy = 'none';
     /**
      * 静音状态广播：将 guardState.hardwareMute 打包为 CustomEvent
-     * 'xy-volume-change' 在 document 上派发。主世界注入的后台保持监听同一
+     * 'xy-volume-change'在 document 上派发。主世界注入的后台保持监听同一
      * 事件：更新 window._xy_hardware_mute 标记并把所有 video/audio 元素的
      * muted 属性同步到最新值。这是沙箱→主世界的单向控制通道。
      * [DEEP-DOC]
@@ -1480,7 +1480,7 @@
      * 路由分类器 —— SPA 感知的基石。runLowLevelScanner 每次 URL 变化都调用它。
      *
      * 分类规则（自上而下首个命中生效，尾部斜杠先归一化）：
-     *   '/app/jx-web/mycourse' 精确命中 → courses（课程总览）
+     *   '/app/jx-web/mycourse'精确命中 → courses（课程总览）
      *   含 course_paper/              → hw（作业答题）
      *   discussion|discuss 词缀       → disc（讨论区）
      *   课程ID/task|home|courseTools → overview（学情概览挂载点）
@@ -1514,11 +1514,11 @@
 
     const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
     /**
-     * Cookie 查找器：按 '; ' 切分 document.cookie，逐条取第一个 '=' 前的
+     * Cookie 查找器：按'; '切分 document.cookie，逐条取第一个'='前的
      * 名称段与关键字做 includes 匹配（模糊匹配，兼容带前缀的变体名），
-     * 命中即返回 '=' 之后的值。
+     * 命中即返回'='之后的值。
      *
-     * 默认关键字 'prd-access-token' 即平台登录令牌——所有 API 调用的
+     * 默认关键字'prd-access-token'即平台登录令牌——所有 API 调用的
      * Bearer Token 都源于此。
      *
      * @param {string} [keyword='prd-access-token']
@@ -1655,7 +1655,7 @@
     /**
      * 任务状态键归一化。两级来源：
      *   1. 平台显式字段 task.status.key / statusKey（trim 后非空即信）；
-     *   2. 推导兜底：有截止时间且已过期 → 'expired'，否则 'actionable'。
+     *   2. 推导兜底：有截止时间且已过期 → 'expired'，否则'actionable'。
      * 输出与 TODAY_PROMPT_WEIGHTS.STATUS 权重表的键严格对应。
      * [DEEP-DOC]
      */
@@ -1954,8 +1954,8 @@
      * 由平台原始字段推导任务状态对象。
      *
      * 判定树：
-     *   is_answer 缺失 → 有截止时间？过期 'expired'(已截止)：未过期
-     *   'actionable'(待提交)：无截止 'unsubmitted'(未提交)
+     *   is_answer 缺失 → 有截止时间？过期'expired'(已截止)：未过期
+     *   'actionable'(待提交)：无截止'unsubmitted'(未提交)
      *   已作答且不公示成绩 → 'pending'(待批阅)
      *   已作答且公示成绩   → 'graded'(已批阅)
      *
@@ -2090,7 +2090,7 @@
     }
     /**
      * 截止时间短文案：Date.parse 成功则 toLocaleString('zh-CN') 出
-     * 「M/D HH:mm」形态；解析失败返回 ''（调用方以空串决定隐藏该字段）。
+     * 「M/D HH:mm」形态；解析失败返回''（调用方以空串决定隐藏该字段）。
      * [DEEP-DOC]
      */
     function xyOverviewDeadlineText(value) {
@@ -2135,7 +2135,7 @@
         content.innerHTML = `
             <div class="xy-overview-loading">
                 <span class="xy-overview-spinner" aria-hidden="true"></span>
-                <span>正在读取课程学习数据...</span>
+                <span>正在读取课程学习数据</span>
             </div>`;
     }
     /**
@@ -2176,7 +2176,8 @@
      * [DEEP-DOC]
      */
     function xyTodayPromptRenderCourse(summary) {
-        const icon = summary.state === 'urgent' ? '⏱' : summary.state === 'continue' ? '🎯' : summary.state === 'waiting' ? '🕒' : summary.state === 'unknown' ? '⚠' : '✓';
+        /* 状态由 is-xxx 的配色表达，标题前不再放符号 */
+        const icon = '';
         const actions = summary.actions.slice(0, 3).map((task, index) => {
             const canOpen = !!task.nodeId;
             const deadline = task.deadlineAt ? xyOverviewDeadlineText(task.endTime || task.end_time) : '';
@@ -2233,7 +2234,7 @@
                     </div>
                 </div>`;
         }).join('');
-        const stateIcon = summary.state === 'urgent' ? '🧭' : summary.state === 'partial' ? '⚠' : summary.state === 'waiting' ? '🕒' : '✓';
+        const stateIcon = '';
         // 面板写着「可做 6」却只列 3 条，用户会以为漏了；把差额明说出来，比静默截断诚实
         const hiddenCount = Math.max(0, (summary.counts.actionable || 0) - summary.actions.length);
         container.innerHTML = `
@@ -2656,7 +2657,7 @@
     /**
      * 由 nodeId 反查父目录 ID（跳转三元组缺 parentId 时的补救路径）。
      *
-     * 两级策略：1) 在课程资源树中找到该节点的 parent_id（排除根节点 '1'）；
+     * 两级策略：1) 在课程资源树中找到该节点的 parent_id（排除根节点'1'）；
      * 2) 回退解析资源 path 字段的倒数第二段；都失败返回 nodeId 自身
      * （跳转至少能落到节点页）。
      * [DEEP-DOC]
@@ -2791,7 +2792,7 @@
     /**
      * 课程卡片排序比较器（非原地，拷贝排序）。
      *
-     * 四级优先级：有待办(0) > 无可做但有已截止(1) > 完全清空(2) > 未知(3)；
+     * 四级优先级：有待办(0) >无可做但有已截止(1) >完全清空(2) >未知(3)；
      * 同级先比最近截止时间升序（更紧迫在前，Infinity 兜底排尾），再比任务总量
      * 降序（内容多的靠前），最后 sourceIndex 保稳定。
      * [DEEP-DOC]
@@ -3156,7 +3157,7 @@
             : `已完成 ${breakdown.finishedCount} / ${breakdown.taskCount} · 未完成 ${breakdown.actionableCount} · 已截止 ${breakdown.expiredCount}`;
         let body = '';
         if (expanded && course.taskDetailsState === 'loading') {
-            body = '<div class="xy-course-dashboard-details-state"><span class="xy-overview-spinner" aria-hidden="true"></span>正在读取任务明细...</div>';
+            body = '<div class="xy-course-dashboard-details-state"><span class="xy-overview-spinner" aria-hidden="true"></span>正在读取任务明细</div>';
         } else if (expanded && course.taskDetailsState === 'error') {
             body = `<div class="xy-course-dashboard-details-state is-error"><span>任务明细读取失败：${escapeHtml(course.taskDetailsError || '请稍后重试')}</span><button class="xy-mini-btn" type="button" data-course-action="retry-details">重试</button></div>`;
         } else if (expanded && course.taskDetails) {
@@ -3292,7 +3293,7 @@
         if (xyCourseDashboardState.isLoading) {
             loadState.textContent = xyCourseDashboardState.courses.length
                 ? `已读取 ${xyCourseDashboardState.loadedCount} / ${xyCourseDashboardState.courses.length}`
-                : '正在读取课程...';
+                : '正在读取课程';
         } else if (!xyCourseDashboardState.pendingAvailable) {
             loadState.textContent = '课程已读取 · 可做任务暂不可用';
         } else {
@@ -3305,7 +3306,7 @@
             list.innerHTML = `
                 <div class="xy-course-dashboard-state">
                     <span class="xy-overview-spinner" aria-hidden="true"></span>
-                    <span>正在汇总进行中课程...</span>
+                    <span>正在汇总进行中课程</span>
                 </div>`;
             return;
         }
@@ -3326,7 +3327,7 @@
             const breakdown = xyCourseDashboardTaskBreakdown(course);
             const courseStatus = xyCourseDashboardCourseStatus(course, breakdown);
             const deadline = xyCourseDashboardFormatDeadline(course.nearestDeadline);
-            let portraitChildren = [h('div', { class: 'xy-course-dashboard-course-meta' }, '正在读取完成度与学习时长...')];
+            let portraitChildren = [h('div', { class: 'xy-course-dashboard-course-meta' }, '正在读取完成度与学习时长')];
             if (course.portraitState === 'error') {
                 portraitChildren = [h('div', { class: 'xy-course-dashboard-course-meta is-error' }, '完成度与学习时长暂不可用')];
             } else if (breakdown) {
@@ -3374,9 +3375,9 @@
      * @param {string} s - 任意输入（nullish 安全，转 String 处理）
      *
      * [R3-02 修复] 原实现用 div.textContent -> innerHTML，浏览器只转义 & < >，
-     * **不转义 " 与 '**，导致所有 title="..." / data-xxx="..." / value="..."
+     * **不转义"与'**，导致所有 title="..." / data-xxx="..." / value="..."
      * 属性上下文可被闭合注入。改为显式替换五字符集，同时覆盖文本节点与
-     * 属性值两种上下文（文本节点里 &quot; &#39; 会正常渲染为 " '，视觉不变）。
+     * 属性值两种上下文（文本节点里 &quot; &#39; 会正常渲染为" '，视觉不变）。
      * [DEEP-DOC]
      */
     function escapeHtml(value) {
@@ -3490,8 +3491,8 @@
         } catch(e) { console.warn('[小雅] 课程名接口请求失败:', e); return null; }
     }
     /**
-     * 生效主题解析：theme='auto' 时按小时映射（6-17 点 light，其余 dark）；
-     * 显式 'light'/'dark' 直接返回。所有取色点经 T() 间接消费本函数结果。
+     * 生效主题解析：theme='auto'时按小时映射（6-17 点 light，其余 dark）；
+     * 显式'light'/'dark'直接返回。所有取色点经 T() 间接消费本函数结果。
      * @returns {'light'|'dark'}
      * [DEEP-DOC]
      */
@@ -3518,7 +3519,7 @@
     let _lastEffectiveTheme = null;
     /**
      * 主题 class 应用：面板根节点加/移除 xy-theme-light 类驱动 CSS 变量切换；
-     * 同时更新主题按钮图标（☀️/🌙）与 title 提示（三态：自动(当前生效)/浅色/深色）。
+     * 同时更新主题按钮图标（/）与 title 提示（三态：自动(当前生效)/浅色/深色）。
      * [DEEP-DOC]
      */
     function applyThemeClasses() {
@@ -3535,12 +3536,12 @@
         const btn = document.getElementById('xy-theme-toggle');
         if (btn) {
             if (settingsState.theme === 'auto') {
-                btn.textContent = effective === 'light' ? '☀️' : '🌙';
+                btn.textContent = '自动';
                 btn.title = '自动模式 (' + effective + ') - 点击切换';
             } else if (settingsState.theme === 'light') {
-                btn.textContent = '☀️'; btn.title = '浅色模式 - 点击切换';
+                btn.textContent = '浅色'; btn.title = '浅色模式 - 点击切换';
             } else {
-                btn.textContent = '🌙'; btn.title = '深色模式 - 点击切换';
+                btn.textContent = '深色'; btn.title = '深色模式 - 点击切换';
             }
         }
     }
@@ -3736,10 +3737,10 @@
      * 任务进度清场 —— 引擎与调度共用的唯一重置入口。
      *
      * 为什么要抽成函数：清场点有两处（路由切换 / 调度切项），各自手写一份字段列表时，
-     * 新增 `lastVideoSubmitTime` 只改了字段定义和读取处，**两处清场都漏了它** —— 于是：
+     * 新增`lastVideoSubmitTime`只改了字段定义和读取处，**两处清场都漏了它** —— 于是：
      *   上一项视频失败过一次 → `lastVideoSubmitTime` = 上一项的时间戳（很大）
-     *   → 切到下一项后 `docReadTime` 从 0 重新计
-     *   → 节流判据 `docReadTime - lastVideoSubmitTime` 恒为负数（< 30s）
+     *   → 切到下一项后`docReadTime`从 0 重新计
+     *   → 节流判据`docReadTime - lastVideoSubmitTime`恒为负数（< 30s）
      *   → **下一项视频在攒够 30 秒前完全无法首触提交**，
      *     且 5s 补偿器同样被卡住，最坏要等放行线才靠 forcePass 强推。
      * 抽成单一函数后，字段清单只有一份，不会再漂移。
@@ -3791,14 +3792,14 @@
                 const viewCourses = document.getElementById('xy-view-courses');
                 if (viewCourses) viewCourses.style.display = 'flex';
                 const segZone = document.getElementById('xy-seg-zone');
-                if (segZone) segZone.textContent = '📚 课程总览';
+                if (segZone) segZone.textContent = '课程总览';
                 const courseList = document.getElementById('xy-course-dashboard-list');
                 if (courseList && !courseList.childElementCount) xyCourseDashboardRender();
             } else if (newZone === 'overview') {
                 const viewOverview = document.getElementById('xy-view-overview');
                 if (viewOverview) viewOverview.style.display = 'flex';
                 const segZone = document.getElementById('xy-seg-zone');
-                if (segZone) segZone.textContent = '📊 学情概览';
+                if (segZone) segZone.textContent = '学情概览';
                 xyOverviewRenderCachedNow();
             }
             return;
@@ -3832,7 +3833,7 @@
             if (viewHW) viewHW.style.display = newZone === ZONE.HW ? 'block' : 'none';
             if (viewDIR) viewDIR.style.display = newZone === ZONE.DIR ? 'block' : 'none';
 
-            const zoneLabel = newZone === ZONE.COURSE ? '📚 课程学习区' : newZone === ZONE.COURSES ? '📚 课程总览' : newZone === ZONE.OVERVIEW ? '📊 学情概览' : newZone === ZONE.DISC ? '💭 交流区' : newZone === ZONE.DOWNLOAD ? '📥 资料归档' : newZone === ZONE.HW ? '📝 作业查看' : '📂 课程目录';
+            const zoneLabel = newZone === ZONE.COURSE ? '课程学习区' : newZone === ZONE.COURSES ? '课程总览' : newZone === ZONE.OVERVIEW ? '学情概览' : newZone === ZONE.DISC ? '交流区' : newZone === ZONE.DOWNLOAD ? '资料归档' : newZone === ZONE.HW ? '作业查看' : '课程目录';
             segZone.innerHTML = zoneLabel;
             segZone.classList.add('active');
             if (newZone === 'overview') xyOverviewRenderCachedNow();
@@ -3840,7 +3841,7 @@
 
         if (oldZone !== ZONE.UNINITIALIZED) {
             const zoneName = newZone === ZONE.COURSE ? '视频/文档自动引擎' : newZone === ZONE.COURSES ? '进行中课程总览' : newZone === ZONE.OVERVIEW ? '课程学习数据概览' : newZone === ZONE.DISC ? '互动协作引擎' : newZone === ZONE.DOWNLOAD ? '课件归档区' : newZone === ZONE.HW ? '作业查看台' : '课程目录区';
-            logMsg(`📍 底层指令：已切换至【${zoneName}】`, 'success', true);
+            logMsg( `已切换至【${zoneName}】`, 'success', true );
         }
 
         if (newZone === ZONE.COURSE) {
@@ -3878,8 +3879,8 @@
             try {
                 const token = await getAuthToken();
                 /**
-                 * ⚠️ 必须带超时。fetchRadarCached 是即时判断 / 跳转 / 调度**共用**的数据源，
-                 * 且本函数用 `_radarCache.promise` 做并发去重（见上一行的复用分支）。
+                 * 必须带超时。fetchRadarCached 是即时判断 / 跳转 / 调度**共用**的数据源，
+                 * 且本函数用`_radarCache.promise`做并发去重（见上一行的复用分支）。
                  * 一旦请求悬挂（TCP 半开 / 服务端不响应）且无超时，Promise 永不 settle →
                  * 所有 await 它的调用者全部挂起，且后续调用复用同一个悬挂 Promise →
                  * **级联冻结三条链**，比单点失败严重得多。
@@ -3894,7 +3895,7 @@
                 return data;
             } catch (e) {
                 console.warn('[小雅] 任务总览请求失败/超时，本轮降级为空结果', e);
-                // 降级返回可判别空结果：调用方均按 `radarData.success && radarData.data` 判空，
+                // 降级返回可判别空结果：调用方均按`radarData.success && radarData.data`判空，
                 // 不会被误认为「任务总览列表里没有当前任务」而错误放行。
                 return { success: false, data: [], _error: true };
             } finally {
@@ -3955,7 +3956,7 @@
      *
      * 现已统一委托给 xyDocEffectiveSubmitSeconds()，两种模式共用同一条达标线。
      *
-     * ⚠️ 当前**无任何调用点**（全文件仅本定义一处）。保留为兼容壳，
+     * 当前**无任何调用点**（全文件仅本定义一处）。保留为兼容壳，
      * 以防外部/后续代码按旧名调用；若确认长期不用可安全删除。
      * 新代码请直接调 xyDocEffectiveSubmitSeconds()。
      */
@@ -3967,7 +3968,7 @@
      * 主动对齐当前节点的教师时长要求 —— 交卷线/放行线的唯一数据来源。
      *
      * 为什么需要它（这是「设置了两分钟仍按默认跑」的根因）：
-     *   `xyGetWatchMinutesForNode` 只读 `_radarCache` 的 3 秒 TTL 内存缓存，
+     *   `xyGetWatchMinutesForNode`只读`_radarCache`的 3 秒 TTL 内存缓存，
      *   缓存未预热时必然返回 0 → 三条 effective 线全部回落到 DOC_READ 默认常量
      *   → 用户看到的永远是默认时长，教师设的 N 分钟从未生效。
      *
@@ -4027,7 +4028,7 @@
              * —— 视频的达标条件是「看完」，用户会以为看够 N 分钟就行。
              * [WATCH-DISPLAY]
              */
-            logMsg(`⏱ 检测到时长要求：${needMin} 分钟（文档按此对齐交卷线 · 视频以播完为准）`, 'info', true);
+            logMsg( `时长要求 ${needMin} 分钟 · 文档对齐交卷线，视频以播完为准`, 'info', true );
             return needMin;
         } catch (e) {
             // 任务总览不可用时保持默认阈值，不阻断主循环
@@ -4092,7 +4093,7 @@
                 switchToZone('disc');
                 return;
             } else if (routeKind === ZONE.DIR) {
-                if (playState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', true);
+                if (playState.activeZone !== 'dir') logMsg( '目录页 · 已切换至课程目录区', 'success', true );
                 switchToZone('dir');
                 setTimeout(loadCourseDirectory, 200);
             } else if (routeKind === ZONE.OVERVIEW) {
@@ -4126,22 +4127,22 @@
                     if (!playState.isTaskCompleted && playState.activeZone === ZONE.COURSE
                         && playState.mode !== PLAY_MODE.MANUAL) {
                         /**
-                         * ⚠️ 此处**不能**先置 isTaskCompleted，与 globalTaskStatusChecker 同源约束。
+                         * 此处**不能**先置 isTaskCompleted，与 globalTaskStatusChecker 同源约束。
                          *
-                         * 旧写法是 `playState.isTaskCompleted = true; logMsg(...); updateCourseUI();`
+                         * 旧写法是`playState.isTaskCompleted = true; logMsg(...); updateCourseUI();`
                          * ——「任务总览列表里不含当前 node」只是**间接信号**（多端同步下另一台设备
                          * 完成、或任务总览缓存陈旧都会命中），不等于「服务端已确认本机完成」。
                          *
                          * 后果：本页从未调用 finishActivity，服务端没有本页的完成记录，但
-                         * isTaskCompleted 已为 true → 引擎所有入口被 `if (!playState.isTaskCompleted)`
+                         * isTaskCompleted 已为 true → 引擎所有入口被`if (!playState.isTaskCompleted)`
                          * 挡住、调度 tick 直接判 isDone 切下一项 → **本页提交永远不会补发**。
                          *
-                         * 且本段挂在 1s 主循环的 `await fetchRadarCached()` 之后，命中概率高于
+                         * 且本段挂在 1s 主循环的`await fetchRadarCached()`之后，命中概率高于
                          * globalTaskStatusChecker（后者仅事件驱动）。
                          *
                          * 正确做法：走统一收口，让步进逻辑读**服务端确认结果**。
                          */
-                        logMsg('✅ [任务总览即时判断] 当前任务已在任务总览达成，交由统一收口确认', 'success', false);
+                        logMsg( '任务已在总览达成 · 交统一收口确认', 'success', true );
                         await xyEngineCompleteAndAdvance({
                             silent: true,
                             forceSubmit: true,   // 外部信号判定完成，跳过本地判据
@@ -4157,14 +4158,14 @@
         if (taskType === 1) { switchToZone(ZONE.COURSE); return; }
         else if (taskType === 6) { switchToZone(ZONE.DISC); return; }
         else if (taskType > 1 && taskType <= 5) {
-            if (playState.activeZone !== ZONE.HW) logMsg('📝 侦测到【测验/作业/问卷】→ 已切换作业区', 'success', true);
+            if (playState.activeZone !== ZONE.HW) logMsg( '测验作业页 · 已切换至作业区', 'success', true );
             switchToZone(ZONE.HW);
             setTimeout(hwProactiveFetchData, 300);
             return;
         }
 
         if (window.location.href.includes('/course_paper/')) {
-            if (playState.activeZone !== ZONE.HW) logMsg('📝 侦测到【作业/测验页面】→ 已切换作业区', 'success', true);
+            if (playState.activeZone !== ZONE.HW) logMsg( '作业页 · 已切换至作业区', 'success', true );
             switchToZone(ZONE.HW);
             setTimeout(hwProactiveFetchData, 300);
             return;
@@ -4180,7 +4181,7 @@
             return;
         }
         if (routeKind === ZONE.DIR) {
-            if (playState.activeZone !== 'dir') logMsg('📂 侦测到课程目录页 → 已切换课程目录区', 'success', true);
+            if (playState.activeZone !== 'dir') logMsg( '目录页 · 已切换至课程目录区', 'success', true );
             switchToZone('dir');
             setTimeout(loadCourseDirectory, 200);
             return;
@@ -4374,8 +4375,8 @@
             if (statusEl) statusEl.textContent = '未检测到课程';
             return;
         }
-        box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:24px 0;font-size:13px;">正在读取课程目录...</div>';
-        if (statusEl) statusEl.textContent = '读取中...';
+        box.innerHTML = '<div style="color:#94a3b8;text-align:center;padding:24px 0;font-size:13px;">正在读取课程目录</div>';
+        if (statusEl) statusEl.textContent = '读取中';
         try {
             const resources = await loadCourseResources(groupId);
             if (!isCurrentCourseGroup(requestedGroupKey)) return;
@@ -4385,7 +4386,7 @@
                 return;
             }
             const tree = buildDirTree(resources);
-            if (statusEl) statusEl.textContent = '✅ ' + countDirFiles(tree) + ' 项';
+            if (statusEl) statusEl.textContent = '' + countDirFiles(tree) + '项';
             renderCourseDirectory(tree);
         } catch (e) {
             if (!isCurrentCourseGroup(requestedGroupKey)) return;
@@ -4453,7 +4454,7 @@
         });
         return html;
     }
-    /** 目录区总渲染：状态条（✅ N 项 / 加载中 / 失败重试）+ buildDirHtml 产物注入 + 底部计数。
+    /** 目录区总渲染：状态条（N 项 / 加载中 / 失败重试）+ buildDirHtml 产物注入 + 底部计数。
      * [DEEP-DOC]
      */
     function renderCourseDirectory(nodes) {
@@ -4485,7 +4486,7 @@
                     <div>
                         <div class="xy-dl-unit-head" style="display:flex; align-items:center; gap:6px; cursor:pointer; padding:6px 10px; margin-left:${depth * 14}px;">
                             <span data-dl-marker style="width:12px; flex-shrink:0; text-align:center; font-size:10px; color:${T('#94a3b8','#64748b')};">−</span>
-                            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; font-weight:700; color:${T('#c7d2fe','#4338ca')};">📁 ${escapeHtml(n.name || n.title || '')}</span>
+                            <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11.5px; font-weight:700; color:${T('#c7d2fe','#4338ca')};"> ${escapeHtml(n.name || n.title || '')}</span>
                             <span style="font-size:10px; color:${T('#64748b','#94a3b8')}; flex-shrink:0;">${cnt} 项</span>
                         </div>
                         <div class="xy-dl-unit-body" style="margin-left:${(depth + 1) * 14}px;">${buildDownloadTreeHtml(kids, visibleIds, depth + 1)}</div>
@@ -4501,7 +4502,7 @@
                         <input type="checkbox" class="xy-dl-check" data-fid="${escapeHtml(n._id)}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
                         <span style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
                             <span>${dlFileChip(name)}</span>
-                            <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(n._id)}" data-quote-id="${escapeHtml(quoteId)}" data-file-name="${escapeHtml(name)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
+                            <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(n._id)}" data-quote-id="${escapeHtml(quoteId)}" data-file-name="${escapeHtml(name)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;"></button>
                         </span>
                         <span style="flex:1;">
                             <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
@@ -4544,7 +4545,7 @@
     /**
      * [R3-13] 解密失败不能把密文当 URL 返回。
      *
-     * 旧实现无条件 `return encryptedUrl` —— 若传入真的是密文，调用方会拿它
+     * 旧实现无条件`return encryptedUrl` —— 若传入真的是密文，调用方会拿它
      * 去发必然失败的请求，甚至被当成文件名/路径使用，产出垃圾文件。
      *
      * [R4-P2] 但也不能一律返回 null：本函数注释明示「部分链路传入的本身就
@@ -4922,7 +4923,7 @@
     /**
      * 直链获取统一路由入口。
      *
-     * file.source === 'vod' 且有 nodeId → 必须走 VOD 链路（quote_id 是任务 ID
+     * file.source === 'vod'且有 nodeId → 必须走 VOD 链路（quote_id 是任务 ID
      * 打云盘接口必然 resource not exist，失败也不回退云盘白白浪费重试）；
      * 其余走 getDownloadUrl 云盘链路。新增下载来源类型时只需在此登记路由规则。
      * [DEEP-DOC]
@@ -4957,7 +4958,7 @@
      * 适用：跨域媒体直链（vod.ai-augmented.com 等，响应无 Access-Control-
      * Allow-Origin，页面 fetch 无法读取响应体）。GM 特权请求绕过同源策略。
      *
-     * 机制：responseType:'arraybuffer' 全量接收（onprogress 上报 loaded/total
+     * 机制：responseType:'arraybuffer'全量接收（onprogress 上报 loaded/total
      * 进度）→ onload 校验 2xx → Blob 包装（Content-Type 或默认 video/mp4）→
      * objectURL + a[download] 触发保存 → 5s 后 revoke。abortHandler 监听外部
      * signal，触发时 reqObj.abort() 并以 AbortError 结算。
@@ -5198,9 +5199,9 @@
         if (bar) bar.style.width = String(visiblePercent.toFixed(0)) + '%';
         if (state) state.textContent = stateText;
         if (count) count.textContent = String(done) + '/' + String(total);
-        if (percent) percent.textContent = hasFileProgress ? '文件 ' + visiblePercentText : '批量 ' + visiblePercentText;
+        if (percent) percent.textContent = hasFileProgress ? '文件' + visiblePercentText : '批量' + visiblePercentText;
         if (file) {
-            file.textContent = currentName || '等待选择文件…';
+            file.textContent = currentName || '等待选择文件';
             file.title = currentName || '';
             file.style.display = currentName ? 'block' : 'none';
         }
@@ -5208,8 +5209,8 @@
             const received = Number(currentBytes) || 0;
             const totalBytes = Number(currentTotalBytes) || 0;
             detail.textContent = received > 0
-                ? '已接收 ' + formatDownloadBytes(received) + (totalBytes > 0 ? ' / ' + formatDownloadBytes(totalBytes) : '')
-                : currentName ? '正在连接文件服务器…' : done >= total ? '本批次已完成' : '等待开始…';
+                ? '已接收' + formatDownloadBytes(received) + (totalBytes > 0 ? ' / ' + formatDownloadBytes(totalBytes) : '')
+                : currentName ? '正在连接文件服务器' : done >= total ? '本批次已完成' : '等待开始';
             detail.title = detail.textContent;
         }
     }
@@ -5228,7 +5229,7 @@
         if (pauseBtn) {
             const canPause = dlState.downloadMode === 'batch';
             pauseBtn.style.display = downloading && canPause ? '' : 'none';
-            pauseBtn.textContent = paused ? '▶️ 继续' : '⏸️ 暂停';
+            pauseBtn.textContent = paused ? '继续' : '暂停';
         }
     }
     /**
@@ -5243,7 +5244,7 @@
         if (!controller) return;
         controller.abort();
         dlState.downloadPaused = false;
-        logMsg(mode === 'single' ? '⏹️ 用户终止了单文件下载' : '⏹️ 用户终止了批量下载', 'info', true);
+        logMsg( mode === 'single' ? '已终止单文件下载' : '已终止批量下载', 'info', true );
     }
     /**
      * 下载队列执行器 —— 单文件与批量共用的核心引擎。
@@ -5280,7 +5281,7 @@
         dlState.downloadPaused = false;
         if (activeButton) {
             activeButton.disabled = true;
-            activeButton.textContent = '⏳';
+            activeButton.textContent = '下载中';
         }
         setDownloadButtonsState(true, false);
         updateDownloadProgress(0, total);
@@ -5301,7 +5302,7 @@
                     if (!url) {
                         failed++;
                         const vodHint = file.source === 'vod' ? '（VOD视频未转码或不可直链，请先在播放页打开一次该视频）' : '';
-                        logMsg('❌ 获取失败: ' + file.name + vodHint, 'error', true);
+                        logMsg( '获取失败 · ' + file.name + vodHint, 'error', true );
                     } else {
                         await downloadFile(url, file.name, signal, progress => {
                             lastProgress = progress;
@@ -5309,7 +5310,7 @@
                         });
                         done++;
                         fileSucceeded = true;
-                        logMsg('📥 已下载: ' + file.name, 'success', true);
+                        logMsg( '已下载 · ' + file.name, 'success', true );
                     }
                 } catch (error) {
                     if (error?.name === 'AbortError') throw error;
@@ -5326,18 +5327,18 @@
                         hint = `（服务器返回 ${httpMatch[1]}）`;
                     }
                     console.warn('[小雅] 下载失败详情:', file.name, url ? String(url).slice(0, 120) : '(no-url)', error);
-                    logMsg('❌ 下载失败: ' + file.name + hint, 'error', true);
+                    logMsg( '下载失败 · ' + file.name + hint, 'error', true );
                 }
 
                 if (signal.aborted) throw new DOMException('用户终止下载', 'AbortError');
                 updateDownloadProgress(done + failed, total, file.name, fileSucceeded ? 100 : lastProgress.percent, lastProgress.receivedBytes, lastProgress.totalBytes);
                 if (done + failed < total && !dlState.downloadPaused) await sleep(500);
             }
-            showToast('下载完成 ' + done + '/' + total + (failed > 0 ? ' · 失败 ' + failed : ''), 'success');
+            showToast('下载完成' + done + '/' + total + (failed > 0 ? ' · 失败' + failed : ''), 'success');
         } catch (error) {
             if (error?.name === 'AbortError') {
                 updateDownloadProgress(done + failed, total);
-                showToast('下载已终止 ' + done + '/' + total, 'warning');
+                showToast('下载已终止' + done + '/' + total, 'warning');
             } else {
                 console.warn('[小雅] 下载任务失败:', error);
                 showToast(error?.message || '文件下载失败', 'error');
@@ -5348,7 +5349,7 @@
             dlState.downloadPaused = false;
             setDownloadButtonsState(false, false);
             const btn = document.getElementById('xy-dl-batch-download');
-            if (btn) btn.innerText = '⬇️ 下载选中';
+            if (btn) btn.innerText = '下载选中';
             if (activeButton) {
                 activeButton.disabled = false;
                 activeButton.textContent = originalButtonText;
@@ -5418,7 +5419,7 @@
         return `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:36px;padding:1px 5px;border-radius:5px;background:${bg};color:#fff;font-size:9px;font-weight:800;letter-spacing:.5px;line-height:1.7;flex-shrink:0;">${ext}</span>`;
     }
     /**
-     * 下载列表排序比较器：path 按 '/' 分段逐级比较——每段查 sortMap 的单元序号；
+     * 下载列表排序比较器：path 按'/'分段逐级比较——每段查 sortMap 的单元序号；
      * 公共前缀比完后短者在前；最终以遍历序 order 定 tie-break。保证「单元内
      * 文件紧跟单元头」的自然阅读顺序。
      * [DEEP-DOC]
@@ -5525,15 +5526,15 @@
         });
         const countEl = document.getElementById('xy-dl-file-count');
         const typeFiltered = typeSet && typeSet.size < DL_TYPES.length;
-        if (countEl) countEl.textContent = filtered.length + ' 个文件' + ((keyword || typeFiltered) ? ' (已过滤)' : '');
+        if (countEl) countEl.textContent = filtered.length + '个文件' + ((keyword || typeFiltered) ? ' (已过滤)' : '');
         if (filtered.length === 0) {
-            listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
+            listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">无匹配文件</div>`;
             return;
         }
         if (mode === 'unit' && dlState.downloadDirTree && dlState.downloadDirTree.length) {
             const visibleIds = new Set(filtered.map(f => String(f.id)));
             let treeHtml = buildDownloadTreeHtml(dlState.downloadDirTree, visibleIds, 0);
-            if (!treeHtml) treeHtml = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">📭 无匹配文件</div>`;
+            if (!treeHtml) treeHtml = `<div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">无匹配文件</div>`;
             listDiv.innerHTML = treeHtml;
             bindDownloadButtons(listDiv);
             return;
@@ -5554,7 +5555,7 @@
                     <input type="checkbox" class="xy-dl-check" data-fid="${escapeHtml(f.id)}" ${checked?'checked':''} style="accent-color:#818cf8; flex-shrink:0; width:15px; height:15px; cursor:pointer;">
                     <span style="display:flex; align-items:center; gap:2px; flex-shrink:0;">
                         <span>${icon}</span>
-                        <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(f.id)}" data-quote-id="${escapeHtml(quoteId)}" data-file-name="${escapeHtml(f.name)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;">⬇️</button>
+                        <button class="xy-mini-btn xy-dl-single" data-fid="${escapeHtml(f.id)}" data-quote-id="${escapeHtml(quoteId)}" data-file-name="${escapeHtml(f.name)}" title="下载" style="padding:2px 6px; font-size:11px; flex-shrink:0; line-height:1;"></button>
                     </span>
                     <span style="flex:1;">
                         <div style="white-space:nowrap; color:${T('#e2e8f0','#0f172a')}; font-weight:500;" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
@@ -5585,8 +5586,8 @@
         dlState.downloadCourseName = '';
         dlState.downloadSortMap = {};
         dlState.downloadDirTree = null;
-        if (statusEl) statusEl.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">📡 正在加载课件资源...</span>`;
-        if (nameEl) nameEl.textContent = '📦 课件资源';
+        if (statusEl) statusEl.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">正在加载课件资源</span>`;
+        if (nameEl) nameEl.textContent = '课件资源';
 
         dlState.downloadFiles = [];
         dlState.downloadSelectedIds.clear();
@@ -5596,7 +5597,7 @@
         renderDownloadList();
 
         if (!groupId) {
-            if (statusEl) statusEl.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">⚠️ 未检测到课程 ID，请进入课程页面后重试</span>`;
+            if (statusEl) statusEl.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">未检测到课程 ID，请进入课程页面后重试</span>`;
             return;
         }
 
@@ -5604,7 +5605,7 @@
             const apiName = await getCourseNameFromAPI(groupId);
             if (!isCurrentPanelRequest()) return;
             dlState.downloadCourseName = apiName || '课件资源';
-            if (nameEl) nameEl.textContent = '📦 ' + dlState.downloadCourseName;
+            if (nameEl) nameEl.textContent = ' ' + dlState.downloadCourseName;
 
             const resourceResult = await fetchDownloadResources(groupId);
             if (!isCurrentPanelRequest()) return;
@@ -5614,7 +5615,7 @@
                 dlState.downloadFiles = [];
                 dlState.downloadSortMap = {};
                 dlState.downloadDirTree = null;
-                if (statusEl) statusEl.innerHTML = `<span style="color:${T('#f87171','#b91c1c')};">⚠️ 课件资源加载失败，可点击刷新重试</span>`;
+                if (statusEl) statusEl.innerHTML = `<span style="color:${T('#f87171','#b91c1c')};">课件资源加载失败，可点击刷新重试</span>`;
                 renderDownloadList();
                 return;
             }
@@ -5623,8 +5624,8 @@
             dlState.downloadFiles = resourceResult.files;
             if (statusEl) {
                 statusEl.innerHTML = resourceResult.files.length > 0
-                    ? `<span style="color:${T('#34d399','#065f46')};">✅ 已加载 ${resourceResult.files.length} 个课件文件</span>`
-                    : `<span style="color:${T('#94a3b8','#64748b')};">📭 当前课程无可下载的课件</span>`;
+                    ? `<span style="color:${T('#34d399','#065f46')};">已加载 ${resourceResult.files.length} 个课件文件</span>`
+                    : `<span style="color:${T('#94a3b8','#64748b')};">当前课程无可下载的课件</span>`;
             }
             renderDownloadList();
         } catch (e) {
@@ -5634,7 +5635,7 @@
             dlState.downloadFiles = [];
             dlState.downloadSortMap = {};
             dlState.downloadDirTree = null;
-            if (statusEl) statusEl.innerHTML = `<span style="color:${T('#f87171','#b91c1c')};">⚠️ 课件资源加载异常，可点击刷新重试</span>`;
+            if (statusEl) statusEl.innerHTML = `<span style="color:${T('#f87171','#b91c1c')};">课件资源加载异常，可点击刷新重试</span>`;
             renderDownloadList();
             console.warn('[小雅] 下载区面板加载失败:', e);
         }
@@ -5687,7 +5688,7 @@
             <div style="background: ${T('linear-gradient(145deg, #1e293b, #0f172a)','#ffffff')}; border-radius: 16px; min-width: 380px; max-width: 90%; padding: 28px; box-shadow: ${T('0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(71,85,105,0.3)','0 20px 50px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)')}; border: 1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; transform: scale(0.95); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden;">
                 <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #f87171, #fb923c); opacity: 0.8;"></div>
                 <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 14px;">
-                    <div style="width: 44px; height: 44px; border-radius: 12px; background: ${T('rgba(248,113,113,0.12)','#fee2e2')}; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 1px solid ${T('rgba(248,113,113,0.2)','#fecaca')};">⚠️</div>
+                    <div style="width: 44px; height: 44px; border-radius: 12px; background: ${T('rgba(248,113,113,0.12)','#fee2e2')}; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 1px solid ${T('rgba(248,113,113,0.2)','#fecaca')};"></div>
                     <h3 style="margin: 0; color: ${T('#f1f5f9','#0f172a')}; font-size: 18px; font-weight: 700;">${title}</h3>
                 </div>
                 <div style="color: ${T('#cbd5e1','#475569')}; line-height: 1.7; margin-bottom: 24px; font-size: 14px; background: ${T('rgba(248,113,113,0.05)','#fef2f2')}; padding: 18px; border-radius: 10px; border: 1px solid ${T('rgba(248,113,113,0.1)','#fecaca')};">${message}</div>
@@ -5876,7 +5877,7 @@
         if (refreshCountdownTimer) clearInterval(refreshCountdownTimer);
         
         const targetTime = Date.now() + delayMs;
-        logMsg(`🔄 动态重载调度：已设定 ${Math.round(delayMs/60000)} 分钟后刷新 (${reason})`, 'silent', true);
+        logMsg( `动态重载 · ${Math.round(delayMs/60000)} 分钟后刷新（${reason}）`, 'silent', true );
         
         const updateVisuals = () => {
             const statusEl = document.getElementById('xy-refresh-status');
@@ -5887,7 +5888,7 @@
                     const s = Math.floor((leftMs % 60000) / 1000).toString().padStart(2, '0');
                     statusEl.innerText = `即将重载: ${m}分 ${s}秒 (${reason})`;
                 } else {
-                    statusEl.innerText = `正在执行重载...`;
+                    statusEl.innerText = `正在执行重载`;
                 }
             }
         };
@@ -5895,11 +5896,11 @@
         refreshCountdownTimer = setInterval(updateVisuals, 1000);
 
         dynamicRefreshTimeoutId = setTimeout(() => {
-            logMsg(`🔄 触发动态定时重载...`, 'info', false);
+            logMsg( '动态重载 · 即将刷新页面', 'info', true );
             window.location.reload();
         }, delayMs);
     }
-    /** 清除动态刷新定时器、lastRefreshStrategy 复位为 'none'，并移除挂起的 timeout 句柄。
+    /** 清除动态刷新定时器、lastRefreshStrategy 复位为'none'，并移除挂起的 timeout 句柄。
      * [DEEP-DOC]
      */
     function clearDynamicRefresh() {
@@ -5923,7 +5924,7 @@
         }
         
         if (cleared) {
-            logMsg(`🛑 动态重载已在当前区域彻底挂起并强停`, 'silent', true);
+            logMsg( '动态重载已挂起 · 当前区域强停', 'silent', true );
         }
     }
     /**
@@ -6036,7 +6037,7 @@
     }
     /**
      * 截包评论列表处理：逐条 decodeNickname 解码真实姓名（排除「匿名」与含
-     * '=' 的坏解码），增量并入 targetNames（includes 去重）；有新增时持久化
+     * '='的坏解码），增量并入 targetNames（includes 去重）；有新增时持久化
      * GM + 重渲名单列表 + 讨论区激活态下打「捕获 N 位新用户」日志。
      * [DEEP-DOC]
      */
@@ -6057,7 +6058,7 @@
             if (added) {
                 GM_setValue('xy_target_names', JSON.stringify(discState.targetNames));
                 renderTargetList(document.getElementById('xy-name-search')?.value || '');
-                if(playState.activeZone === ZONE.DISC) logMsg(`📄 网络包捕获 ${discState.targetNames.length - beforeCount} 位新用户`, 'info', true);
+                if(playState.activeZone === ZONE.DISC) logMsg( `捕获 ${discState.targetNames.length - beforeCount} 位新用户`, 'info', true );
             }
         }
     }
@@ -6199,11 +6200,11 @@
         if (xyShouldKeepDashboardOverview(getCourseGroupId())) return;
         discState.discLockedUrl = window.location.href; 
         if (playState.activeZone !== ZONE.DISC) { 
-            logMsg(`🎯 拦截：零延迟识别交流区网络流！`, 'success', false); 
+            logMsg( '已识别交流区网络流', 'success', false ); 
             switchToZone('disc'); 
         }
         
-        logMsg('🔄 检测到新交流区，自动清空旧名单并开启全量采集...', 'info');
+        logMsg( '检测到新交流区 · 清空旧名单并重新采集', 'info', false );
         discState.targetNames = [];
         discState.selectedNames.clear();
         GM_setValue('xy_target_names', JSON.stringify([]));
@@ -6254,7 +6255,7 @@
      * 按当前号读（读到 B 的），都拿不到 A 自己那份结论。
      * **共享槽位数 < 并发路数 ⇒ 信息必然丢失，加多少令牌都救不回来。**
      *
-     * ⚠️ 返回的是对象，**禁止直接用于布尔判断**（`if (await ...)` 恒真）。
+     * ⚠️ 返回的是对象，**禁止直接用于布尔判断**（`if (await ...)`恒真）。
      * 必须读 .ok / .skipped / .confirmed。
      *
      * @param {boolean} [silent]
@@ -6283,7 +6284,7 @@
                 if (rTask && rTask.finish !== 2) {
                     taskId = rTask.task_id || rTask.id;
                 } else if (!rTask || rTask.finish === 2) {
-                    if (!silent) logMsg('✅ [任务总览] 任务已在后台完成，无需再提交！', 'success', false);
+                    if (!silent) logMsg( '任务已在后台完成 · 无需提交', 'success', false );
                     confirmed = true;
                     return done(true); 
                 }
@@ -6320,15 +6321,15 @@
             const finishData = await finishRes.json();
             
             if (finishData.success === true || finishData.code === 200 || finishData.code === 0) {
-                if (!silent) { logMsg('✅ [API] 任务时长达标，后端已成功确认！', 'success', false); }
+                if (!silent) { logMsg( '任务时长达标 · 服务端已确认', 'success', false ); }
                 confirmed = true;
                 return done(true);
             } else {
-                if (!silent) logMsg(`⚠️ 时长验证未通过，等待下一次提交心跳...`, 'warning', true);
+                if (!silent) logMsg( '时长验证未通过 · 等待下次心跳', 'warning', true );
                 return done(false);
             }
         } catch(e) { 
-            if (!silent) logMsg(`❌ 任务提交请求异常`, 'error', true); 
+            if (!silent) logMsg( '提交请求异常', 'error', true ); 
         } finally {
             isSubmittingLock = false;
         }
@@ -6378,7 +6379,7 @@
              * 文档：教师设「至少 N 分钟」。needSeconds 由 xyDocEffectiveSubmitSeconds()
              * 给出（教师有要求时 = N×60+10 缓冲；无要求时回落 DOC_READ 默认线）。
              *
-             * 防御：need <= 0 时 `readSeconds >= need` 恒真 ⇒ 一进页面就判达标。
+             * 防御：need <= 0 时`readSeconds >= need`恒真 ⇒ 一进页面就判达标。
              * 正常调用链不会传 0（xyDocEffectiveSubmitSeconds 恒返回 ≥130），
              * 但内核作为纯函数不该依赖调用方的正确性，故显式回落默认线。
              */
@@ -6474,9 +6475,7 @@
          *               措辞不能写成「达标」（任务总览里该项仍是未完成状态）
          *   正常路径  → 服务端已确认
          */
-        logMsg(forcePass
-            ? `⚡ ${typeLabel}已达放行线，跳过等待并推进（服务端未确认本项）`
-            : `✅ ${typeLabel}已获服务器确认达标`, forcePass ? 'warning' : 'success', silent);
+        logMsg( forcePass ? `${typeLabel}已达放行线 · 跳过等待（服务端未确认）` : `${typeLabel}已获服务端确认`, forcePass ? 'warning' : 'success', silent );
 
         // 去向分流：调度独占跳转权，避免与任务总览跳转双头打架
         if (xyScheduleState.isRunning) {
@@ -6515,7 +6514,7 @@
     function xyGoto(url, reason) {
         xyScriptNavAt = Date.now();
         xyScriptNavReason = reason || '';
-        try { logMsg(`🧭 脚本跳转（${reason}）：${url}`, 'info', false); } catch (e) {}
+        try { logMsg( `脚本跳转（${reason}）${url}`, 'info', true ); } catch (e) {}
         window.location.href = url;
     }
     async function tryJumpToNext() {
@@ -6534,7 +6533,7 @@
             const currentGroupId = getCourseGroupId(); 
             const currentNodeId = getNodeId(); 
             
-            logMsg('🔄 正在通过【任务总览】匹配下一项自主观看任务...', 'info', false);
+            logMsg( '正在匹配下一项自主观看任务', 'info', true );
             
             _radarCache.time = 0; 
             const unfinishData = await fetchRadarCached();
@@ -6571,7 +6570,7 @@
             if (targetTask) {
                 const resId = await getTaskResourceId(targetTask);
 
-                logMsg(`⏭️ 任务总览锁定目标：${targetTask.name}，执行跨节点跳转！`, 'success', false);
+                logMsg( `锁定目标 ${targetTask.name} · 跨节点跳转`, 'success', false );
 
                 const pathPrefix = xyCourseRoutePrefix();
 
@@ -6593,14 +6592,14 @@
             const delay = delays[Math.min(failCount - 1, delays.length - 1)];
 
             if (failCount >= BACKOFF.MAX_SUCCESS_FAILS) {
-                 logMsg('⏳ 连续6次探测无新任务，引擎进入休眠模式，10分钟后重载...', 'warning', false);
+                 logMsg( '连续 6 次探测无新任务 · 10 分钟后重载', 'warning', true );
                  playState.jumpSleepUntil = Date.now() + BACKOFF.SLEEP_MS;
                  playState.jumpFailCount = 0;
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
                  const waitSec = Math.round(delay / 1000);
-                 logMsg(`⏳ 探测无新任务，${waitSec}秒后重试 （第 ${failCount} 次 · 指数退避）...`, 'warning', false);
+                 logMsg( `探测无新任务 · ${waitSec} 秒后重试（第 ${failCount} 次）`, 'warning', true );
                  setTimeout(() => { isJumpingLock = false; }, delay);
             }
 
@@ -6611,13 +6610,13 @@
             const delay = delays[Math.min(failCount - 1, delays.length - 1)];
 
             if (failCount >= BACKOFF.MAX_ERROR_FAILS) {
-                 logMsg('⏳ 网络探测连续5次异常，进入深度休眠，10分钟后重新探测...', 'warning', false);
+                 logMsg( '网络探测连续 5 次异常 · 10 分钟后重试', 'warning', true );
                  playState.jumpSleepUntil = Date.now() + BACKOFF.SLEEP_MS;
                  playState.jumpFailCount = 0;
                  updateCourseUI();
                  isJumpingLock = false;
             } else {
-                 logMsg(`⚠️ 任务总览连通异常，${Math.round(delay / 1000)} 秒后重试（第 ${failCount} 次）...`, 'error', false);
+                 logMsg( `任务总览连通异常 · ${Math.round(delay / 1000)} 秒后重试（第 ${failCount} 次）`, 'error', false );
                  setTimeout(() => { isJumpingLock = false; }, delay);
             }
         }
@@ -6656,7 +6655,7 @@
      * 连播之外，老师传个不常见格式就整条学不了。上游 xyBrushFilterPlayable 已确认
      * task_type===1、有 node_id、未完成，这里只需排除空名字。
      *
-     * 注意：视频还是文档由运行时 getTaskTypeAccurate() 按页面是否含 <video> 判定，
+     * 注意：视频还是文档由运行时 getTaskTypeAccurate() 按页面是否含 <video>判定，
      * 不依赖文件名，所以放宽这里不会把文档误当视频播。
      */
     function xyBrushIsPlayableName(task) {
@@ -6701,11 +6700,11 @@
                         /**
                          * ⚠️ 此处**不能**先置 isTaskCompleted。
                          *
-                         * 旧写法是 `playState.isTaskCompleted = true; updateCourseUI();
+                         * 旧写法是`playState.isTaskCompleted = true; updateCourseUI();
                          * await autoSubmitCurrentTask(true);` —— 在提交发生**之前**就宣告达标，
                          * 且不接收返回值。后果：若这次提交失败（服务端未确认），
                          * 本页会永久停在「已达标」，而引擎所有入口都有
-                         * `if (!playState.isTaskCompleted)` 门外加调度 tick 的达标判定，
+                         * `if (!playState.isTaskCompleted)`门外加调度 tick 的达标判定，
                          * **再也不会有人重试提交** —— 用户以为这项完成了，实际没有。
                          * 触发场景：多端同步下另一台设备完成了该项（任务总览列表消失），
                          * 而本机此刻网络抖动导致 finishActivity 失败。
@@ -6718,7 +6717,7 @@
                             forceSubmit: true,      // 任务总览已判完成，本地判据不适用，直接交卷
                             typeLabel: '任务总览任务'
                         });
-                        if (res.ok) logMsg('✅ [任务总览] 当前任务已在任务总览达成！', 'success', false);
+                        if (res.ok) logMsg( '当前任务已在总览达成', 'success', false );
                     }
                 } else { 
                     if (playState.isTaskCompleted || (document.getElementById('xy-status-banner') && document.getElementById('xy-status-banner').innerText.includes('初始化'))) { 
@@ -6746,7 +6745,7 @@
                             const btns = Array.from(box.querySelectorAll('button, .el-button, [role="button"]'));
                             targetBtn = btns.find(b => { const t = (b.innerText || "").replace(/\s+/g, ''); return t.length <= 8 && /确定|继续|是|我知道了|恢复|确认/.test(t); });
                         }
-                        if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统提示框...`, 'success', false); }, 300); return true; }
+                        if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg( '已拦截系统提示框', 'success', true ); }, 300); return true; }
                     }
                 }
             }
@@ -6754,7 +6753,7 @@
             if (/长时间.*操作|无操作|没有操作|任务暂停|休息一下|确认打开|是否确认打开文件/.test(bodyText)) {
                 const allButtons = Array.from(doc.querySelectorAll('button, [role="button"], .btn, span[class*="btn"]'));
                 const targetBtn = allButtons.find(b => { const t = ((b.innerText || "")).replace(/\s+/g, ''); return b.offsetParent !== null && t.length <= 8 && /确定|继续|恢复|我知道了|确认/.test(t); });
-                if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg(`🛡️ 拦截系统提示框...`, 'success', false); }, 500); return true; }
+                if (targetBtn && Date.now() - playState.lastPopupClickTime > 2000) { playState.lastPopupClickTime = Date.now(); setTimeout(() => { robustClick(targetBtn); logMsg( '已拦截系统提示框', 'success', true ); }, 500); return true; }
             }
         } catch(e) {} return false;
     }
@@ -7026,7 +7025,7 @@
         }
         recordFailCount++;
         if (recordFailCount >= 10) {
-            logMsg('⚠️ 学习记录连续失败10次，请检查网络或Token是否过期', 'error', false);
+            logMsg( '学习记录连续失败 10 次 · 请检查网络或登录状态', 'error', false );
             recordFailCount = 0;
         }
         throw lastError || new Error('sendRecord failed');
@@ -7077,10 +7076,10 @@
         /**
          * [R3-01] 单 tick 硬超时。
          *
-         * 原实现里 `callbackRunning` 只在 finally 复位，而 finally 要等 `await fn()`
+         * 原实现里`callbackRunning`只在 finally 复位，而 finally 要等`await fn()`
          * 落地才执行。一旦 fn 内部有一个永不 settle 的 await（典型：无超时的 fetch，
          * TCP 已连上但服务端不返回），callbackRunning 就永远是 true，
-         * 此后每次 catchUp() 都在入口 `if (callbackRunning) return` 处直接返回 ——
+         * 此后每次 catchUp() 都在入口`if (callbackRunning) return`处直接返回 ——
          * 整个定时器**永久停摆且无自愈**，表现为脚本静默卡死。
          *
          * 这里给每次 fn() 加一道硬超时：超时后强制结束本次 tick 并释放互斥，
@@ -7229,17 +7228,17 @@
             
             const gap = Date.now() - keepaliveLastBeatTime;
             if (gap > 75000) {
-                logMsg('💓 [保活] 检测到心跳缺口 ' + Math.round(gap / 1000) + 's，强制补发', 'warning', true);
+                logMsg( '[保活] 心跳缺口' + Math.round(gap / 1000) + 's · 强制补发', 'warning', true );
                 sendRecordRequest().then(() => { keepaliveLastBeatTime = Date.now(); });
             }
             
             if (!recordIntervalTimer && recState.recordActive) {
-                logMsg('💓 [保活] 心跳定时器丢失，自动重建', 'warning', true);
+                logMsg( '[保活] 心跳定时器丢失 · 已重建', 'warning', true );
                 if (recordIntervalTimer) recordIntervalTimer.clear();
                 recordIntervalTimer = createPersistentInterval(sendRecordRequest, 30000, 20);
             }
         }, 10000);
-        logMsg('💓 后台保活巡检已启动（10s巡检）', 'silent', true);
+        logMsg( '[保活] 巡检已启动 · 10 秒一次', 'silent', true );
     }
 
 
@@ -7269,7 +7268,7 @@
         const timeoutLimit = xyScheduleState.isRunning ? 1800000 : 180000; 
         if (Date.now() - watchdogLastActiveTime > timeoutLimit) {
             sessionStorage.setItem('xy_reload_reason', '防死锁刷新');
-            logMsg(`💀 发生死锁！执行重新加载...`, 'error', false);
+            logMsg( '检测到死锁 · 重新加载', 'error', false );
             setTimeout(() => window.location.reload(), 1000);
             return;
         }
@@ -7322,7 +7321,7 @@
                             /**
                              * 拖动检测：弹回原位。
                              *
-                             * 注意这里**不能 `return`** —— 该 return 在函数顶层（1s 主循环），
+                             * 注意这里**不能`return`** —— 该 return 在函数顶层（1s 主循环），
                              * 会连带跳过：
                              *   1. 本分支下方的 isMakingProgress 标记
                              *   2. 函数尾部的巡检刷新与 updateTitleBar()
@@ -7330,7 +7329,7 @@
                              * 活动信号，最终误判「死锁」并重新加载页面 —— 表现为视频反复从头开始。
                              * 改为弹回后继续走完本轮逻辑即可。
                              */
-                            logMsg('⚠️ 检测到拖动进度条，已弹回原位', 'warning', true);
+                            logMsg( '拖动进度条 · 已弹回原位', 'warning', true );
                             video.currentTime = playState.videoLastTime;
                         }
 
@@ -7342,9 +7341,9 @@
                         /**
                          * duration 口径必须与判定内核（xyEngineCheckCompletion 的
                          * `Number(video.duration) || 0`）**完全同源**。
-                         * 曾写成 `video.duration || 1`：元数据未加载时 duration=NaN
-                         * → 这里取 1，于是 `videoScriptProgress >= 1` 立刻为真，
-                         * 状态栏提前显示「已播完, 验证中...」，而内核用 dur=0
+                         * 曾写成`video.duration || 1`：元数据未加载时 duration=NaN
+                         * → 这里取 1，于是`videoScriptProgress >= 1`立刻为真，
+                         * 状态栏提前显示「已播完 · 验证中」，而内核用 dur=0
                          * 判定为「未播完」——UI 与内核结论相反，误导用户与排障。
                          */
                         const duration = Number(video.duration) || 0;
@@ -7356,7 +7355,7 @@
                         const statusEl = document.getElementById('xy-video-status');
                         if (statusEl) {
                             if (video.ended || (hasDuration && playState.videoScriptProgress >= duration)) {
-                                statusEl.innerText = '已播完, 验证中...';
+                                statusEl.innerText = '已播完 · 验证中';
                             } else {
                                 /**
                                  * 状态文案两段拼装，缺项自动省略：
@@ -7402,7 +7401,7 @@
                                 if (loopDur > 0) parts.push(`${xyClock(video.currentTime)}/${xyClock(loopDur)}`);
                                 statusEl.innerText = parts.join(' · ');
                             } else if (video.ended) {
-                                statusEl.innerText = '已播完, 验证中...';
+                                statusEl.innerText = '已播完 · 验证中';
                             } else {
                                 const parts = [`播放 ${progress.toFixed(0)}%`];
                                 if (loopDur > 0) parts.push(`${xyClock(video.currentTime)}/${xyClock(loopDur)}`);
@@ -7428,7 +7427,7 @@
                         /**
                          * 节流基准必须与记账基准同源 —— 都用 videoWatchSeconds。
                          * 曾用 docReadTime：但它在视频分支从不自增（只在文档分支 +1），
-                         * 于是 `docReadTime - lastVideoSubmitTime` 恒为负，
+                         * 于是`docReadTime - lastVideoSubmitTime`恒为负，
                          * 视频侧的重试节流形同失效。用 videoWatchSeconds 才是同一个时钟。
                          */
                         const vSinceLast = playState.lastVideoSubmitTime > 0
@@ -7460,9 +7459,9 @@
                                 && playState.mode === PLAY_MODE.LOOP) {
                                 const forceLine = xyDocEffectiveForceSeconds();
                                 if ((playState.videoWatchSeconds || 0) >= forceLine) {
-                                    logMsg('⚠️ 安全循环：服务端暂未放行，即将刷新页面重置播放...', 'warning', true);
+                                    logMsg( '安全循环 · 服务端未放行，即将刷新重置', 'warning', true );
                                     setTimeout(() => {
-                                        logMsg('🔄 触发安全循环单次播完重载机制...', 'info', false);
+                                        logMsg( '安全循环 · 播完即重载', 'info', true );
                                         window.location.reload();
                                     }, 1500);
                                 }
@@ -7488,7 +7487,7 @@
                     _xyDocResetAt = nowTs;
                     playState.docReadTime = 0;
                     playState.lastDocSubmitTime = 0;
-                    logMsg('📄 文档阅读从 0 开始计时', 'info', false);
+                    logMsg( '文档阅读 · 从 0 开始计时', 'info', true );
                 };
                 /**
                  * 硬判据：文档计时不可能比本页存在得还久。
@@ -7502,7 +7501,7 @@
                 if (playState.docReadTime > aliveSec + 3) {
                     playState.docReadTime = 0;
                     playState.lastDocSubmitTime = 0;
-                    logMsg('📄 文档阅读计时超过本页存活时长，判定为继承值，已归零', 'info', false);
+                    logMsg( '文档计时为继承值 · 已归零', 'info', true );
                 }
                 /**
                  * 调度面板上的「⏱ 已驻留」也要跟着归零 —— 它存在 GM 的队列里，
@@ -7515,7 +7514,7 @@
                 if (curSchedTask && Number(curSchedTask.elapsedSec || 0) > aliveSec + 3) {
                     curSchedTask.elapsedSec = 0;
                     try { saveScheduleState(); } catch (e) {}
-                    logMsg('📄 调度驻留计时同样判定为继承值，已归零', 'info', false);
+                    logMsg( '驻留计时为继承值 · 已归零', 'info', true );
                 }
 
                 const docPreviewEl = document.querySelector(
@@ -7536,7 +7535,7 @@
 
                     // 进任务后主动对齐教师要求（异步，不阻塞主循环）
                     //
-                    // [R3-04] 旧写法 `docSubmitSeconds === 0 && docReadTime <= 1` 有两个问题：
+                    // [R3-04] 旧写法`docSubmitSeconds === 0 && docReadTime <= 1`有两个问题：
                     //   1) 条件只在进任务的第 1 个 tick 成立，之后 docReadTime 递增就再也不成立；
                     //   2) 调用没有 await，同步结果何时落地完全不可控。
                     // 二者叠加 = 网络稍慢时 docSubmitSeconds 永远是 0 → 永久回落
@@ -7635,9 +7634,9 @@
             /**
              * [R3-06] 刷新计时判据：只认「本 tick 确有推进」。
              *
-             * 旧写法 `|| recState.recordActive` 把「学习记录开关开着」当成活性信号 ——
+             * 旧写法`|| recState.recordActive`把「学习记录开关开着」当成活性信号 ——
              * 只要用户开着学习记录，watchdogLastActiveTime 每拍都被无条件刷新，
-             * 上面 `Date.now() - watchdogLastActiveTime > timeoutLimit` 永不成立，
+             * 上面`Date.now() - watchdogLastActiveTime > timeoutLimit`永不成立，
              * 防死锁重新加载**整条分支是死代码**。
              *
              * [R3-17] 必须与 R3-06 同批改：视频元素取不到时（跨域 iframe 播放器
@@ -7663,12 +7662,12 @@
             if (!xyScheduleState.isRunning && xyScheduleState.autoStart && nowHM === xyScheduleState.autoStart && xyScheduleState.queue.length > 0) {
                 lastAutoActionMinute = nowHM;
                 if (typeof xySchStart === 'function') xySchStart();
-                logMsg(`⏰ 定时启动：${nowHM} 已触发计划调度！`, 'success');
+                logMsg( `定时启动 · ${nowHM} 已触发计划调度`, 'success' );
             }
             if (xyScheduleState.isRunning && xyScheduleState.autoStop && nowHM === xyScheduleState.autoStop) {
                 lastAutoActionMinute = nowHM;
                 if (typeof xySchStop === 'function') xySchStop();
-                logMsg(`⏰ 定时停止：${nowHM} 已触发停止并交还主控！`, 'warning');
+                logMsg( `定时停止 · ${nowHM} 已交还主控`, 'warning' );
             }
         }
 
@@ -7752,13 +7751,7 @@
         const elapsedSince = lastAttempt > 0 ? (nowTick - lastAttempt) : Infinity;
         if (elapsedSince < gap) return;   // 距上次尝试不足重试间隔，等下一轮
 
-        logMsg(isDoc
-            ? (lastAttempt > 0
-                ? `⏳ 文档未达标，周期性重试提交 (${playState.docReadTime}s)...`
-                : `⏳ ${Math.floor(needSeconds / 60)}分${needSeconds % 60}秒已到，发起首次文档验证请求...`)
-            : (lastAttempt > 0
-                ? `⏳ 视频未获放行，周期性重试提交 (${playState.videoWatchSeconds || 0}s)...`
-                : `⏳ 满足脚本进度，发起视频验证请求...`), 'info', true);
+        logMsg( isDoc ? (lastAttempt > 0 ? `文档未达标 · 周期重试提交（${playState.docReadTime}s）` : `${Math.floor(needSeconds / 60)} 分 ${needSeconds % 60} 秒已到 · 发起首次文档验证`) : (lastAttempt > 0 ? `视频未获放行 · 周期重试提交（${playState.videoWatchSeconds || 0}s）` : `已达进度 · 发起视频验证`), 'info', true );
 
         const ok = await xyEngineCompleteAndAdvance({ typeLabel });
         /**
@@ -7788,10 +7781,10 @@
         const forceLine = xyDocEffectiveForceSeconds();
         const elapsed = isDoc ? playState.docReadTime : (playState.videoWatchSeconds || 0);
         if (elapsed >= forceLine) {
-            logMsg(`⚡ ${typeLabel}超过 ${Math.round(forceLine / 60)} 分钟仍未获确认，触发【强制提交放行】保护机制！`, 'warning', false);
+            logMsg( `${typeLabel}超 ${Math.round(forceLine / 60)} 分钟未确认 · 强制提交放行`, 'warning', false );
             await xyEngineCompleteAndAdvance({ forcePass: true, typeLabel });
         } else {
-            logMsg(`⚠️ ${typeLabel}验证未通过，将在${gap}秒后重试 (当前${elapsed}s/${forceLine}s放行线)`, 'warning', false);
+            logMsg( `${typeLabel}验证未通过 · ${gap} 秒后重试（${elapsed}/${forceLine} 秒）`, 'warning', false );
         }
     }, 5000, 10);
 
@@ -7839,12 +7832,12 @@
      */
     async function fetchCurrentUsers() {
         if (playState.activeZone !== ZONE.DISC) return;
-        if(!discState.discussionId) { logMsg('未捕获到交流区ID，请随便点击一下任意评论！', 'warning'); return; }
+        if(!discState.discussionId) { logMsg( '未捕获到交流区 ID · 请点击任一评论', 'warning' ); return; }
         const btn = document.getElementById('xy-btn-fetch-users'); const originalText = btn ? btn.innerText : '';
         const stopBtn = document.getElementById('xy-btn-stop-scrape');
-        if(btn) { btn.disabled = true; btn.innerText = "深潜抓取中..."; }
+        if(btn) { btn.disabled = true; btn.innerText = "深潜抓取中"; }
 
-        logMsg('🧹 正在深度扫描全部评论页，自动去重收录...', 'info');
+        logMsg( '正在扫描全部评论页 · 自动去重收录', 'info' );
 
         try {
             playState.discScrapeAbort = false;
@@ -7852,8 +7845,8 @@
             let pageIndex = 1;
             const seenIds = new Set();
             while (true) {
-                if (playState.discScrapeAbort) { logMsg('⏹ 已手动停止深度抓取', 'warning'); break; }
-                if(btn) btn.innerText = `深潜抓取中 (第${pageIndex}页)...`;
+                if (playState.discScrapeAbort) { logMsg( '已手动停止深度抓取', 'warning' ); break; }
+                if(btn) btn.innerText = `深潜抓取中（第 ${pageIndex} 页）`;
                 const list = await fetchDiscussions(20, pageIndex);
                 if (!list || list.length === 0) break;
 
@@ -7883,8 +7876,8 @@
 
             GM_setValue('xy_target_names', JSON.stringify(discState.targetNames));
             renderTargetList(document.getElementById('xy-name-search')?.value || '');
-            logMsg(playState.discScrapeAbort ? `⏸ 已停止，总库现存 ${discState.targetNames.length} 人。` : `✅ 扫描到底！总库现存 ${discState.targetNames.length} 人。`, 'success');
-        } catch (error) { logMsg('抓取失败，请检查网络或刷新重试', 'error'); } finally { if(stopBtn) stopBtn.style.display = 'none'; if(btn) { btn.disabled = false; btn.innerText = originalText || "🔄 手动刷新名单"; } }
+            logMsg( playState.discScrapeAbort ? `已停止 · 总库 ${discState.targetNames.length} 人` : `扫描到底 · 总库 ${discState.targetNames.length} 人`, 'success' );
+        } catch (error) { logMsg( '抓取失败 · 请检查网络或刷新重试', 'error' ); } finally { if(stopBtn) stopBtn.style.display = 'none'; if(btn) { btn.disabled = false; btn.innerText = originalText || "手动刷新名单"; } }
     }
     /** 勾选名单导出：Set → Array。定向点赞/回复的目标集合唯一来源。
      * [DEEP-DOC]
@@ -7900,12 +7893,12 @@
      */
     async function autoLikeAction(isTargeted = false) {
         if (playState.activeZone !== ZONE.DISC) return;
-        if(!discState.discussionId) { logMsg('网络流未就绪，请随便点击一个评论触发抓包', 'warning'); return; }
+        if(!discState.discussionId) { logMsg( '网络流未就绪 · 请点击任一评论触发抓包', 'warning' ); return; }
         const checkedNames = isTargeted ? getCheckedTargetNames() : [];
-        if (isTargeted && checkedNames.length === 0) { logMsg('请先勾选目标人物', 'warning'); return; }
+        if (isTargeted && checkedNames.length === 0) { logMsg( '请先勾选目标人物', 'warning' ); return; }
 
         const btn = document.getElementById(isTargeted ? 'xy-btn-target-like' : 'xy-btn-like');
-        if (!btn) { logMsg('UI 按钮未就绪，请刷新页面', 'error'); return; }
+        if (!btn) { logMsg( '按钮未就绪 · 请刷新页面', 'error' ); return; }
         const originalText = btn.innerText;
         btn.disabled = true;
 
@@ -7914,7 +7907,7 @@
             let pageIndex = 1;
             
             while(true) {
-                btn.innerText = `检索互动目标 (页${pageIndex})...`;
+                btn.innerText = `检索互动目标（第 ${pageIndex} 页）`;
                 const list = await fetchDiscussions(20, pageIndex); 
                 if (!list || list.length === 0) break;
                 
@@ -7932,15 +7925,15 @@
                 if (pageIndex > 300) break;
             }
             
-            if (targets.length === 0) { logMsg(`⚠️ 未找到匹配的目标列表`, 'warning'); return; }
+            if (targets.length === 0) { logMsg( '未找到匹配的目标列表', 'warning' ); return; }
             
             targets = targets.slice(0, MAX_LIKES);
             const uniqueTargets = []; const seenIds = new Set();
             for (const t of targets) { if (!seenIds.has(t.id)) { seenIds.add(t.id); uniqueTargets.push(t); } }
 
-            let successCount = 0; const token = await getAuthToken(); logMsg(`🎯 锁定 ${uniqueTargets.length} 个目标评论，准备就绪，开始批量互动...`, 'info');
+            let successCount = 0; const token = await getAuthToken(); logMsg( `锁定 ${uniqueTargets.length} 个目标 · 开始批量互动`, 'info' );
             
-            btn.innerText = `互动处理中...`;
+            btn.innerText = `互动处理中`;
             for (let i = 0; i < uniqueTargets.length; i++) {
                 const item = uniqueTargets[i]; const payload = { discussion_id: discState.discussionId, group_id: discState.discGroupId, point_id: item.id, like: 1 };
                 try {
@@ -7948,8 +7941,8 @@
                     const likeData = await likeRes.json(); if (likeData.success || likeData.code === 200 || likeData.code === 0) { successCount++; }
                 } catch(e) { console.warn('[小雅] 互动处理失败', e); } await sleep(Math.floor(Math.random() * 700) + 800); 
             }
-            logMsg(`🎉 互动任务结束！成功处理 ${successCount} 次！即将刷新页面...`, 'success'); setTimeout(() => { window.location.reload(); }, 1500);
-        } catch (e) { logMsg('互动异常', 'error'); } finally { btn.disabled = false; btn.innerText = originalText; }
+            logMsg( `互动完成 · 成功 ${successCount} 次 · 即将刷新`, 'success' ); setTimeout(() => { window.location.reload(); }, 1500);
+        } catch (e) { logMsg( '互动异常', 'error' ); } finally { btn.disabled = false; btn.innerText = originalText; }
     }
     /**
      * 回复文案选取：useCustomReply 开启且 customReplies 非空 → 随机取用户自定义
@@ -7975,7 +7968,7 @@
             if (validCustoms.length > 0) {
                 return validCustoms[Math.floor(Math.random() * validCustoms.length)];
             } else {
-                logMsg('⚠️ 自定义回复库中没有合规句子，系统已自动回退到默认语料', 'warning', true);
+                logMsg( '回复库无合规句 · 已回退默认语料', 'warning', true );
             }
         }
         return templates[Math.floor(Math.random() * templates.length)];
@@ -8012,9 +8005,9 @@
      */
     async function autoReplyAction(isTargeted = false) {
         if (playState.activeZone !== ZONE.DISC) return;
-        if(!discState.discussionId) { logMsg('网络流未就绪，请随便点击一个评论触发抓包', 'warning'); return; }
+        if(!discState.discussionId) { logMsg( '网络流未就绪 · 请点击任一评论触发抓包', 'warning' ); return; }
         const checkedNames = isTargeted ? getCheckedTargetNames() : [];
-        if (isTargeted && checkedNames.length === 0) { logMsg('请先勾选目标人物', 'warning'); return; }
+        if (isTargeted && checkedNames.length === 0) { logMsg( '请先勾选目标人物', 'warning' ); return; }
 
         const btnId = isTargeted ? 'xy-btn-target-reply' : 'xy-btn-reply';
         const btn = document.getElementById(btnId); 
@@ -8026,7 +8019,7 @@
             let pageIndex = 1;
             
             while(true) {
-                if (btn) btn.innerText = `检索回复目标 (页${pageIndex})...`;
+                if (btn) btn.innerText = `检索回复目标（第 ${pageIndex} 页）`;
                 const list = await fetchDiscussions(20, pageIndex); 
                 if (!list || list.length === 0) break;
                 
@@ -8044,15 +8037,15 @@
                 if (pageIndex > 300) break;
             }
             
-            if (targets.length === 0) { logMsg(`⚠️ 未找到匹配的回复目标列表`, 'warning'); return; }
+            if (targets.length === 0) { logMsg( '未找到匹配的回复目标', 'warning' ); return; }
             
             targets = targets.slice(0, MAX_REPLIES);
             const uniqueTargets = []; const seenIds = new Set();
             for (const t of targets) { if (!seenIds.has(t.id)) { seenIds.add(t.id); uniqueTargets.push(t); } }
 
-            let successCount = 0; const token = await getAuthToken(); logMsg(`🎯 锁定 ${uniqueTargets.length} 个目标评论，准备就绪，开始自动回复...`, 'info');
+            let successCount = 0; const token = await getAuthToken(); logMsg( `锁定 ${uniqueTargets.length} 个目标 · 开始自动回复`, 'info' );
             
-            if (btn) btn.innerText = `回复发射中...`;
+            if (btn) btn.innerText = `回复发射中`;
             for (let i = 0; i < uniqueTargets.length; i++) {
                 const item = uniqueTargets[i]; 
                 const replyText = getRandomReplyText();
@@ -8073,14 +8066,14 @@
                     const replyData = await replyRes.json(); 
                     if (replyData.success || replyData.code === 200 || replyData.code === 0) {
                         successCount++;
-                        logMsg(`✅ 成功回复 [${decodeNickname(item.nickname)}]: ${replyText.substring(0,8)}...`, 'success', true);
+                        logMsg( `已回复 ${decodeNickname(item.nickname)} · ${replyText.substring(0,8)}`, 'success', true );
                     }
                 } catch(e) { console.warn('[小雅] 讨论回复失败', e); } 
                 await sleep(Math.floor(Math.random() * 1200) + 1800); 
             }
-            logMsg(`🎉 回复任务结束！成功回复 ${successCount} 次！即将刷新页面...`, 'success'); 
+            logMsg( `回复完成 · 成功 ${successCount} 次 · 即将刷新`, 'success' ); 
             setTimeout(() => { window.location.reload(); }, 2000);
-        } catch (e) { logMsg('回复异常', 'error'); } finally { if (btn) { btn.disabled = false; btn.innerText = originalText; } }
+        } catch (e) { logMsg( '回复异常', 'error' ); } finally { if (btn) { btn.disabled = false; btn.innerText = originalText; } }
     }
 
     
@@ -8093,8 +8086,8 @@
     const EMBEDDED_NOTICE = {
         "title": "新版本已发布",
         "items": [
-            "📎 安装 / 更新：https://scriptcat.org/scripts/code/5881/小雅辅助工具.user.js",
-            " 修复了一些已知问题。"
+            "安装 / 更新：https://scriptcat.org/scripts/code/5881/小雅辅助工具.user.js",
+            "修复了一些已知问题。"
         ]
     };
     /** 一键互动组合拳：串行执行 autoLikeAction + autoReplyAction（点赞完再回
@@ -8208,41 +8201,41 @@
         if (statusBanner) {
             if (xyScheduleState.isRunning) {
                 if (xyScheduleState.isPaused) {
-                    statusBanner.innerHTML = `<span style="color:${T('#fbbf24','#d97706')};">⏸ 计划调度已暂停</span>`;
+                    statusBanner.innerHTML = `<span style="color:${T('#fbbf24','#d97706')};">计划调度已暂停</span>`;
                     statusBanner.style.background = T('rgba(251,191,36,0.1)','#fffbeb');
                     statusBanner.style.borderColor = T('rgba(251,191,36,0.25)','#fde68a');
                 } else {
-                    statusBanner.innerHTML = `<span style="color:${T('#fcd34d','#92400e')};">📅 计划调度中 (外挂托管)</span>`;
+                    statusBanner.innerHTML = `<span style="color:${T('#fcd34d','#92400e')};">计划调度中（外挂托管）</span>`;
                     statusBanner.style.background = T('rgba(245,158,11,0.12)','#fffbeb');
                     statusBanner.style.borderColor = T('rgba(245,158,11,0.25)','#fde68a');
                 }
             }
             else if (playState.mode === PLAY_MODE.MANUAL) {
-                statusBanner.innerHTML = `<span style="color:${T('#94a3b8','#64748b')};">⏸️ 学习休眠中</span>`;
+                statusBanner.innerHTML = `<span style="color:${T('#94a3b8','#64748b')};">学习休眠中</span>`;
                 statusBanner.style.background = T('rgba(71,85,105,0.15)','#f8fafc');
                 statusBanner.style.borderColor = T('rgba(71,85,105,0.2)','#e2e8f0');
             }
             else if (!getCourseGroupId()) {
                 if (playState.mode === PLAY_MODE.SEQUENCE && Date.now() < playState.jumpSleepUntil) {
                     let leftMin = Math.ceil((playState.jumpSleepUntil - Date.now()) / 60000);
-                    statusBanner.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">💤 寻路深度休眠 (约 ${leftMin} 分钟后重载探测)</span>`;
+                    statusBanner.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">寻路深度休眠（约 ${leftMin} 分钟后重载探测）</span>`;
                     statusBanner.style.background = T('rgba(251,191,36,0.1)','#fffbeb');
                     statusBanner.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a');
                 } else {
-                    statusBanner.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">🌐 任务总览系统扫描中...</span>`;
+                    statusBanner.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">任务总览系统扫描中</span>`;
                     statusBanner.style.background = T('rgba(99,102,241,0.1)','#eef2ff');
                     statusBanner.style.borderColor = T('rgba(99,102,241,0.2)','#c7d2fe');
                 }
             }
             else if (playState.isTaskCompleted) {
                 statusBanner.innerHTML = playState.mode === PLAY_MODE.LOOP
-                    ? `<span style="color:${T('#34d399','#065f46')};">✅ 已达标 (持续安全循环中)</span>`
-                    : `<span style="color:${T('#34d399','#065f46')};">✅ 已达标 (即将自动跳转)</span>`;
+                    ? `<span style="color:${T('#34d399','#065f46')};">已达标 (持续安全循环中)</span>`
+                    : `<span style="color:${T('#34d399','#065f46')};">已达标 (即将自动跳转)</span>`;
                 statusBanner.style.background = T('rgba(52,211,153,0.1)','#ecfdf5');
                 statusBanner.style.borderColor = T('rgba(52,211,153,0.2)','#a7f3d0');
             }
             else {
-                statusBanner.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">⏳ 引擎防封运作中...</span>`;
+                statusBanner.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">引擎防封运作中</span>`;
                 statusBanner.style.background = T('rgba(251,191,36,0.1)','#fffbeb');
                 statusBanner.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a');
             }
@@ -8276,16 +8269,16 @@
             <div style="background: ${T('linear-gradient(145deg, #1e293b, #0f172a)','#ffffff')}; border-radius: 16px; min-width: 500px; max-width: 90%; padding: 28px; box-shadow: ${T('0 25px 50px -12px rgba(0,0,0,0.5), 0 0 0 1px rgba(71,85,105,0.3)','0 20px 50px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04)')}; border: 1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; transform: scale(0.95); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden;">
                 <div style="position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg, #818cf8, #a78bfa); opacity: 0.8;"></div>
                 <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 14px;">
-                    <div style="width: 44px; height: 44px; border-radius: 12px; background: ${T('rgba(129,140,248,0.12)','#eef2ff')}; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 1px solid ${T('rgba(129,140,248,0.2)','#c7d2fe')};">⚙️</div>
+                    <div style="width: 44px; height: 44px; border-radius: 12px; background: ${T('rgba(129,140,248,0.12)','#eef2ff')}; display: flex; align-items: center; justify-content: center; font-size: 22px; border: 1px solid ${T('rgba(129,140,248,0.2)','#c7d2fe')};"></div>
                     <h3 style="margin: 0; color: ${T('#f1f5f9','#0f172a')}; font-size: 18px; font-weight: 700;">自定义语料库</h3>
                 </div>
-                <div style="margin-bottom:8px; font-size:13px; color:${T('#94a3b8','#64748b')};">每行一条回复语料（至少需 <b style="color:${T('#fbbf24','#92400e')};">16个中文字</b> 才生效）</div>
-                <textarea id="xy-reply-ta" style="width:100%; height:280px; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')}; border-radius:10px; padding:14px; font-size:13px; resize:vertical; outline:none; line-height:1.6; font-family:inherit; margin-bottom:12px; box-sizing:border-box;" placeholder="输入自定义回复，每行一条...">${escapeHtml(phrases)}</textarea>
+                <div style="margin-bottom:8px; font-size:13px; color:${T('#94a3b8','#64748b')};">每行一条回复语料（至少需 <b style="color:${T('#fbbf24','#92400e')};">16个中文字</b>才生效）</div>
+                <textarea id="xy-reply-ta" style="width:100%; height:280px; background:${T('rgba(15,23,42,0.6)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')}; border-radius:10px; padding:14px; font-size:13px; resize:vertical; outline:none; line-height:1.6; font-family:inherit; margin-bottom:12px; box-sizing:border-box;" placeholder="输入自定义回复，每行一条">${escapeHtml(phrases)}</textarea>
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <button id="xy-reply-reset-btn" style="background:${T('rgba(248,113,113,0.1)','#fee2e2')}; color:#f87171; border:1px solid ${T('rgba(248,113,113,0.2)','#fecaca')}; padding:8px 16px; border-radius:8px; font-size:12px; cursor:pointer; font-weight:600;">🔄 恢复默认语料库</button>
+                    <button id="xy-reply-reset-btn" style="background:${T('rgba(248,113,113,0.1)','#fee2e2')}; color:#f87171; border:1px solid ${T('rgba(248,113,113,0.2)','#fecaca')}; padding:8px 16px; border-radius:8px; font-size:12px; cursor:pointer; font-weight:600;">恢复默认语料库</button>
                     <div style="display:flex; align-items:center; gap:12px;">
                         <span style="font-size:11px; color:${T('#64748b','#94a3b8')};" id="xy-reply-count">${discState.customReplies.length} 条</span>
-                        <button id="xy-reply-save-btn" style="padding:10px 24px; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; background:linear-gradient(135deg, #818cf8, #6366f1); color:white; box-shadow:0 4px 12px rgba(99,102,241,0.25); transition:all 0.2s;">💾 保存语料库</button>
+                        <button id="xy-reply-save-btn" style="padding:10px 24px; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; background:linear-gradient(135deg, #818cf8, #6366f1); color:white; box-shadow:0 4px 12px rgba(99,102,241,0.25); transition:all 0.2s;">保存语料库</button>
                     </div>
                 </div>
             </div>`;
@@ -8298,7 +8291,7 @@
         if (ta) {
             ta.addEventListener('input', () => {
                 const cnt = document.getElementById('xy-reply-count');
-                if (cnt) cnt.textContent = ta.value.split(/[\n\r]+/).filter(s => s.trim()).length + ' 条';
+                if (cnt) cnt.textContent = ta.value.split(/[\n\r]+/).filter(s => s.trim()).length + '条';
             });
         }
         const resetBtn = document.getElementById('xy-reply-reset-btn');
@@ -8335,8 +8328,8 @@
         if (playState.activeZone !== ZONE.DISC) return;
         const statusEl = document.getElementById('xy-disc-status');
         if (statusEl) {
-            if (discState.discussionId) { statusEl.innerHTML = `<span style="color:${T('#34d399','#065f46')};">✅ 已锁定交流区：${discState.discussionId.substring(0,8)}...</span>`; statusEl.style.background = T('rgba(52,211,153,0.1)','#ecfdf5'); statusEl.style.borderColor = T('rgba(52,211,153,0.2)','#a7f3d0'); document.querySelectorAll('.xy-action-btn.disc-btn').forEach(b => b.style.opacity = '1'); }
-            else { statusEl.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">⚠️ 请在交流区内刷新页面 (或随意点击评论) 触发网络包获取ID</span>`; statusEl.style.background = T('rgba(251,191,36,0.1)','#fffbeb'); statusEl.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a'); }
+            if (discState.discussionId) { statusEl.innerHTML = `<span style="color:${T('#34d399','#065f46')};">已锁定交流区 ${discState.discussionId.substring(0,8)}</span>`; statusEl.style.background = T('rgba(52,211,153,0.1)','#ecfdf5'); statusEl.style.borderColor = T('rgba(52,211,153,0.2)','#a7f3d0'); document.querySelectorAll('.xy-action-btn.disc-btn').forEach(b => b.style.opacity = '1'); }
+            else { statusEl.innerHTML = `<span style="color:${T('#fbbf24','#92400e')};">请在交流区内刷新页面 (或随意点击评论) 触发网络包获取ID</span>`; statusEl.style.background = T('rgba(251,191,36,0.1)','#fffbeb'); statusEl.style.borderColor = T('rgba(251,191,36,0.2)','#fde68a'); }
         }
     }
 
@@ -8356,7 +8349,7 @@
         const listDiv = document.getElementById('xy-target-list'); if (!listDiv) return;
         
         if (discState.targetNames.length === 0) { 
-            listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; font-size:13px; text-align:center; padding:24px 0; grid-column: 1 / -1; letter-spacing: 0.5px;">✨ 正在等待或自动全量扫描中...</div>`;
+            listDiv.innerHTML = `<div style="color:${T('#94a3b8','#64748b')}; font-size:13px; text-align:center; padding:24px 0; grid-column: 1 / -1; letter-spacing: 0.5px;">正在等待或自动全量扫描中</div>`;
             updateCheckedCount();
             return; 
         }
@@ -8518,7 +8511,7 @@
                 submitBtn = document.getElementById('xy-batch-submit-btn');
                 const task = taskObjs[i];
                 if (submitBtn) {
-                    submitBtn.innerText = `⏳ 正在提交任务... (${i+1}/${total})`;
+                    submitBtn.innerText = `正在提交任务 (${i+1}/${total})`;
                     submitBtn.disabled = true;
                 }
                 const taskCard = document.getElementById(`xy-global-task-card-${task.task_id || task.id}`);
@@ -8529,7 +8522,7 @@
                     taskCard.style.transform = 'scale(0.98)';
                     statusIndicator = taskCard.querySelector('.xy-task-status-indicator');
                     if (statusIndicator) {
-                        statusIndicator.innerHTML = '🔄 提交请求中...';
+                        statusIndicator.innerHTML = '提交请求中';
                         statusIndicator.style.background = T('rgba(251,191,36,0.1)','#fffbeb');
                         statusIndicator.style.color = T('#fcd34d','#92400e');
                     }
@@ -8539,7 +8532,7 @@
                     const response = await xyFetch(`https://${domain}/api/jx-iresource/resource/finishActivity`, { method: "POST", headers: { "authorization": `Bearer ${token}`, "Content-Type": "application/json; charset=UTF-8" }, body: JSON.stringify({ "group_id": task.group_id, "node_id": task.node_id, "task_id": task.task_id || task.id }) });
                     const data = await response.json(); 
                     if (data.success) { 
-                        logMsg(`✅ 任务提交成功：${task.name}`, 'success', true); 
+                        logMsg( `已提交 · ${task.name}`, 'success', true ); 
                         successCount++; 
                         if (statusIndicator) {
                             statusIndicator.innerHTML = '✓ 验证通过';
@@ -8551,7 +8544,7 @@
                         if (taskCard) taskCard.style.borderColor = T('rgba(52,211,153,0.25)','#a7f3d0');
                     } else {
                         if (statusIndicator) {
-                            statusIndicator.innerHTML = '❌ 验证失败';
+                            statusIndicator.innerHTML = '验证失败';
                             statusIndicator.style.background = T('rgba(248,113,113,0.12)','#fee2e2');
                             statusIndicator.style.color = '#f87171';
                         }
@@ -8559,7 +8552,7 @@
                     }
                 } catch (err) {
                     if (statusIndicator) {
-                        statusIndicator.innerHTML = '⚠️ 网络异常';
+                        statusIndicator.innerHTML = '网络异常';
                         statusIndicator.style.background = T('rgba(248,113,113,0.1)','#fee2e2');
                         statusIndicator.style.color = '#f87171';
                     }
@@ -8573,7 +8566,7 @@
                 await sleep(400); 
 
                 submitBtn = document.getElementById('xy-batch-submit-btn');
-                if (submitBtn) submitBtn.innerText = `🔄 正在同步任务总览数据... (${i+1}/${total})`;
+                if (submitBtn) submitBtn.innerText = `正在同步任务总览数据 (${i+1}/${total})`;
                 
                 const latestTasks = await fetchGlobalTasks(); 
                 renderGlobalDashboardContent(latestTasks); 
@@ -8583,7 +8576,7 @@
             
             const finalSubmitBtn = document.getElementById('xy-batch-submit-btn');
             if (finalSubmitBtn) {
-                finalSubmitBtn.innerText = '🚀 完成确认选中任务';
+                finalSubmitBtn.innerText = '完成确认选中任务';
                 finalSubmitBtn.disabled = false;
             }
 
@@ -8596,14 +8589,14 @@
          * [R3-07] 按钮状态恢复必须在 finally 里。
          *
          * 旧实现只在正常路径末尾（循环之后）恢复，catch 里不复原地直接吞掉异常。
-         * 循环内 `fetchGlobalTasks()` / `renderGlobalDashboardContent()` 任一抛错
-         * 都会跳出循环进 catch —— 按钮永久停留在「🔄 正在同步任务总览数据...」且
+         * 循环内`fetchGlobalTasks()` / `renderGlobalDashboardContent()`任一抛错
+         * 都会跳出循环进 catch —— 按钮永久停留在「 正在同步任务总览数据...」且
          * disabled=true，用户只能刷新页面。
          */
         finally {
             const restoreBtn = document.getElementById('xy-batch-submit-btn');
             if (restoreBtn) {
-                restoreBtn.innerText = '🚀 完成确认选中任务';
+                restoreBtn.innerText = '完成确认选中任务';
                 restoreBtn.disabled = false;
             }
         }
@@ -8617,14 +8610,14 @@
         overlay.innerHTML = `
             <div style="background:${T('linear-gradient(180deg, #1e293b 0%, #0f172a 100%)','#ffffff')}; width:90%; max-width:960px; height:85vh; border-radius:24px; box-shadow:${T('0 30px 60px rgba(0,0,0,0.5)','0 20px 50px rgba(0,0,0,0.1)')}; display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')};">
                 <div style="padding:24px 32px; background:${T('linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.15))','#eef2ff')}; border-bottom:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')}; display:flex; justify-content:space-between; align-items:center; flex-shrink: 0;">
-                    <div style="font-size:22px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; display:flex; align-items:center; gap:12px; letter-spacing: 0.5px;">🌍 全局智能导航任务总览</div>
+                    <div style="font-size:22px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; display:flex; align-items:center; gap:12px; letter-spacing: 0.5px;">全局智能导航任务总览</div>
                     <button id="xy-close-dashboard" style="background:none; border:none; font-size:26px; color:${T('#94a3b8','#64748b')}; cursor:pointer; padding:0; transition: 0.2s;" onmouseover="this.style.color='${T('#e2e8f0','#0f172a')}'; this.style.transform='rotate(90deg)';" onmouseout="this.style.color='${T('#94a3b8','#64748b')}'; this.style.transform='none';">✖</button>
                 </div>
                 <div id="xy-dashboard-content" style="flex:1; overflow-y:auto; padding:32px; background:transparent;">
-                    <div style="text-align:center; padding:60px; color:${T('#94a3b8','#64748b')}; font-size:18px; letter-spacing: 0.5px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描任务总览与所有课程的已完成任务...</span></div>
+                    <div style="text-align:center; padding:60px; color:${T('#94a3b8','#64748b')}; font-size:18px; letter-spacing: 0.5px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">正在深度扫描任务总览与所有课程的已完成任务</span></div>
                 </div>
                 <div id="xy-dashboard-footer" style="display:none; padding:20px 32px; background:${T('rgba(15,23,42,0.8)','#f8fafc')}; border-top:1px solid ${T('rgba(71,85,105,0.25)','#e2e8f0')}; flex-shrink: 0; justify-content:center; box-shadow: ${T('0 -4px 20px rgba(0,0,0,0.15)','none')};">
-                    <button id="xy-batch-submit-btn" style="width:100%; max-width:700px; background:linear-gradient(135deg, #6366f1, #4f46e5); color:white; border:none; padding:18px; border-radius:14px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow:0 8px 24px rgba(99,102,241,0.3); transition:all 0.2s; letter-spacing: 1px;" onmouseover="this.style.transform='translateY(-2px)';" onmouseout="this.style.transform='none';">🚀 完成确认选中任务</button>
+                    <button id="xy-batch-submit-btn" style="width:100%; max-width:700px; background:linear-gradient(135deg, #6366f1, #4f46e5); color:white; border:none; padding:18px; border-radius:14px; font-size:18px; font-weight:bold; cursor:pointer; box-shadow:0 8px 24px rgba(99,102,241,0.3); transition:all 0.2s; letter-spacing: 1px;" onmouseover="this.style.transform='translateY(-2px)';" onmouseout="this.style.transform='none';">完成确认选中任务</button>
                 </div>
             </div>
         `;
@@ -8695,14 +8688,14 @@
         const enableCheck = (!isCompleted) && (isAutoable || playState.isFreedomMode);
         let statusTag = '', statusColorBg = '', statusColorText = '';
         if (isCompleted) { statusTag = '✓ 已完成'; statusColorBg = 'rgba(52,211,153,0.12)'; statusColorText = '#34d399'; }
-        else if (endTime < now) { statusTag = '⚠️ 已截止'; statusColorBg = 'rgba(248,113,113,0.12)'; statusColorText = '#f87171'; }
-        else if (task.start_time && startTime > now) { statusTag = '🔒 未开始'; statusColorBg = 'rgba(71,85,105,0.15)'; statusColorText = '#94a3b8'; }
-        else { statusTag = '⏳ 进行中'; statusColorBg = 'rgba(99,102,241,0.12)'; statusColorText = '#a5b4fc'; }
+        else if (endTime < now) { statusTag = '已截止'; statusColorBg = 'rgba(248,113,113,0.12)'; statusColorText = '#f87171'; }
+        else if (task.start_time && startTime > now) { statusTag = '未开始'; statusColorBg = 'rgba(71,85,105,0.15)'; statusColorText = '#94a3b8'; }
+        else { statusTag = '进行中'; statusColorBg = 'rgba(99,102,241,0.12)'; statusColorText = '#a5b4fc'; }
         const currentNodeId = getNodeId();
         const isCurrentNode = currentNodeId && task.node_id == currentNodeId;
         const borderStyle = isCurrentNode ? 'border: 2px solid #818cf8; box-shadow: 0 0 15px rgba(129,140,248,0.15);' : (enableCheck ? `border: 1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')};` : 'border: 1px solid transparent;');
-        const currentMark = isCurrentNode ? `<span style="background:#6366f1; color:white; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; margin-left:10px; box-shadow: 0 2px 4px rgba(99,102,241,0.3);">📍 当前位置</span>` : '';
-        const typeStr = {1:'👁️ 自主观看', 2:'✍️ 作业', 3:'📚 课堂练习', 4:'💯 测验', 5:'📋 问卷', 6:'💭 讨论'}[task.task_type] || '📌 未知';
+        const currentMark = isCurrentNode ? `<span style="background:#6366f1; color:white; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; margin-left:10px; box-shadow: 0 2px 4px rgba(99,102,241,0.3);">当前位置</span>` : '';
+        const typeStr = {1:'自主观看', 2:'作业', 3:'课堂练习', 4:'测验', 5:'问卷', 6:'讨论'}[task.task_type] || '未知';
         return `
             <div id="xy-global-task-card-${task.task_id || task.id}" style="background:${T('rgba(30,41,59,0.35)','#ffffff')}; border-radius:12px; padding:16px; display:flex; align-items:center; gap:20px; transition: all 0.3s; ${borderStyle}">
                 <input type="checkbox" class="xy-task-check" value="${escAttr(String(task.task_id || task.id))}" ${enableCheck?'':'disabled'} style="width:20px; height:20px; cursor:${enableCheck?'pointer':'not-allowed'}; accent-color:#818cf8; flex-shrink: 0;">
@@ -8729,13 +8722,13 @@
     async function renderGlobalDashboardContent(tasks) {
         const contentBox = document.getElementById('xy-dashboard-content'), footerBox = document.getElementById('xy-dashboard-footer');
         if (!contentBox) return;
-        if (!tasks || tasks.length === 0) { contentBox.innerHTML = `<div style="text-align:center; padding:100px; color:${T('#94a3b8','#64748b')}; font-size:22px; letter-spacing: 0.5px;">🎉 全网已无任务数据！</div>`; if (footerBox) footerBox.style.display = 'none'; return; }
+        if (!tasks || tasks.length === 0) { contentBox.innerHTML = `<div style="text-align:center; padding:100px; color:${T('#94a3b8','#64748b')}; font-size:22px; letter-spacing: 0.5px;">全网已无任务数据</div>`; if (footerBox) footerBox.style.display = 'none'; return; }
         if (footerBox) footerBox.style.display = 'flex';
 
         let html = `
             <div style="background:${T('linear-gradient(145deg, rgba(251,191,36,0.1), rgba(245,158,11,0.08))','#fffbeb')}; padding:20px 24px; border-radius:16px; margin-bottom:24px; display:flex; justify-content:space-between; align-items:center; border:1px solid ${T('rgba(251,191,36,0.2)','#fde68a')}; box-shadow: ${T('0 4px 12px rgba(251,191,36,0.08)','none')};">
                 <div>
-                    <div style="font-weight:bold; color:${T('#fcd34d','#92400e')}; font-size:16px; margin-bottom:6px; display:flex; align-items:center; gap:8px;">⚠️ 跨课高危自由模式</div>
+                    <div style="font-weight:bold; color:${T('#fcd34d','#92400e')}; font-size:16px; margin-bottom:6px; display:flex; align-items:center; gap:8px;">跨课高危自由模式</div>
                     <div style="color:${T('#fbbf24','#92400e')}; font-size:13px; line-height: 1.6; opacity:0.8;">允许跨课程批量强交【非视频类】作业（有查水表风险，切忌交空卷）</div>
                 </div>
                 <label style="position:relative; display:inline-block; width:56px; height:30px;">
@@ -8747,7 +8740,7 @@
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 0 8px;">
             <label style="cursor: pointer; display: flex; min-width: 0; align-items: center; gap: 10px; font-weight: 700; color: ${T('#cbd5e1','#334155')}; font-size: 16px; user-select: none; transition: 0.2s;" onmouseover="this.style.color='${T('#e2e8f0','#0f172a')}'" onmouseout="this.style.color='${T('#cbd5e1','#334155')}'">
-                <input type="checkbox" id="xy-select-all" style="width: 20px; height: 20px; accent-color: #818cf8; cursor: pointer;"> ✅ 全选可提交任务
+                <input type="checkbox" id="xy-select-all" style="width: 20px; height: 20px; accent-color: #818cf8; cursor: pointer;">全选可提交任务
             </label>
         </div>
         <div id="xy-global-task-container" style="display:flex; flex-direction:column; gap:24px;">
@@ -8788,7 +8781,7 @@
             html += `
                 <div style="background:${T('rgba(30,41,59,0.5)','#ffffff')}; border-radius:20px; border:1px solid ${T('rgba(71,85,105,0.25)','#e2e8f0')}; overflow:hidden; box-shadow:${T('0 6px 16px rgba(0,0,0,0.15)','0 1px 3px rgba(0,0,0,0.04)')}; margin-bottom: 16px;">
                     <div class="xy-global-group-header" data-target="${safeId}" style="background:${T('rgba(30,41,59,0.7)','#f8fafc')}; padding:16px 24px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; border-bottom:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none; transition:background 0.2s;">
-                        <span style="font-size:16px; letter-spacing: 0.5px;">📚 ${escAttr(courseName) || '未知课程'}</span>
+                        <span style="font-size:16px; letter-spacing: 0.5px;"> ${escAttr(courseName) || '未知课程'}</span>
                         <div style="display:flex; align-items:center; gap:12px;">
                             <span style="background:${T('rgba(99,102,241,0.15)','#e0e7ff')}; color:${T('#a5b4fc','#3730a3')}; padding:4px 12px; border-radius:12px; font-size:13px; font-weight:700;">${courseTasks.length} 个任务</span>
                             <span class="xy-global-group-arrow" style="transition: transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size: 12px;">▼</span>
@@ -8809,7 +8802,7 @@
                     html += `
                         <div style="margin-bottom:12px;">
                             <div class="xy-global-unit-header" data-target="${escAttr(String(unitId))}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; border:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')}; cursor:pointer; user-select:none;">
-                                <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📂 ${escapeHtml(unitName)}</span>
+                                <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"> ${escapeHtml(unitName)}</span>
                                 <span style="background:${T('rgba(99,102,241,0.15)','#e0e7ff')}; color:${T('#a5b4fc','#3730a3')}; padding:2px 10px; border-radius:10px; font-size:12px; font-weight:700; white-space:nowrap;">${unitTasks.length} 个任务</span>
                                 <span class="xy-global-unit-arrow" style="transition:transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size:11px;">▼</span>
                             </div>
@@ -8861,14 +8854,14 @@
         taskCheckboxes.forEach(cb => { cb.onchange = () => { if (!cb.checked && selectAllCb) selectAllCb.checked = false; else if (selectAllCb) selectAllCb.checked = Array.from(taskCheckboxes).every(c => c.checked); }; });
         const fSwitch = document.getElementById('xy-freedom-switch');
         if (fSwitch) fSwitch.onchange = (e) => {
-            if (e.target.checked) { xyShowModal("⚠️ 越级警告", "强行解除非视频节点的锁极易导致数据异常，请确保你清楚后果！", () => { playState.isFreedomMode = true; renderGlobalDashboardContent(tasks); }); e.target.checked = false; } 
+            if (e.target.checked) { xyShowModal("越级警告", "强行解除非视频节点的锁可能导致数据异常 · 请确认已知晓后果", () => { playState.isFreedomMode = true; renderGlobalDashboardContent(tasks); }); e.target.checked = false; } 
             else { playState.isFreedomMode = false; renderGlobalDashboardContent(tasks); }
         };
         const submitBtn = document.getElementById('xy-batch-submit-btn');
         if (submitBtn) submitBtn.onclick = () => {
             const checkedNodes = Array.from(document.querySelectorAll('.xy-task-check:checked')).map(cb => cb.value);
             if (checkedNodes.length === 0) { showToast('未勾选任何提交目标', 'warning'); return; }
-            submitBtn.innerText = '⏳ 正在批量提交任务...'; submitBtn.disabled = true;
+            submitBtn.innerText = '正在批量提交任务'; submitBtn.disabled = true;
             // [R3-03] Map 键统一为字符串：写入侧 String()，读取侧（cb.value 恒为字符串）亦显式 String() 保持对称
     batchSubmitGlobalTasks(checkedNodes.map(id => window.xyGlobalTaskMap.get(String(id))).filter(Boolean));
         };
@@ -8994,7 +8987,7 @@
         }
         saveScheduleState();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg(`🧠 智能排课完成：${xyScheduleState.queue.length} 个任务已按 DDL紧迫度×类型交错 优化排序`, 'success', false);
+        logMsg( `排课完成 · ${xyScheduleState.queue.length} 个任务已按紧迫度交错排序`, 'success', false );
         showToast(`已导入 ${xyScheduleState.queue.length} 个任务`, 'success');
     }
     /**
@@ -9017,15 +9010,15 @@
          */
         const pendingCustom = xyScheduleState.queue.filter(q => q.status === 'pending' || q.status === 'running');
         if (pendingCustom.length > 0) {
-            xyShowModal('📡 已有自定义调度任务',
-                '调度队列中已有 <b style="color:#fbbf24;">' + pendingCustom.length + '</b> 个未完成的自定义任务。<br><br>' +
+            xyShowModal('已有自定义调度任务',
+                '调度队列中已有 <b style="color:#fbbf24;">' + pendingCustom.length + '</b> 个未完成的自定义任务<br><br>' +
                 '<b style="color:#34d399;">「确认」</b>：沿用现有队列，直接按你在调度中心设置的板块顺序联播（推荐）；<br>' +
-                '<b style="color:#94a3b8;">「取消」</b>：本次不做任何操作（需重新扫描请先在调度中心清空队列）。',
+                '<b style="color:#94a3b8;">「取消」</b>：本次不做任何操作（需重新扫描，请先在调度中心清空队列）。',
                 () => { window.xySchStart && window.xySchStart(); });
             return;
         }
 
-        logMsg('🔊 任务连播：正在扫描全网未完成任务...', 'info', false);
+        logMsg( '连播 · 正在扫描未完成任务', 'info', true );
 
         const allTasks = await fetchGlobalTasks();
 
@@ -9040,7 +9033,7 @@
         });
 
         if (pendingTasks.length === 0) {
-            logMsg('🔊 任务连播：全网未发现可学习的待完成任务', 'warning', false);
+            logMsg( '连播 · 未发现可学习任务', 'warning', false );
             showToast('没有待完成的任务', 'warning');
             return;
         }
@@ -9075,7 +9068,7 @@
         saveScheduleState();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
 
-        logMsg(`🔊 任务连播：已导入 ${xyScheduleState.queue.length} 个待完成任务，按DDL紧迫度排序`, 'success', false);
+        logMsg( `连播 · 已导入 ${xyScheduleState.queue.length} 个任务 · 按紧迫度排序`, 'success', false );
         showToast(`已导入 ${xyScheduleState.queue.length} 个任务 · 开始连播`, 'success');
 
         
@@ -9097,12 +9090,12 @@
         const firstTask = xyScheduleState.queue[0];
         if (firstTask) {
             const pathPrefix = xyCourseRoutePrefix();
-            logMsg(`🔊 任务连播：正在跳转至首个任务「${(firstTask.name||'未知').substring(0,12)}」...`, 'success', false);
+            logMsg( `连播 · 前往「${(firstTask.name||'未知').substring(0,12)}」`, 'success', false );
             setTimeout(() => {
                 /**
                  * [JUMP-HOME-FIX] 首跳 URL 必须与调度 tick 同形（含 resource 段）：
                  *   /app/jx-web/{prefix}/{gid}/resource/{resId}/{nodeId}
-                 * 原实现漏掉了 `resource/`，拼出 /{gid}/{resId}/{nodeId} —— 平台
+                 * 原实现漏掉了`resource/`，拼出 /{gid}/{resId}/{nodeId} —— 平台
                  * 路由表里不存在这种形态，SPA 会回落到课程首页，于是「一键调度」
                  * 第一次跳转就把浏览器扔到 home 页，后续跳转全部失去上下文。
                  *
@@ -9139,12 +9132,12 @@
         const origText = btn ? btn.innerText : '';
 
         try {
-            if (btn) { btn.innerText = '⚡ 快速确认中...'; btn.disabled = true; }
-            logMsg('⚡ 极速快速确认：正在提交当前页面任务...', 'info', false);
+            if (btn) { btn.innerText = '快速确认中'; btn.disabled = true; }
+            logMsg( '快速确认 · 正在提交', 'info', true );
 
             /**
-             * ⚠️ autoSubmitCurrentTask 返回的是**结果对象** `{ok, skipped, confirmed}`，
-             * 不是裸布尔。曾写成 `if (success)` —— 对象恒为 truthy，
+             * autoSubmitCurrentTask 返回的是**结果对象** `{ok, skipped, confirmed}`，
+             * 不是裸布尔。曾写成`if (success)` —— 对象恒为 truthy，
              * 于是无论提交成功、失败还是被锁挡回，都会走进「快速确认成功」分支，
              * 并把 isTaskCompleted 无条件置 true（一次典型的「服务端没确认、
              * 本地却宣告达标」的数据错误）。必须读 .ok。
@@ -9152,20 +9145,20 @@
             const res = await autoSubmitCurrentTask();
 
             if (res.ok) {
-                logMsg('✅ 极速快速确认成功！当前任务已提交', 'success', false);
+                logMsg( '快速确认成功 · 任务已提交', 'success', false );
                 showToast('已提交', 'success');
                 playState.isTaskCompleted = true;
                 updateCourseUI();
             } else if (res.skipped) {
                 // 被并发锁挡回：已有一次提交在途，这不是失败，只是时机不对
-                logMsg('⏳ 已有提交在途，请稍候再试', 'info', false);
+                logMsg( '已有提交在途 · 请稍候', 'info', false );
                 showToast('已有提交在途', 'warning');
             } else {
-                logMsg('❌ 快速确认失败：可能需要先学习积累时长', 'warning', false);
+                logMsg( '快速确认失败 · 需先积累学习时长', 'warning', false );
                 showToast('快速确认失败 · 请先积累学习时长', 'warning');
             }
         } catch(e) {
-            logMsg('❌ 极速快速确认异常', 'error', false);
+            logMsg( '快速确认异常', 'error', false );
         } finally {
             quickKillRunning = false;
             if (btn) { btn.innerText = origText; btn.disabled = false; }
@@ -9203,7 +9196,7 @@
                 let statusBg = isCompleted ? T('rgba(52,211,153,0.08)','#ecfdf5') : (isActive ? T('rgba(99,102,241,0.08)','#eef2ff') : T('rgba(30,41,59,0.3)','#f8fafc'));
                 let statusBorder = isCompleted ? T('rgba(52,211,153,0.2)','#a7f3d0') : (isActive ? T('rgba(129,140,248,0.25)','#c7d2fe') : T('rgba(71,85,105,0.15)','#e2e8f0'));
 
-                let indicator = isCompleted ? '✅ 已完成' : (isActive ? '▶️ 执行中' : '⏳ 等待中');
+                let indicator = isCompleted ? '已完成' : (isActive ? '执行中' : '等待中');
                 let indicatorColor = isCompleted ? T('#34d399','#065f46') : (isActive ? T('#a5b4fc','#3730a3') : T('#94a3b8','#64748b'));
 
                 let minStr = item.strategy === STRATEGY.INFINITE ? '∞' : (item.strategy === STRATEGY.UNTIL_DONE ? '达标' : item.duration);
@@ -9213,15 +9206,15 @@
                 let contentHtml = `
                     <div style="display:flex; align-items:center; gap:8px;">
                         <select class="xy-sch-strategy" data-uuid="${item.uuid}" style="padding:4px 8px; border-radius:6px; border:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; font-size:13px; outline:none; background:${T('rgba(15,23,42,0.5)','#ffffff')}; color:${T('#e2e8f0','#0f172a')};" ${isActive||isCompleted ? 'disabled' : ''}>
-                            <option value="until_done" ${item.strategy===STRATEGY.UNTIL_DONE?'selected':''}>🎯 达标即跳(顺序调度)</option>
-                            <option value="duration" ${item.strategy===STRATEGY.FIXED_DURATION?'selected':''}>🕒 刷固定时长</option>
-                            <option value="infinite" ${item.strategy===STRATEGY.INFINITE?'selected':''}>♾️ 持续学习</option>
+                            <option value="until_done" ${item.strategy===STRATEGY.UNTIL_DONE?'selected':''}>达标即跳（顺序调度）</option>
+                            <option value="duration" ${item.strategy===STRATEGY.FIXED_DURATION?'selected':''}>刷固定时长</option>
+                            <option value="infinite" ${item.strategy===STRATEGY.INFINITE?'selected':''}>持续学习</option>
                         </select>
                         <input type="number" class="xy-sch-min-input" data-uuid="${item.uuid}" value="${item.duration || 30}" style="width:50px; padding:4px; text-align:center; border:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; border-radius:6px; font-size:13px; background:${T('rgba(15,23,42,0.5)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; display:${item.strategy===STRATEGY.FIXED_DURATION?'block':'none'};" ${isActive||isCompleted ? 'disabled' : ''}>
                         <span class="xy-sch-min-unit" data-uuid="${item.uuid}" style="font-size:13px; color:${T('#94a3b8','#64748b')}; display:${item.strategy===STRATEGY.FIXED_DURATION?'block':'none'};">分</span>
                     </div>
                 `;
-                indicator += ` <span style="font-weight:normal; opacity:0.8;">(驻留: ${elapMin}/${minStr}${unit})</span>`;
+                indicator += `<span style="font-weight:normal; opacity:0.8;">(驻留: ${elapMin}/${minStr}${unit})</span>`;
 
                 const canDrag = !isActive && !isCompleted && !xyScheduleState.isRunning;
                 html += `
@@ -9366,7 +9359,7 @@
                     let minStr = currentTask.strategy === STRATEGY.INFINITE ? '∞' : (currentTask.strategy === STRATEGY.UNTIL_DONE ? '达标' : currentTask.duration);
                     let unit = (currentTask.strategy === STRATEGY.UNTIL_DONE || currentTask.strategy === STRATEGY.INFINITE) ? '' : '分';
                     let elapMin = Math.floor((currentTask.elapsedSec || 0) / 60);
-                    infoSpan.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">▶️ 执行中</span> <span style="font-weight:normal; opacity:0.8;">(驻留: ${elapMin}/${minStr}${unit})</span>`;
+                    infoSpan.innerHTML = `<span style="color:${T('#a5b4fc','#3730a3')};">执行中</span> <span style="font-weight:normal; opacity:0.8;">(驻留: ${elapMin}/${minStr}${unit})</span>`;
                 }
             }
         };
@@ -9399,17 +9392,17 @@
             };
 
             const buildSchLibCard = (task) => {
-                // 只登记有唯一 id 的条目：无 id 的节点都用 "undefined" 作 key 时，
+                // 只登记有唯一 id 的条目：无 id 的节点都用"undefined"作 key 时，
                 // 会把真正带 id 的任务覆盖掉，点击取到的是别的节点，入队即成脏数据
                 const mapKey = String(task.task_id || task.id || '');
                 if (mapKey) window.xyGlobalTaskMap.set(mapKey, task);
                 const isCompleted = task.finish === 2;
                 const name = (task.name || '').toLowerCase();
                 const isVideo = SHARED_PATTERNS.MEDIA.test(name);
-                const typeStr = isVideo ? '📺 视频' : '📄 文档';
+                const typeStr = isVideo ? '视频' : '文档';
                 const statusUI = isCompleted
-                    ? `<span style="color:${T('#34d399','#065f46')}; font-weight:bold; background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; padding:2px 6px; border-radius:6px;">✅ 已完成(可刷)</span>`
-                    : `<span style="color:${T('#fbbf24','#92400e')}; font-weight:bold; background:${T('rgba(251,191,36,0.1)','#fffbeb')}; padding:2px 6px; border-radius:6px;">⏳ 待完成</span>`;
+                    ? `<span style="color:${T('#34d399','#065f46')}; font-weight:bold; background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; padding:2px 6px; border-radius:6px;">已完成(可刷)</span>`
+                    : `<span style="color:${T('#fbbf24','#92400e')}; font-weight:bold; background:${T('rgba(251,191,36,0.1)','#fffbeb')}; padding:2px 6px; border-radius:6px;">待完成</span>`;
                 return `
                     <div style="background:${T('rgba(30,41,59,0.3)','#ffffff')}; border:1px solid ${isCompleted ? T('rgba(52,211,153,0.15)','#a7f3d0') : T('rgba(71,85,105,0.12)','#e2e8f0')}; border-radius:10px; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; box-shadow: ${T('0 2px 4px rgba(0,0,0,0.1)','0 1px 2px rgba(0,0,0,0.04)')};">
                         <div style="flex:1; overflow:hidden;">
@@ -9453,7 +9446,7 @@
 
                 html += `
                     <div class="xy-sch-group-header" data-idx="${groupIdx}" style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; padding:12px 16px; background:${T('rgba(30,41,59,0.5)','#f8fafc')}; border-radius:10px; margin: 16px 0 8px 0; font-size:14px; position:sticky; top:0; z-index:2; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; border:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; transition:background 0.2s;">
-                        <span>📚 ${escAttr(courseName) || '未知课程'} <span style="font-size:12px; color:${T('#94a3b8','#64748b')}; font-weight:normal; margin-left:6px;">(${validTasks.length}个节点)</span></span>
+                        <span> ${escAttr(courseName) || '未知课程'} <span style="font-size:12px; color:${T('#94a3b8','#64748b')}; font-weight:normal; margin-left:6px;">(${validTasks.length}个节点)</span></span>
                         <span class="xy-sch-group-arrow" style="transition: transform 0.2s; font-size:12px; color:${T('#64748b','#94a3b8')};">▼</span>
                     </div>
                     <div class="xy-sch-group-content" id="xy-sch-group-${groupIdx}" style="display:flex; flex-direction:column; gap:8px;">
@@ -9474,7 +9467,7 @@
                         html += `
                             <div>
                                 <div class="xy-sch-unit-header" data-target="${escAttr(String(unitId))}" style="display:flex; align-items:center; gap:8px; padding:10px 14px; background:${T('rgba(30,41,59,0.45)','#f8fafc')}; border-radius:8px; border:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; cursor:pointer; user-select:none;">
-                                    <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">📂 ${escapeHtml(unitName)}</span>
+                                    <span style="font-size:13px; font-weight:700; color:${T('#c7d2fe','#4338ca')}; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"> ${escapeHtml(unitName)}</span>
                                     <span style="font-size:11px; color:${T('#94a3b8','#64748b')}; white-space:nowrap;">${validUnitTasks.length} 个</span>
                                     <span class="xy-sch-unit-arrow" style="transition:transform 0.2s; color:${T('#64748b','#94a3b8')}; font-size:10px;">▼</span>
                                 </div>
@@ -9540,7 +9533,7 @@ const tid = e.target.getAttribute('data-tid');
                     }
                     if (task) {
                         const originalText = e.target.innerText;
-                        e.target.innerText = '提取中...';
+                        e.target.innerText = '提取中';
                         e.target.disabled = true;
 
                         const resId = await getTaskResourceId(task);
@@ -9582,7 +9575,7 @@ const tid = e.target.getAttribute('data-tid');
             </style>
             <div style="background:${T('linear-gradient(180deg, #1e293b 0%, #0f172a 100%)','#ffffff')}; width:90%; max-width:1100px; height:85vh; border-radius:24px; box-shadow:${T('0 40px 80px rgba(0,0,0,0.5)','0 20px 50px rgba(0,0,0,0.1)')}; display:flex; flex-direction:column; overflow:hidden; transform:scale(0.95); transition:transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); border:1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')};">
                 <div style="padding:24px 32px; background:${T('linear-gradient(135deg, rgba(245,158,11,0.18), rgba(217,119,6,0.12))','#fffbeb')}; border-bottom:1px solid ${T('rgba(245,158,11,0.2)','#fde68a')}; display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
-                    <div style="font-size:22px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; display:flex; align-items:center; gap:12px; letter-spacing:0.5px;">📅 超级计划调度中心 <span style="font-size:12px; background:${T('rgba(245,158,11,0.15)','#ffedd5')}; padding:4px 10px; border-radius:12px; border:1px solid ${T('rgba(245,158,11,0.2)','#fde68a')}; color:${T('#fcd34d','#92400e')};">自定义学习时长 • 无限循环刷总时</span></div>
+                    <div style="font-size:22px; font-weight:bold; color:${T('#e2e8f0','#0f172a')}; display:flex; align-items:center; gap:12px; letter-spacing:0.5px;">超级计划调度中心 <span style="font-size:12px; background:${T('rgba(245,158,11,0.15)','#ffedd5')}; padding:4px 10px; border-radius:12px; border:1px solid ${T('rgba(245,158,11,0.2)','#fde68a')}; color:${T('#fcd34d','#92400e')};">自定义学习时长 • 无限循环刷总时</span></div>
                     <button id="xy-close-schedule" style="background:none; border:none; font-size:26px; color:${T('#94a3b8','#64748b')}; cursor:pointer; padding:0; transition:0.2s;" onmouseover="this.style.color='${T('#e2e8f0','#0f172a')}'; this.style.transform='rotate(90deg)';" onmouseout="this.style.color='${T('#94a3b8','#64748b')}'; this.style.transform='none';">✖</button>
                 </div>
 
@@ -9591,32 +9584,32 @@ const tid = e.target.getAttribute('data-tid');
                     <div style="width:50%; border-right:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; display:flex; flex-direction:column;">
                         <div style="padding:16px 24px; background:${T('rgba(15,23,42,0.5)','#f8fafc')}; border-bottom:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; display:flex; flex-direction:column; gap:10px;">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <span style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; font-size:16px;">📚 全网任务提取池</span>
+                                <span style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; font-size:16px;">全网任务提取池</span>
                                 <span style="font-size:12px; font-weight:normal; color:${T('#34d399','#065f46')}; background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; padding:2px 6px; border-radius:6px; border:1px solid ${T('rgba(52,211,153,0.15)','#a7f3d0')};">点击课程标题可折叠面板</span>
                             </div>
                             <div style="font-size:12px; font-weight:normal; color:${T('#fcd34d','#92400e')}; background:${T('rgba(251,191,36,0.06)','#fffbeb')}; padding:8px 12px; border-radius:6px; border:1px solid ${T('rgba(251,191,36,0.12)','#fde68a')};">
-                                💡 提醒：如果没有获取到已刷到的课程，就点击那个课进去，之后会在课菜单里可以看到。
+                                 提醒：如果没有获取到已刷到的课程，就点击那个课进去，之后会在课菜单里可以看到。
                             </div>
                         </div>
                         <div id="xy-sch-lib-list" style="flex:1; overflow-y:auto; padding:16px 24px;">
-                            <div style="text-align:center; padding:60px; color:${T('#94a3b8','#64748b')}; font-size:16px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">📡 正在深度扫描任务总览与所有课程记录...</span></div>
+                            <div style="text-align:center; padding:60px; color:${T('#94a3b8','#64748b')}; font-size:16px;"><span style="display:inline-block; animation:pulse 1.5s infinite;">正在深度扫描任务总览与所有课程记录</span></div>
                         </div>
                     </div>
 
                     <!-- 右侧执行队列 -->
                     <div style="width:50%; display:flex; flex-direction:column; background:${T('rgba(15,23,42,0.3)','#f8fafc')};">
                         <div style="padding:16px 24px; background:${T('rgba(15,23,42,0.5)','#f8fafc')}; border-bottom:1px solid ${T('rgba(71,85,105,0.15)','#e2e8f0')}; display:flex; justify-content:space-between; align-items:center;">
-                            <span style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; font-size:16px;">⏱️ 待执行队列</span>
+                            <span style="font-weight:bold; color:${T('#e2e8f0','#0f172a')}; font-size:16px;">待执行队列</span>
                             <div style="display:flex; gap:8px; align-items:center;">
-                                <span id="xy-sch-optimize-btn" style="font-size:13px; color:${T('#a78bfa','#7c3aed')}; cursor:pointer; font-weight:bold; background:${T('rgba(167,139,250,0.1)','#f5f3ff')}; padding:4px 10px; border-radius:6px; border:1px solid ${T('rgba(167,139,250,0.2)','#c7d2fe')}; transition:0.2s;" title="按DDL紧迫度+类型交错智能排序">🧠 智能优化</span>
-                                <span id="xy-sch-clear-btn" style="font-size:13px; color:#f87171; cursor:pointer; font-weight:bold;">🗑️ 清空队列</span>
+                                <span id="xy-sch-optimize-btn" style="font-size:13px; color:${T('#a78bfa','#7c3aed')}; cursor:pointer; font-weight:bold; background:${T('rgba(167,139,250,0.1)','#f5f3ff')}; padding:4px 10px; border-radius:6px; border:1px solid ${T('rgba(167,139,250,0.2)','#c7d2fe')}; transition:0.2s;" title="按DDL紧迫度+类型交错智能排序">智能优化</span>
+                                <span id="xy-sch-clear-btn" style="font-size:13px; color:#f87171; cursor:pointer; font-weight:bold;">清空队列</span>
                             </div>
                         </div>
                         <div id="xy-sch-queue-list" style="flex:1; overflow-y:auto; padding:16px 24px;"></div>
 
                         <!-- 定时开关 -->
                         <div style="padding:14px 24px; background:${T('linear-gradient(145deg, rgba(139,92,246,0.06), rgba(124,58,237,0.04))','#f5f3ff')}; border-top:1px solid ${T('rgba(139,92,246,0.12)','#e0e7ff')}; display:flex; align-items:center; gap:12px;">
-                            <span style="font-size:13px; font-weight:700; color:${T('#a78bfa','#6d28d9')}; white-space:nowrap;">⏰ 定时</span>
+                            <span style="font-size:13px; font-weight:700; color:${T('#a78bfa','#6d28d9')}; white-space:nowrap;">定时</span>
                             <span style="font-size:12px; color:${T('#a78bfa','#6d28d9')};">启动</span>
                             <input type="time" id="xy-sch-auto-start" value="${xyScheduleState.autoStart}" style="padding:6px 10px; border:1px solid ${T('rgba(167,139,250,0.2)','#c7d2fe')}; border-radius:8px; font-size:13px; outline:none; background:${T('rgba(15,23,42,0.5)','#ffffff')}; color:${T('#e2e8f0','#0f172a')}; width:110px;" title="到达此时间自动启动计划调度">
                             <span style="font-size:12px; color:${T('#a78bfa','#6d28d9')};">停止</span>
@@ -9625,9 +9618,9 @@ const tid = e.target.getAttribute('data-tid');
                         </div>
                         <!-- 控制台 -->
                         <div style="padding:20px 24px; background:${T('rgba(15,23,42,0.6)','#f8fafc')}; border-top:1px solid ${T('rgba(71,85,105,0.2)','#e2e8f0')}; display:flex; gap:12px; box-shadow: ${T('0 -4px 20px rgba(0,0,0,0.15)','none')};">
-                            <button id="xy-sch-start-btn" style="flex:2; background:linear-gradient(135deg, #10b981, #059669); color:white; border:none; padding:14px; border-radius:14px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(16,185,129,0.3); transition:0.2s;" ${xyScheduleState.isRunning ? 'disabled' : ''}>${xyScheduleState.isRunning ? '⏳ 调度引擎运行中...' : '🚀 启动计划调度'}</button>
-                            <button id="xy-sch-pause-btn" style="flex:1; background:linear-gradient(135deg, #f59e0b, #d97706); color:white; border:none; padding:14px; border-radius:14px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(245,158,11,0.3); transition:0.2s; display:${xyScheduleState.isRunning ? 'block' : 'none'};" ${xyScheduleState.isPaused ? '' : ''}>${xyScheduleState.isPaused ? '▶ 继续调度' : '⏸ 暂停调度'}</button>
-                            <button id="xy-sch-stop-btn" style="flex:1; background:linear-gradient(135deg, #ef4444, #dc2626); color:white; border:none; padding:14px; border-radius:14px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(239,68,68,0.3); transition:0.2s;" ${!xyScheduleState.isRunning ? 'disabled' : ''}>🛑 强停</button>
+                            <button id="xy-sch-start-btn" style="flex:2; background:linear-gradient(135deg, #10b981, #059669); color:white; border:none; padding:14px; border-radius:14px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(16,185,129,0.3); transition:0.2s;" ${xyScheduleState.isRunning ? 'disabled' : ''}>${xyScheduleState.isRunning ? '调度引擎运行中' : '启动计划调度'}</button>
+                            <button id="xy-sch-pause-btn" style="flex:1; background:linear-gradient(135deg, #f59e0b, #d97706); color:white; border:none; padding:14px; border-radius:14px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(245,158,11,0.3); transition:0.2s; display:${xyScheduleState.isRunning ? 'block' : 'none'};" ${xyScheduleState.isPaused ? '' : ''}>${xyScheduleState.isPaused ? '继续调度' : '暂停调度'}</button>
+                            <button id="xy-sch-stop-btn" style="flex:1; background:linear-gradient(135deg, #ef4444, #dc2626); color:white; border:none; padding:14px; border-radius:14px; font-size:15px; font-weight:bold; cursor:pointer; box-shadow:0 6px 16px rgba(239,68,68,0.3); transition:0.2s;" ${!xyScheduleState.isRunning ? 'disabled' : ''}>强停</button>
                         </div>
                     </div>
                 </div>
@@ -9655,7 +9648,7 @@ const tid = e.target.getAttribute('data-tid');
             if (xyScheduleState.isRunning) { showToast('请先停止调度再优化', 'warning'); return; }
             const btn = document.getElementById('xy-sch-optimize-btn');
             const origText = btn.innerText;
-            btn.innerText = '🧠 分析中...';
+            btn.innerText = '分析中';
             btn.style.pointerEvents = 'none';
             await smartOptimizeAndImport();
             btn.innerText = origText;
@@ -9678,9 +9671,9 @@ const tid = e.target.getAttribute('data-tid');
             const running = xyScheduleState.isRunning;
             const paused = xyScheduleState.isPaused;
             startBtn.disabled = running;
-            startBtn.innerText = running ? '⏳ 调度引擎运行中...' : '🚀 启动计划调度';
+            startBtn.innerText = running ? '调度引擎运行中' : '启动计划调度';
             pauseBtn.style.display = running ? 'block' : 'none';
-            pauseBtn.innerText = paused ? '▶ 继续调度' : '⏸ 暂停调度';
+            pauseBtn.innerText = paused ? '继续调度' : '暂停调度';
             stopBtn.disabled = !running;
         }
 
@@ -9706,7 +9699,7 @@ const tid = e.target.getAttribute('data-tid');
             updateSchCard();
             try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
             renderQueueList();
-            logMsg('📅 调度中心已接管引擎最高权限，准备跳转！', 'success');
+            logMsg( '调度已接管 · 准备跳转', 'success' );
         };
 
         pauseBtn.onclick = () => {
@@ -9719,7 +9712,7 @@ const tid = e.target.getAttribute('data-tid');
             updateSchButtons();
             updateSchCard();
             updateCourseUI();
-            logMsg(xyScheduleState.isPaused ? '⏸ 计划调度已暂停，任务进度已保存' : '▶ 计划调度已继续执行', 'success');
+            logMsg( xyScheduleState.isPaused ? '计划调度已暂停 · 进度已保存' : '计划调度已继续', 'success' );
         };
 
         stopBtn.onclick = () => {
@@ -9738,7 +9731,7 @@ const tid = e.target.getAttribute('data-tid');
             updateSchButtons();
             updateSchCard();
             renderQueueList();
-            logMsg('🛑 计划调度已强停，控制权已交还原生主引擎！', 'warning');
+            logMsg( '计划调度已强停 · 控制权交还主引擎', 'warning' );
         };
 
         const autoStartInput = document.getElementById('xy-sch-auto-start');
@@ -9795,14 +9788,14 @@ const tid = e.target.getAttribute('data-tid');
         if (!task) {
             card.style.borderLeftColor = T('#34d399','#059669');
             card.style.background = T('rgba(52,211,153,0.06)','#ecfdf5');
-            html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;"><b style="color:${T('#34d399','#059669')};">✅ 全部完成 · ${total}/${total} 项已达标</b><button data-action="restart" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🔄 重新开始</button></div>`;
+            html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;"><b style="color:${T('#34d399','#059669')};">全部完成 · ${total}/${total} 项已达标</b><button data-action="restart" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">重新开始</button></div>`;
         }
         
         else if (playState.isJumping) {
             card.style.borderLeftColor = T('#f59e0b','#d97706');
             card.style.background = T('rgba(251,191,36,0.06)','#fffbeb');
             const jIdx = xyScheduleState.currentIdx + 1;
-            html = `<b style="color:${T('#fcd34d','#b45309')};">🚀 正在跳转 · 第 ${jIdx}/${total} 项 → 「${escapeHtml((task.name||'未知').substring(0,14))}」</b>`;
+            html = `<b style="color:${T('#fcd34d','#b45309')};">正在跳转 · 第 ${jIdx}/${total} 项 → 「${escapeHtml((task.name||'未知').substring(0,14))}」</b>`;
         }
         else {
             const idx = xyScheduleState.currentIdx + 1;
@@ -9815,11 +9808,11 @@ const tid = e.target.getAttribute('data-tid');
             if (paused) {
                 card.style.borderLeftColor = T('#f59e0b','#d97706');
                 card.style.background = T('rgba(251,191,36,0.06)','#fffbeb');
-                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b style="color:${T('#fbbf24','#d97706')};">⏸ 已暂停 · 第 ${idx}/${total} 项 · ${name}</b><span style="color:${T('#94a3b8','#64748b')};font-size:12px;">${durStr ? `已刷 ${elapStr} / ${durStr}` : `已刷 ${elapStr}`}</span></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">▶ 继续</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏭ 跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🛑 停止</button></div>`;
+                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b style="color:${T('#fbbf24','#d97706')};">已暂停 · 第 ${idx}/${total} 项 · ${name}</b><span style="color:${T('#94a3b8','#64748b')};font-size:12px;">${durStr ? `已刷 ${elapStr} / ${durStr}` : `已刷 ${elapStr}`}</span></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(52,211,153,0.15)','#d1fae5')};color:${T('#34d399','#065f46')};border:1px solid ${T('rgba(52,211,153,0.3)','#a7f3d0')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">继续</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">停止</button></div>`;
             } else {
                 card.style.borderLeftColor = T('#818cf8','#6366f1');
                 card.style.background = T('rgba(99,102,241,0.06)','#eef2ff');
-                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b>📅 第 ${idx}/${total} 项 · ${name}${durStr ? ` · ${durStr}` : ''}</b><b style="color:${T('#34d399','#059669')};font-family:monospace;">⏱ ${elapStr}</b></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')};color:${T('#fcd34d','#92400e')};border:1px solid ${T('rgba(251,191,36,0.25)','#fde68a')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏸ 暂停</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">⏭ 跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">🛑 停止</button></div>`;
+                html = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:6px;"><b>第 ${idx}/${total} 项 · ${name}${durStr ? ` · ${durStr}` : ''}</b><b style="color:${T('#34d399','#059669')};font-family:monospace;">${elapStr}</b></div><div style="display:flex;gap:6px;"><button data-action="pause" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')};color:${T('#fcd34d','#92400e')};border:1px solid ${T('rgba(251,191,36,0.25)','#fde68a')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">暂停</button><button data-action="skip" style="background:${T('rgba(99,102,241,0.1)','#eef2ff')};color:${T('#a5b4fc','#4338ca')};border:1px solid ${T('rgba(99,102,241,0.2)','#c7d2fe')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">跳过</button><button data-action="stop" style="background:${T('rgba(239,68,68,0.1)','#fef2f2')};color:${T('#f87171','#dc2626')};border:1px solid ${T('rgba(239,68,68,0.2)','#fecaca')};padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">停止</button></div>`;
             }
         }
 
@@ -9853,18 +9846,18 @@ const tid = e.target.getAttribute('data-tid');
             xyScheduleState.currentIdx = fp >= 0 ? fp : 0;
             saveScheduleState();
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-            logMsg(`🧹 已清理 ${removed} 个过期课程任务（不在当前学期未完成列表）：${removedNames.join('、')}${removed > 5 ? ' 等' : ''}`, 'warning', false);
+            logMsg( `已清理 ${removed} 个过期任务：${removedNames.join('、')}${removed > 5 ? '等' : ''}`, 'warning', false );
         }
         return removed;
     };
 
     window.xySchStart = () => {
-        if (xyScheduleState.queue.length === 0) { logMsg('队列为空，无法启动调度', 'warning'); return; }
+        if (xyScheduleState.queue.length === 0) { logMsg( '队列为空 · 无法启动调度', 'warning' ); return; }
         if (xyScheduleState.isRunning) return;
         /* [EXPIRE-FIX] 队列全部处于过期/失效状态（无一个 pending/running）则拒绝启动 */
         const runnable = xyScheduleState.queue.filter(q => q.status === 'pending' || q.status === 'running');
         if (runnable.length === 0) {
-            logMsg('⚠️ 队列中没有可执行的任务（可能全部已完成或已过期），请到调度中心清理后重新添加', 'error', false);
+            logMsg( '队列无可执行任务 · 请先清理队列', 'error', false );
             showToast('队列无可执行任务 · 请先清理队列', 'warning');
             return;
         }
@@ -9892,7 +9885,7 @@ const tid = e.target.getAttribute('data-tid');
         updateSchCard();
         try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg('📅 计划调度已启动', 'success');
+        logMsg( '计划调度已启动', 'success' );
         /**
          * [SEGMENT-FIX] 启动即跳转任务总览联播：不再等调度 tick 发现节点不齐才跳。
          * 目标 = 队列第一个待办任务（用户在调度中心设置的板块），URL 形态与
@@ -9903,7 +9896,7 @@ const tid = e.target.getAttribute('data-tid');
         if (segTask && (getCourseGroupId() != segTask.groupId || getNodeId() != segTask.nodeId)) {
             playState.isJumping = true;
             const segPrefix = xyCourseRoutePrefix();
-            logMsg(`🚀 计划调度：正在前往「${(segTask.name || '未知').substring(0, 12)}」...`, 'success', false);
+            logMsg( `计划调度 · 前往「${(segTask.name || '未知').substring(0, 12)}」`, 'success', false );
             setTimeout(() => {
                 /* [SLEEP-FIX] 延迟期间被停止/暂停则放弃 */
                 if (!xyScheduleState.isRunning || xyScheduleState.isPaused) { playState.isJumping = false; return; }
@@ -9924,9 +9917,9 @@ const tid = e.target.getAttribute('data-tid');
         updateCourseUI();
         updateSchCard();
         const pb = document.getElementById('xy-sch-pause-btn');
-        if (pb) pb.innerText = xyScheduleState.isPaused ? '▶ 继续调度' : '⏸ 暂停调度';
+        if (pb) pb.innerText = xyScheduleState.isPaused ? '继续调度' : '暂停调度';
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg(xyScheduleState.isPaused ? '⏸ 计划调度已暂停' : '▶ 计划调度已继续', 'success');
+        logMsg( xyScheduleState.isPaused ? '计划调度已暂停' : '计划调度已继续', 'success' );
     };
 
     window.xySchStop = () => {
@@ -9942,7 +9935,7 @@ const tid = e.target.getAttribute('data-tid');
         updateCourseUI();
         updateSchCard();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg('🛑 计划调度已强停', 'warning');
+        logMsg( '计划调度已强停', 'warning' );
     };
 
     window.xySchSkip = () => {
@@ -9955,11 +9948,11 @@ const tid = e.target.getAttribute('data-tid');
         updateCourseUI();
         updateSchCard();
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg('⏭ 已跳过当前任务', 'info');
+        logMsg( '已跳过当前任务', 'info' );
     };
 
     window.xySchRestart = () => {
-        if (xyScheduleState.queue.length === 0) { logMsg('队列为空', 'warning'); return; }
+        if (xyScheduleState.queue.length === 0) { logMsg( '队列为空', 'warning' ); return; }
         xyScheduleState.queue.forEach(q => { q.status = 'pending'; q.elapsedSec = 0; q.actionDone = false; });
         xyScheduleState.currentIdx = 0;
         xyScheduleState.isRunning = true;
@@ -9974,7 +9967,7 @@ const tid = e.target.getAttribute('data-tid');
         updateSchCard();
         try { unsafeWindow._xyAntiThrottleStart?.(); } catch(e) {}
         if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
-        logMsg('📅 计划调度已重新启动', 'success');
+        logMsg( '计划调度已重新启动', 'success' );
     };
 
     
@@ -9987,7 +9980,7 @@ const tid = e.target.getAttribute('data-tid');
         const currentTask = xyScheduleState.queue[xyScheduleState.currentIdx];
         
         if (!currentTask) {
-            logMsg('✅ 所有计划调度任务已圆满完成！已自动切换为手动休眠。', 'success', false);
+            logMsg( '全部任务已完成 · 切换手动休眠', 'success', false );
 
             xyScheduleState.isRunning = false;
             xyScheduleHeartbeatClear();
@@ -10001,7 +9994,7 @@ const tid = e.target.getAttribute('data-tid');
             saveScheduleState();
 
             const startBtn = document.getElementById('xy-sch-start-btn');
-            if(startBtn) { startBtn.disabled = false; startBtn.innerText = '🚀 重新启动计划'; }
+            if(startBtn) { startBtn.disabled = false; startBtn.innerText = '重新启动计划'; }
             const pauseBtn = document.getElementById('xy-sch-pause-btn');
             if(pauseBtn) pauseBtn.style.display = 'none';
             const stopBtn = document.getElementById('xy-sch-stop-btn');
@@ -10039,7 +10032,7 @@ const tid = e.target.getAttribute('data-tid');
                  * 跳转重试计数：同一任务节点连续跳转失败达上限则暂停调度。
                  * 若不设上限，SPA 路由拦截（未整页导航）时会出现
                  * 「跳过 → 复位 → 再跳」的无限循环，白耗时间且日志刷屏。
-                 * 计数以 `groupId:nodeId` 为键，跳转成功（节点对齐）后清零。
+                 * 计数以`groupId:nodeId`为键，跳转成功（节点对齐）后清零。
                  */
                 const jumpKey = `${currentTask.groupId}:${currentTask.nodeId}`;
                 if (playState.jumpRetryKey !== jumpKey) {
@@ -10070,7 +10063,7 @@ const tid = e.target.getAttribute('data-tid');
                     xyScheduleHeartbeatClear();
                     saveScheduleState();
                     updateSchCard();
-                    logMsg('⚠️ 该任务连续跳转失败 3 次，已暂停调度，请手动检查任务链接或稍后继续', 'error', false);
+                    logMsg( '连续 3 次跳转失败 · 调度已暂停', 'error', false );
                     return;
                 }
 
@@ -10088,11 +10081,11 @@ const tid = e.target.getAttribute('data-tid');
                 setTimeout(() => {
                     if (playState.isJumping) {
                         playState.isJumping = false;
-                        logMsg(`⚠️ 跳转超时未完成，已复位调度状态，稍后将重试（第 ${playState.jumpRetryCount}/3 次）`, 'warning', false);
+                        logMsg( `跳转超时 · 已复位调度，稍后重试（${playState.jumpRetryCount}/3）`, 'warning', false );
                     }
                 }, 15000);
 
-                logMsg(`🚀 计划调度：跨空间跳跃前往【${(currentTask.name||'未知').substring(0,10)}】...`, 'info', false);
+                logMsg( `计划调度 · 前往「${(currentTask.name||'未知').substring(0,10)}」`, 'info', false );
                 
                 setTimeout(() => {
                     /* [SLEEP-FIX] 竞态复查：延迟期间调度被停止/暂停则放弃跳转 */
@@ -10136,11 +10129,11 @@ const tid = e.target.getAttribute('data-tid');
         currentTask.elapsedSec = (currentTask.elapsedSec || 0) + 1;
         
         /**
-         * ⚠️ 刷新计时必须加条件，不能无条件刷。
+         * 刷新计时必须加条件，不能无条件刷。
          *
-         * 旧写法是每拍无条件 `watchdogLastActiveTime = Date.now()` —— 后果是当任务**已达标**
+         * 旧写法是每拍无条件`watchdogLastActiveTime = Date.now()` —— 后果是当任务**已达标**
          * 但引擎因故未推进跳转（跳转条件被堵 / 下一页异常循环）时，巡检时钟被持续刷新，
-         * 1s 循环里 `Date.now() - watchdogLastActiveTime > timeoutLimit` 永不成立 →
+         * 1s 循环里`Date.now() - watchdogLastActiveTime > timeoutLimit`永不成立 →
          * 180s 防死锁重载**永不触发** → 页面卡在达标态空转、**没有任何自愈路径**。
          *
          * 保留刷新计时的场景：① 任务尚未达标（还在等）；② 调度本身在跑（有自己的 elapsedSec
@@ -10177,7 +10170,7 @@ const tid = e.target.getAttribute('data-tid');
             }
         }
         /**
-         * ⚠️ STRATEGY.INFINITE（♾️ 持续学习）在此**故意不设分支**，isDone 恒为 false。
+         * STRATEGY.INFINITE（持续学习）在此**故意不设分支**，isDone 恒为 false。
          * 这不是遗漏，是该策略的语义本身——「无限」就意味着本项永不结束、队列不推进。
          * 显式写明以免后来者按「分支缺失」处理（误加 isDone = true 会让持续学习被
          * 1 秒后立即跳过）。若将来需要「持续学习 N 分钟后跳过」，应新增独立策略枚举，
@@ -10190,7 +10183,7 @@ const tid = e.target.getAttribute('data-tid');
              * 日志口径与两套引擎统一：同为「已获服务器确认达标」。
              * 调度只负责切项，不再复述引擎已经报过的话，避免同一事实两处措辞。
              */
-            logMsg(`✅ 计划调度：【${(currentTask.name||'未知').substring(0,8)}...】已获服务器确认达标，切换下一项`, 'success', false);
+            logMsg( `「${(currentTask.name||'未知').substring(0,8)}」已确认达标 · 切换下一项`, 'success', false );
             currentTask.status = 'completed';
             saveScheduleState();
             if (window.xyRenderScheduleQueue) window.xyRenderScheduleQueue();
@@ -10345,7 +10338,7 @@ const tid = e.target.getAttribute('data-tid');
         const p=hwMaybeParse(answer);const l=qData.matchingLeftItems||[],r=qData.matchingRightItems||[];
         if(!p||typeof p!=='object'||Array.isArray(p)){const t=hwExtractPlainText(answer);return t||'无记录';}
         const rm=new Map(r.map(x=>[String(x.id),x]));let has=false;
-        const lines=l.map(li=>{const rv=p[li.id]??p[String(li.id)];const rids=hwNormalizeAnswerIds(rv);if(!rids.length)return li.letter+'. '+(li.text||'')+' => 未匹配';has=true;const rt=rids.map(id=>{const ri=rm.get(String(id));return ri?ri.letter+'. '+(ri.text||''):id}).join('、');return li.letter+'. '+(li.text||'')+' => '+rt});
+        const lines=l.map(li=>{const rv=p[li.id]??p[String(li.id)];const rids=hwNormalizeAnswerIds(rv);if(!rids.length)return li.letter+'. '+(li.text||'')+' =>未匹配';has=true;const rt=rids.map(id=>{const ri=rm.get(String(id));return ri?ri.letter+'. '+(ri.text||''):id}).join('、');return li.letter+'. '+(li.text||'')+' => '+rt});
         return has?lines.join('\n'):'无记录';
     }
     /** 作答内容总分发：按 qData.type 路由到 choice(1,2,5)/fill(4)/matching(13)/
@@ -10394,7 +10387,7 @@ const tid = e.target.getAttribute('data-tid');
      */
     function hwBuildSubmissionResult(pd) {
         const ar=pd?.answer_record,answers=ar?.answers;
-        if(!ar||!Array.isArray(answers)||!answers.length)return{state:hwQuestionsData.length?'not_submitted':'waiting',message:hwQuestionsData.length?'未检测到已提交作业记录。':'等待题目数据加载...'};
+        if(!ar||!Array.isArray(answers)||!answers.length)return{state:hwQuestionsData.length?'not_submitted':'waiting',message:hwQuestionsData.length?'未检测到已提交作业记录。':'等待题目数据加载'};
         if(Number(ar.status)!==2)return{state:'not_submitted',message:'检测到作答记录，但当前任务尚未确认。'};
         const canShow=pd?.publish_record?.is_show_answer===true;
         const am=new Map(answers.map(a=>[String(a.question_id),a]));
@@ -10460,7 +10453,7 @@ const tid = e.target.getAttribute('data-tid');
         hwRecordId=hwRecordId||hwExtractRecordId(json.data);
         const qs=json.data.questions;
         hwQuestionsData=[];hwImageAssets=[];hwPdfQuestions=[];
-        let tpl='📌 学习任务单\n按下列题目整理要点，只输出内容本身，不要附带解析或任何说明文字。\n【答案格式】\n单选/判断 → 题号 => 大写字母（如 1 => A）\n多选 → 题号 => 字母，逗号分隔（如 2 => A,C）\n填空 → 题号 => 各空用竖线分隔（如 3 => const | let）\n简答 → 题号 => 完整文字\n匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）\n附件题无作答内容。\n\n════════════════════\n以下为题目内容：\n════════════════════\n';
+        let tpl='学习任务单\n按下列题目整理要点，只输出内容本身，不要附带解析或任何说明文字。\n【答案格式】\n单选/判断 → 题号 =>大写字母（如 1 => A）\n多选 → 题号 =>字母，逗号分隔（如 2 => A,C）\n填空 → 题号 =>各空用竖线分隔（如 3 => const | let）\n简答 → 题号 =>完整文字\n匹配 → 题号 =>左:右（如 10 => A:a,d | B:b,c）\n附件题无作答内容。\n\n════════════════════\n以下为题目内容：\n════════════════════\n';
         qs.forEach((q,idx)=>{
             /* 组合题（type 9）：大题干 + subQuestions[] 子题，作答记录按子题 id 拍平。
                按用户约定展开为 1.1 / 1.2 独立条目；大题干并入每道子题标题前，保证
@@ -10499,12 +10492,12 @@ const tid = e.target.getAttribute('data-tid');
                             line += '   ' + ol + '. ' + ot + '\n';
                         });
                     } else if (sq.type === 4) {
-                        line += '   (本题共 ' + sItems.length + ' 个填空)\n';
+                        line += '   (本题共' + sItems.length + '个填空)\n';
                     } else if (sq.type === 7) {
-                        line += '   附件题无需回答。\n';
+                        line += '附件题无需回答。\n';
                     } else if (sq.type === 13) {
                         const li = sItems.filter(it => it && it.is_target_opt !== true), ri = sItems.filter(it => it && it.is_target_opt === true);
-                        line += '   左侧：\n';
+                        line += '左侧：\n';
                         li.forEach((opt, ii) => {
                             const ol = String.fromCharCode(65 + ii);
                             const po = hwParseRichContent(opt.value);
@@ -10532,9 +10525,9 @@ const tid = e.target.getAttribute('data-tid');
         let sItems=Array.isArray(q.answer_items)?[...q.answer_items]:[];if(q.answer_items_sort&&Array.isArray(q.answer_items)){const si=String(q.answer_items_sort).split(',');sItems=si.map(id=>q.answer_items.find(it=>String(it.id)===String(id))).filter(Boolean)}
         const pq={index:qi,type:q.type,typeLabel:qType,titleSegments:pt.segments&&pt.segments.length?pt.segments:(qTitle?[{type:'text',value:qTitle}]:[]),options:[],matchingLeftItems:[],matchingRightItems:[],blankCount:sItems.length};
         if(q.type===1||q.type===2||q.type===5){let lc=65;sItems.forEach(opt=>{const ol=String.fromCharCode(lc);const po=hwParseRichContent(opt.value);let ot=po.text;hwCollectImages(qi,po,ol);if(q.type===5&&!ot)ot=ol==='A'?'正确':'错误';pq.options.push({letter:ol,text:ot,segments:po.segments&&po.segments.length?po.segments:(ot?[{type:'text',value:ot}]:[])});rOpts.push({id:opt.id,letter:ol,text:ot,answerChecked:opt.answer_checked});tpl+='   '+ol+'. '+ot+'\n';lc++})}
-        else if(q.type===4)tpl+='   (本题共 '+sItems.length+' 个填空)\n';
-        else if(q.type===7)tpl+='   附件题无需回答。\n';
-        else if(q.type===13){const li=sItems.filter(it=>it&&it.is_target_opt!==true),ri=sItems.filter(it=>it&&it.is_target_opt===true);tpl+='   左侧：\n';li.forEach((opt,ii)=>{const ol=String.fromCharCode(65+ii);const po=hwParseRichContent(opt.value);const ot=po.text,segs=po.segments&&po.segments.length?po.segments:(ot?[{type:'text',value:ot}]:[]);hwCollectImages(qi,po,ol);const d={id:opt.id,letter:ol,text:ot,segments:segs};mLeft.push(d);pq.matchingLeftItems.push(d);tpl+='   '+ol+'. '+ot+'\n'});tpl+='\n   右侧候选：\n';ri.forEach((opt,ii)=>{const ol=String.fromCharCode(97+ii);const po=hwParseRichContent(opt.value);const ot=po.text,segs=po.segments&&po.segments.length?po.segments:(ot?[{type:'text',value:ot}]:[]);hwCollectImages(qi,po,ol);const d={id:opt.id,letter:ol,text:ot,segments:segs};mRight.push(d);pq.matchingRightItems.push(d);tpl+='   '+ol+'. '+ot+'\n'})}
+        else if(q.type===4)tpl+='   (本题共'+sItems.length+'个填空)\n';
+        else if(q.type===7)tpl+='附件题无需回答。\n';
+        else if(q.type===13){const li=sItems.filter(it=>it&&it.is_target_opt!==true),ri=sItems.filter(it=>it&&it.is_target_opt===true);tpl+='左侧：\n';li.forEach((opt,ii)=>{const ol=String.fromCharCode(65+ii);const po=hwParseRichContent(opt.value);const ot=po.text,segs=po.segments&&po.segments.length?po.segments:(ot?[{type:'text',value:ot}]:[]);hwCollectImages(qi,po,ol);const d={id:opt.id,letter:ol,text:ot,segments:segs};mLeft.push(d);pq.matchingLeftItems.push(d);tpl+='   '+ol+'. '+ot+'\n'});tpl+='\n   右侧候选：\n';ri.forEach((opt,ii)=>{const ol=String.fromCharCode(97+ii);const po=hwParseRichContent(opt.value);const ot=po.text,segs=po.segments&&po.segments.length?po.segments:(ot?[{type:'text',value:ot}]:[]);hwCollectImages(qi,po,ol);const d={id:opt.id,letter:ol,text:ot,segments:segs};mRight.push(d);pq.matchingRightItems.push(d);tpl+='   '+ol+'. '+ot+'\n'})}
         tpl+='\n';hwQuestionsData.push({index:qi,id:q.id,type:q.type,score:q.score,titleText:qTitle,options:rOpts,matchingLeftItems:mLeft,matchingRightItems:mRight,sItems});hwPdfQuestions.push(pq)});
         hwExtractedText=tpl;hwActiveTaskKey=hwBuildTaskKey(hwGroupId,hwNodeId,hwPaperId);hwSubmissionResult=hwBuildSubmissionResult(json.data);hwActiveTab='answer';
         console.log('[小雅辅助·作业区] 数据清洗完毕：', hwQuestionsData.length, '题,', hwImageAssets.length, '图, 已提交:', hwSubmissionResult.state);
@@ -10734,7 +10727,7 @@ const tid = e.target.getAttribute('data-tid');
     if(scope===undefined||scope.q!==false){
     blk.push(...hwRenderSegments(pq.titleSegments,imMap,0,S));
     if((pq.type===1||pq.type===2||pq.type===5)&&pq.options.length){pq.options.forEach(opt=>{blk.push(new Paragraph({children:[new TextRun({text:opt.letter+'.',bold:true,size:S})],spacing:{before:60,after:20},indent:{left:240}}));blk.push(...hwRenderSegments(opt.segments,imMap,1,S))})}
-    if(pq.type===4){blk.push(new Paragraph({children:[new TextRun({text:'（共 '+pq.blankCount+' 个填空）',size:sm,color:'#6b7280'})],spacing:{before:60,after:40},indent:{left:240}}))}
+    if(pq.type===4){blk.push(new Paragraph({children:[new TextRun({text:'（共'+pq.blankCount+'个填空）',size:sm,color:'#6b7280'})],spacing:{before:60,after:40},indent:{left:240}}))}
     if(pq.type===13){blk.push(new Paragraph({children:[new TextRun({text:'左侧：',bold:true,size:S})],spacing:{before:80,after:40}}));(pq.matchingLeftItems||[]).forEach(it=>{blk.push(new Paragraph({children:[new TextRun({text:it.letter+'.',bold:true,size:S})],spacing:{before:40,after:20},indent:{left:240}}));blk.push(...hwRenderSegments(it.segments,imMap,1,S))});blk.push(new Paragraph({children:[new TextRun({text:'右侧候选：',bold:true,size:S})],spacing:{before:80,after:40}}));(pq.matchingRightItems||[]).forEach(it=>{blk.push(new Paragraph({children:[new TextRun({text:it.letter+'.',bold:true,size:S})],spacing:{before:40,after:20},indent:{left:240}}));blk.push(...hwRenderSegments(it.segments,imMap,1,S))})}
     if(pq.type===7)blk.push(new Paragraph({children:[new TextRun({text:'附件题，无作答内容。',size:sm,italics:true,color:'#b45309'})],spacing:{before:60,after:40}}));
     }
@@ -10760,11 +10753,11 @@ const tid = e.target.getAttribute('data-tid');
      * [DEEP-DOC]
      */
     async function hwExportDocx(scope,fontPt){
-        if(!hwQuestionsData.length){logMsg('尚未读取到题目数据','error');return}
+        if(!hwQuestionsData.length){logMsg( '未读取到题目数据', 'error' );return}
         const{Document,Packer,Paragraph,TextRun,HeadingLevel,AlignmentType}=window.docx;const{saveAs}=window;
-        if(!Document||!Packer||!saveAs){logMsg('docx库未加载完成，请刷新页面重试','error');return}
+        if(!Document||!Packer||!saveAs){logMsg( 'docx 库未加载 · 请刷新重试', 'error' );return}
         const S=Math.max(18,Math.round((fontPt||11)*2));   // pt → half-points
-        logMsg('正在下载题目图片...','info');
+        logMsg( '正在下载题目图片', 'info', true );
         const res=hwSubmissionResult,qrs=(res&&Array.isArray(res.questionResults))?res.questionResults:[];
         const rm=new Map(qrs.map(r=>[String(r.id),r]));
         const extra=[];
@@ -10772,21 +10765,21 @@ const tid = e.target.getAttribute('data-tid');
         if(scope===undefined||scope.mine!==false){qrs.forEach(r=>{if(r.rawUserAnswer){const p=hwParseRichContent(r.rawUserAnswer);(p.images||[]).forEach(im=>{if(im.src)extra.push({src:im.src})})}})}
         const imMap=await hwHydrateImageMap(extra,450,scope===undefined||scope.q!==false);
         const okC=Array.from(imMap.values()).filter(r=>r.ok).length,failC=Array.from(imMap.values()).filter(r=>!r.ok).length;
-        console.log('[小雅辅助] docx图片: '+imMap.size+' URL, '+okC+' 成功, '+failC+' 失败');
-        logMsg('正在生成.docx文件...','info');
+        console.log('[小雅辅助] docx图片: '+imMap.size+' URL, '+okC+'成功, '+failC+'失败');
+        logMsg( '正在生成 .docx', 'info', true );
         const dc=[];dc.push(new Paragraph({text:'小雅辅助工具 题目与批改结果',heading:HeadingLevel.TITLE,alignment:AlignmentType.CENTER,spacing:{after:200}}));dc.push(new Paragraph({text:'导出时间：'+new Date().toLocaleString(),alignment:AlignmentType.CENTER,spacing:{after:300}}));
-        if(res&&res.state==='submitted'&&(scope===undefined||scope.mine!==false)){const wc=qrs.filter(r=>r.tone==='bad').length,pc=qrs.filter(r=>r.tone==='pending').length;dc.push(new Paragraph({children:[new TextRun({text:String(res.actualScore??'-'),size:S+22,bold:true}),new TextRun({text:' / '+(res.totalScore??'-')+' 分',size:S+6,color:'#6b7280'})],alignment:AlignmentType.CENTER,spacing:{after:120}}));dc.push(new Paragraph({children:[new TextRun({text:(res.correctNum??'-')+' 正确 · '+wc+' 错误 · '+pc+' 待批改',size:S,color:'#4b5563'})],alignment:AlignmentType.CENTER,spacing:{after:300}}))}
+        if(res&&res.state==='submitted'&&(scope===undefined||scope.mine!==false)){const wc=qrs.filter(r=>r.tone==='bad').length,pc=qrs.filter(r=>r.tone==='pending').length;dc.push(new Paragraph({children:[new TextRun({text:String(res.actualScore??'-'),size:S+22,bold:true}),new TextRun({text:' / '+(res.totalScore??'-')+'分',size:S+6,color:'#6b7280'})],alignment:AlignmentType.CENTER,spacing:{after:120}}));dc.push(new Paragraph({children:[new TextRun({text:(res.correctNum??'-')+'正确 · '+wc+'错误 · '+pc+'待批改',size:S,color:'#4b5563'})],alignment:AlignmentType.CENTER,spacing:{after:300}}))}
         for(let i=0;i<hwPdfQuestions.length;i++){const pq=hwPdfQuestions[i],qd=hwQuestionsData[i],ri=qd?rm.get(String(qd.id)):null;dc.push(...hwBuildQuestionContent(pq,qd,ri,imMap,scope,S))}
         const doc=new Document({creator:'小雅辅助工具',description:'题目与批改结果导出',title:'小雅辅助工具 题目与批改结果',styles:{paragraphStyles:[{id:'Normal',name:'Normal',run:{font:'Microsoft YaHei',size:S},paragraph:{spacing:{line:360,before:0,after:0}}}]},sections:[{properties:{},children:dc}]});
         const blob=await Packer.toBlob(doc);const now=new Date(),pad=v=>String(v).padStart(2,'0');const stamp=now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+'_'+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());saveAs(blob,'小雅辅助_题目与批改结果_'+stamp+'.docx');
-        logMsg('✅ .docx 题目与批改结果已导出','success');
+        logMsg( '.docx 已导出', 'success' );
     }
     /** 组装最终 AI 提示词：hwExtractedText 模板（含内容格式规范）为基底，用户在
      * 输入框追加的补充指令非空时附加到头部。返回纯文本串供复制。
      * [DEEP-DOC]
      */
     function hwBuildAiPrompt() {
-        const lines = ['📌 学习任务单','按下列题目整理要点，只输出内容本身，不要附带解析或任何说明文字。','【答案格式】','单选/判断 → 题号 => 大写字母（如 1 => A）','多选 → 题号 => 字母，逗号分隔（如 2 => A,C）','填空 → 题号 => 各空用竖线分隔（如 3 => const | let）','简答 → 题号 => 完整文字','匹配 → 题号 => 左:右（如 10 => A:a,d | B:b,c）','附件题无作答内容。','','════════════════════','以下为题目内容：','════════════════════',''];
+        const lines = ['学习任务单','按下列题目整理要点，只输出内容本身，不要附带解析或任何说明文字。','【答案格式】','单选/判断 → 题号 =>大写字母（如 1 => A）','多选 → 题号 =>字母，逗号分隔（如 2 => A,C）','填空 → 题号 =>各空用竖线分隔（如 3 => const | let）','简答 → 题号 =>完整文字','匹配 → 题号 =>左:右（如 10 => A:a,d | B:b,c）','附件题无作答内容。','','════════════════════','以下为题目内容：','════════════════════',''];
         hwQuestionsData.forEach(q => {
             lines.push(`${q.index}. ${q.titleText} ${hwTypeLabel(q.type)}`);
             if (q.type === 1 || q.type === 2 || q.type === 5) {
@@ -10794,12 +10787,12 @@ const tid = e.target.getAttribute('data-tid');
             } else if (q.type === 4) {
                 lines.push(`   (本题共 ${q.sItems ? q.sItems.length : 0} 个填空)`);
             } else if (q.type === 7) {
-                lines.push(`   附件题无需回答。`);
+                lines.push(`附件题无需回答。`);
             } else if (q.type === 13) {
-                lines.push(`   左侧：`);
+                lines.push(`左侧：`);
                 (q.matchingLeftItems || []).forEach(it => lines.push(`   ${it.letter}. ${it.text}`));
                 lines.push('');
-                lines.push(`   右侧候选：`);
+                lines.push(`右侧候选：`);
                 (q.matchingRightItems || []).forEach(it => lines.push(`   ${it.letter}. ${it.text}`));
             }
             lines.push('');
@@ -10814,9 +10807,9 @@ const tid = e.target.getAttribute('data-tid');
     /**
      * [R3-09] 改为 async 并 await writeText。
      *
-     * 旧写法 `try { navigator.clipboard.writeText(val); return true; } catch(e) {}`：
+     * 旧写法`try { navigator.clipboard.writeText(val); return true; } catch(e) {}`：
      * writeText 返回的是 Promise，同步 try/catch 抓不到它的拒绝，函数立刻
-     * return true —— 于是 (1) 复制实际失败却弹「✅ 已复制」，用户拿到空剪贴板；
+     * return true —— 于是 (1) 复制实际失败却弹「已复制」，用户拿到空剪贴板；
      * (2) 下方的 execCommand 回退分支永远不可达；(3) 每次产生一个未处理的
      * Promise rejection。改为 await，失败时自然落入回退分支。
      */
@@ -10842,17 +10835,17 @@ const tid = e.target.getAttribute('data-tid');
      */
     /** [R3-09] hwCopyText 现为 async，调用点相应改为 await */
     async function hwCopyAiPrompt() {
-    if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法复制','error'); return; }
+    if (!hwQuestionsData.length) { logMsg( '未读取到题目数据 · 无法复制', 'error' ); return; }
     const text = hwBuildAiPrompt();
     hwExtractedText = text;
     const copied = await hwCopyText(text);
-    if (copied) { logMsg(`✅ 已复制 ${hwQuestionsData.length} 道题给 AI，去聊天窗口粘贴吧`,'success'); showToast('已复制题目模板', 'success'); }
-    else { logMsg('复制失败，请手动复制','error'); showToast('复制失败，请手动复制', 'error'); }
+    if (copied) { logMsg( `已复制 ${hwQuestionsData.length} 道题 · 可粘贴至 AI`, 'success' ); showToast('已复制题目模板', 'success'); }
+    else { logMsg( '复制失败 · 请手动复制', 'error' ); showToast('复制失败，请手动复制', 'error'); }
     }
     /**
      * 作答记录 ID 多形态提取：直取 answer_record.id / answer_record_id /
      * record_id；回退遍历 task_flow_record/task_flow_template 数组的各 ID 字段。
-     * 全部落空返回 ''（调用方视为「尚无作答记录」，首次保存时由服务端创建）。
+     * 全部落空返回''（调用方视为「尚无作答记录」，首次保存时由服务端创建）。
      * [DEEP-DOC]
      */
     function hwExtractRecordId(payload) {
@@ -10885,8 +10878,8 @@ const tid = e.target.getAttribute('data-tid');
         throw new Error('无法获取 Record ID');
     }
     /**
-     * AI 答案文本解析器：「题号 => 答案」行语法 → Map<index, rawAnswer>。
-     * 容错规则：忽略空行/注释行；题号非正整数跳过；=> 前后空白容忍；
+     * AI 答案文本解析器：「题号 =>答案」行语法 → Map<index, rawAnswer>。
+     * 容错规则：忽略空行/注释行；题号非正整数跳过；=>前后空白容忍；
      * 同题号后者覆盖前者。返回有序数组供 SaveAnswers 逐题消费。
      * [DEEP-DOC]
      */
@@ -10988,9 +10981,9 @@ const tid = e.target.getAttribute('data-tid');
         /**
          * [R3-14] 成功判定收紧：必须拿到可解析的 JSON 业务体。
          *
-         * 旧条件 `!res.ok || (data && data.success === false)` 存在漏网：
+         * 旧条件`!res.ok || (data && data.success === false)`存在漏网：
          * 网关返回 200 + HTML（登录失效跳转页）、或空 body 时 data 为 null，
-         * `data && ...` 短路为 falsy → 不抛错 → 上层 ok++ 计入「成功 N 题」。
+         * `data && ...`短路为 falsy → 不抛错 → 上层 ok++ 计入「成功 N 题」。
          * 实际作答根本没落库；若所有题都这样，还会触发保存后的整页刷新，
          * 用户刚粘贴的文本丢失且看不到任何失败提示。
          * 改为：非 2xx、无 JSON 体、或业务 success 为 false，一律视为失败。
@@ -11047,13 +11040,13 @@ const tid = e.target.getAttribute('data-tid');
      * [DEEP-DOC]
      */
     async function hwSaveAnswers(aiText) {
-        if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存','error'); return; }
-        if (!String(aiText || '').trim()) { logMsg('请先粘贴 AI 返回的答案','error'); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
-        logMsg('正在初始化提交参数...','info');
+        if (!hwQuestionsData.length) { logMsg( '未读取到题目数据 · 无法保存', 'error' ); return; }
+        if (!String(aiText || '').trim()) { logMsg( '请先粘贴 AI 返回的答案', 'error' ); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
+        logMsg( '正在初始化提交参数', 'info', true );
         try {
             hwRecordId = await hwGetRecordId();
         } catch(e) {
-            logMsg('初始化提交参数失败：' + e.message,'error');
+            logMsg( '初始化提交参数失败 · ' + e.message, 'error' );
             showToast('保存失败：' + e.message, 'error');
             return;
         }
@@ -11062,16 +11055,16 @@ const tid = e.target.getAttribute('data-tid');
         for (let i = 0; i < blocks.length; i++) {
             const block = blocks[i];
             const qd = hwQuestionsData.find(q => String(q.index) === String(block.index));
-            if (!qd) { fail++; logMsg(`⚠️ 第 ${block.index} 题未在题目列表中找到，已跳过`,'warning'); continue; }
+            if (!qd) { fail++; logMsg( `第 ${block.index} 题不在题目列表中 · 已跳过`, 'warning' ); continue; }
             const payload = hwBuildAnswerPayload(qd, block.answer);
             if (!payload) { skip++; continue; }
             try {
                 await hwSubmitAnswer(qd, payload);
                 ok++;
-                logMsg(`✅ 第 ${block.index} 题已保存`,'success',true);
+                logMsg( `第 ${block.index} 题已保存`,'success',true );
             } catch(e) {
                 fail++;
-                logMsg(`❌ 第 ${block.index} 题保存失败：${e.message}`,'error');
+                logMsg( `第 ${block.index} 题保存失败 · ${e.message}`, 'error' );
             }
             if (i < blocks.length - 1) await sleep(150);
         }
@@ -11080,16 +11073,16 @@ const tid = e.target.getAttribute('data-tid');
             hwActiveTab = 'result';
             const refreshed = await hwRefreshPaperData();
             hwUpdateUI();
-            logMsg(`✅ 保存完成：成功 ${ok} 题，失败 ${fail} 题，跳过 ${skip} 题`,'success');
+            logMsg( `保存完成 · 成功 ${ok} · 失败 ${fail} · 跳过 ${skip}`, 'success' );
             const shouldReload=hwShouldReloadAfterSave(ok,fail,skip);
             showToast(shouldReload ? `已保存 ${ok} 道题 · 正在刷新` : `已保存 ${ok} 道题` + (refreshed ? ' · 结果已刷新' : ''), 'success');
             if(shouldReload){
-                logMsg('全部答案已保存，1 秒后刷新页面同步状态','success');
+                logMsg( '全部答案已保存 · 即将刷新', 'success' );
                 hwSchedulePageReload();
             }
         } else {
             showToast(`未保存任何答案（成功 ${ok} / 失败 ${fail} / 跳过 ${skip}）`, fail ? 'error' : 'warning');
-            logMsg(`📝 答案保存汇总：成功 ${ok} · 失败 ${fail} · 跳过 ${skip}`, fail ? 'error' : 'warning');
+            logMsg( `保存汇总 · 成功 ${ok} · 失败 ${fail} · 跳过 ${skip}`, fail ? 'error' : 'warning' );
         }
     }
     /**
@@ -11140,7 +11133,7 @@ const tid = e.target.getAttribute('data-tid');
 
         const tabs = document.createElement('div');
         tabs.style.cssText = `display:flex;gap:6px;margin-bottom:8px;`;
-        [['all','全部 '+qrs.length],['bad','错题 '+(wrong+partial)],['pending','待批 '+pending]].forEach(([key,label]) => {
+        [['all','全部'+qrs.length],['bad','错题'+(wrong+partial)],['pending','待批'+pending]].forEach(([key,label]) => {
             const t = document.createElement('button');
             t.type = 'button';
             t.textContent = label;
@@ -11696,7 +11689,7 @@ var XYExport = (function (Hinote) {  'use strict';
                         else wrapText(o.letter + '. ' + (o.text || ''), fpx, true);
                     }
                 }
-                if (it.type === 4 && it.blankCount) { blank(lineH(fpx) * 0.25); wrapText('（共 ' + it.blankCount + ' 个填空）', Math.max(10, fpx - 1), false, '#6b7280'); }
+                if (it.type === 4 && it.blankCount) { blank(lineH(fpx) * 0.25); wrapText('（共' + it.blankCount + '个填空）', Math.max(10, fpx - 1), false, '#6b7280'); }
                 if (it.type === 13) {
                     blank(lineH(fpx) * 0.25); wrapText('左侧：', fpx, true);
                     for (const o of it.matchingL || []) {
@@ -11747,15 +11740,15 @@ var XYExport = (function (Hinote) {  'use strict';
         if (!xyExpScopeOk()) { showToast('请至少勾选一项导出内容', 'warn'); return; }
         if (!(hwQuestionsData && hwQuestionsData.length)) { showToast('尚未读取到题目数据', 'warn'); return; }
         const go = document.getElementById('xy-exp-go');
-        if (go) { go.disabled = true; go.textContent = '⏳ 正在生成...'; }
+        if (go) { go.disabled = true; go.textContent = '正在生成'; }
         try {
             await xyExpExportNormal();
         } catch (e) {
             const msg = (e && e.message) ? e.message : String(e);
             showToast('导出失败：' + msg, 'error');
-            logMsg('导出失败：' + msg, 'error');
+            logMsg( '导出失败 · ' + msg, 'error' );
         } finally {
-            if (go) { go.disabled = false; go.textContent = '⬇️ 生成并下载'; }
+            if (go) { go.disabled = false; go.textContent = '生成并下载'; }
         }
     }
 
@@ -11777,15 +11770,15 @@ var XYExport = (function (Hinote) {  'use strict';
             const jpegs = await Promise.all(pages.map(p => xyExpCanvasToJPEG(p, 0.92)));
             const pdf = XYExport.makePDF(jpegs, 595.28, 841.89);
             xyHWSave(new Blob([pdf], { type: 'application/pdf' }), title + '.pdf');
-            showToast('已导出 PDF · ' + pages.length + ' 页', 'success');
+            showToast('已导出 PDF · ' + pages.length + '页', 'success');
         } else {
             for (let p = 0; p < pages.length; p++) {
                 const jp = await xyExpCanvasToJPEG(pages[p], 0.92);
                 xyHWSave(new Blob([jp.data], { type: 'image/jpeg' }), title + '_p' + (p + 1) + '.jpg');
             }
-            showToast('已导出图片 · ' + pages.length + ' 页', 'success');
+            showToast('已导出图片 · ' + pages.length + '页', 'success');
         }
-        logMsg('📄 题目与批改结果已导出：' + items.length + ' 题 / ' + pages.length + ' 页 / ' + fmt + (imMap.size ? ' / 图 ' + imMap.size + ' 张' : ''), 'success');
+        logMsg( `已导出 · ${items.length} 题 · ${pages.length} 页 · ${fmt}${imMap.size ? ' · 图' + imMap.size + '张' : ''}`, 'success' );
     }
 
 
@@ -11802,11 +11795,11 @@ var XYExport = (function (Hinote) {  'use strict';
                 _xyExpPreviewRetry += 1;
                 setTimeout(() => { if (document.getElementById('xy-exp-preview-body')) xyExpRenderPreview(); }, 3000);
             }
-            box.innerHTML = '<div style="color:' + T('#64748b', '#94a3b8') + ';font-size:11px;text-align:center;padding:18px 0;">等待题目数据…</div>';
+            box.innerHTML = '<div style="color:' + T('#64748b', '#94a3b8') + ';font-size:11px;text-align:center;padding:18px 0;">等待题目数据</div>';
             return;
         }
         _xyExpPreviewRetry = 0;
-        box.innerHTML = '<div style="color:' + T('#94a3b8', '#64748b') + ';font-size:11px;text-align:center;padding:14px 0;">预览生成中…</div>';
+        box.innerHTML = '<div style="color:' + T('#94a3b8', '#64748b') + ';font-size:11px;text-align:center;padding:14px 0;">预览生成中</div>';
         try {
             const scope = xyExpCfg.scope;
             const items = xyExpCollect();
@@ -11821,7 +11814,7 @@ var XYExport = (function (Hinote) {  'use strict';
             }
             box.innerHTML = thumbs.map((cv, i) =>
                 '<div style="margin-bottom:9px;">' +
-                '<div style="font-size:10px;color:' + T('#64748b', '#94a3b8') + ';margin-bottom:3px;">第 ' + (i + 1) + ' 页</div>' +
+                '<div style="font-size:10px;color:' + T('#64748b', '#94a3b8') + ';margin-bottom:3px;">第' + (i + 1) + '页</div>' +
                 '<img src="' + cv.toDataURL('image/jpeg', 0.8) + '" style="width:100%;border:1px solid ' + T('rgba(71,85,105,0.3)', '#e2e8f0') + ';border-radius:6px;background:#fff;box-sizing:border-box;" alt="预览"/>' +
                 '</div>'
             ).join('');
@@ -11852,7 +11845,7 @@ var XYExport = (function (Hinote) {  'use strict';
             `<div style="font-size:11.5px; font-weight:700; margin-top:2px;">${label}</div>` +
             `<div style="font-size:9px; color:${tx2}; margin-top:2px; line-height:1.35;">${note}</div></button>`;
         return `
-        <button class="xy-action-btn" id="xy-exp-toggle" style="width:100%; min-height:36px; margin-top:8px; font-size:12px; background:${T('rgba(6,182,212,0.1)','#e0f2fe')}; border-color:${T('rgba(6,182,212,0.28)','#bae6fd')}; color:${T('#67e8f9','#0e7490')};">📄 导出（题目与批改结果）</button>
+        <button class="xy-action-btn" id="xy-exp-toggle" style="width:100%; min-height:36px; margin-top:8px; font-size:12px; background:${T('rgba(6,182,212,0.1)','#e0f2fe')}; border-color:${T('rgba(6,182,212,0.28)','#bae6fd')}; color:${T('#67e8f9','#0e7490')};">导出（题目与批改结果）</button>
         <div id="xy-exp-panel" style="display:none; margin-top:8px; padding:11px; border:1px solid ${bd}; border-radius:11px; background:${bg};">
             <div style="${sec}">① 内容范围</div>
             <div style="display:flex; gap:12px; font-size:11.5px; color:${tx};">
@@ -11876,7 +11869,7 @@ var XYExport = (function (Hinote) {  'use strict';
             </div>
             <div style="${sec}">③ 预览 <span style="font-weight:400; font-size:9.5px; color:${tx2};">（导出内容实时预览 · 前 2 页）</span></div>
             <div id="xy-exp-preview-body" style="max-height:330px; overflow:auto; border:1px dashed ${T('rgba(71,85,105,0.3)','#cbd5e1')}; border-radius:9px; background:${T('rgba(15,23,42,0.2)','#f8fafc')}; padding:8px;"></div>
-            <button class="xy-action-btn" id="xy-exp-go" style="width:100%; min-height:38px; margin-top:10px; font-size:12px; background:linear-gradient(135deg,#06b6d4,#0891b2); border-color:transparent; color:#fff;">⬇️ 生成并下载</button>
+            <button class="xy-action-btn" id="xy-exp-go" style="width:100%; min-height:38px; margin-top:10px; font-size:12px; background:linear-gradient(135deg,#06b6d4,#0891b2); border-color:transparent; color:#fff;">生成并下载</button>
             <div style="font-size:10px; color:${T('#64748b','#94a3b8')}; text-align:center; margin-top:8px; line-height:1.5;">仅用于个人复习归档<br>不读取 AI 输入 · 不提交 · 不回填任何数据</div>
         </div>`;
     }
@@ -11919,7 +11912,7 @@ var XYExport = (function (Hinote) {  'use strict';
         toggle.addEventListener('click', () => {
             const open = panel.style.display === 'none';
             panel.style.display = open ? 'block' : 'none';
-            toggle.textContent = open ? '📄 收起导出' : '📄 导出（题目与批改结果）';
+            toggle.textContent = open ? '收起导出' : '导出（题目与批改结果）';
             if (open) xyExpRenderPreview();
         });
 
@@ -12150,7 +12143,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 #xy-super-console .xy-overview-task-panel > .xy-overview-panel-title { margin:0; padding:11px 12px 9px; border-bottom:1px solid var(--xy-border); }
                 #xy-super-console .xy-overview-task-details > summary { cursor:pointer; list-style:none; }
                 #xy-super-console .xy-overview-task-details > summary::-webkit-details-marker { display:none; }
-                #xy-super-console .xy-overview-task-details > summary::after { content:'⌄'; margin-left:4px; color:var(--xy-text-muted); font-size:13px; transition:transform 0.16s ease; }
+                #xy-super-console .xy-overview-task-details > summary::after { content:''; margin-left:4px; color:var(--xy-text-muted); font-size:13px; transition:transform 0.16s ease; }
                 #xy-super-console .xy-overview-task-details[open] > summary::after { transform:rotate(180deg); }
                 #xy-super-console .xy-overview-task-list { max-height:none; overflow-y:visible; }
                 #xy-super-console .xy-overview-task { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:10px 12px; border:0; border-bottom:1px solid var(--xy-border); border-radius:0; background:transparent; color:var(--xy-text); cursor:pointer; text-align:left; }
@@ -12260,7 +12253,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 #xy-super-console .xy-course-dashboard-details-toggle { display:flex; width:100%; align-items:center; justify-content:space-between; gap:8px; padding:0; border:0; background:transparent; color:var(--xy-text2); cursor:pointer; font:inherit; font-size:9.5px; text-align:left; }
                 #xy-super-console .xy-course-dashboard-details-toggle > span:first-child { color:var(--xy-accent); font-weight:750; }
                 #xy-super-console .xy-course-dashboard-details-toggle > span:last-child { overflow:hidden; color:var(--xy-text-muted); text-align:right; text-overflow:ellipsis; white-space:nowrap; }
-                #xy-super-console .xy-course-dashboard-details-toggle::after { content:'⌄'; flex-shrink:0; color:var(--xy-text-muted); font-size:12px; transition:transform 0.16s ease; }
+                #xy-super-console .xy-course-dashboard-details-toggle::after { content:''; flex-shrink:0; color:var(--xy-text-muted); font-size:12px; transition:transform 0.16s ease; }
                 #xy-super-console .xy-course-dashboard-details-toggle[aria-expanded="true"]::after { transform:rotate(180deg); }
                 #xy-super-console .xy-course-dashboard-details { margin-top:8px; }
                 #xy-super-console .xy-course-dashboard-details-state { display:flex; min-height:42px; align-items:center; justify-content:center; gap:7px; border:1px dashed var(--xy-border); border-radius:8px; color:var(--xy-text-muted); font-size:9.5px; }
@@ -12275,8 +12268,8 @@ var XYExport = (function (Hinote) {  'use strict';
                 #xy-super-console .xy-course-dashboard-task-group.is-uncertain { --xy-task-accent:#8b7aa8; }
                 #xy-super-console .xy-course-dashboard-task-group summary { display:flex; align-items:center; justify-content:space-between; padding:6px 8px; color:var(--xy-task-accent); cursor:pointer; font-size:9.5px; font-weight:750; list-style:none; }
                 #xy-super-console .xy-course-dashboard-task-group summary::-webkit-details-marker { display:none; }
-                #xy-super-console .xy-course-dashboard-task-group summary::after { content:'⌃'; margin-left:5px; font-size:10px; }
-                #xy-super-console .xy-course-dashboard-task-group:not([open]) summary::after { content:'⌄'; }
+                #xy-super-console .xy-course-dashboard-task-group summary::after { content:''; margin-left:5px; font-size:10px; }
+                #xy-super-console .xy-course-dashboard-task-group:not([open]) summary::after { content:''; }
                 #xy-super-console .xy-course-dashboard-task-group summary em { margin-left:auto; color:var(--xy-text-muted); font-size:9px; font-style:normal; font-weight:600; }
                 #xy-super-console .xy-course-dashboard-task-list { display:flex; min-width:0; flex-direction:column; border-top:1px solid color-mix(in srgb, var(--xy-task-accent) 18%, var(--xy-border)); background:var(--xy-surface); }
                 #xy-super-console .xy-course-dashboard-task { display:grid; grid-template-columns:minmax(0, 1fr) auto auto; align-items:center; gap:6px; width:100%; padding:7px 8px; border:0; border-bottom:1px solid var(--xy-border); background:transparent; color:var(--xy-text); cursor:pointer; font:inherit; font-size:9.5px; text-align:left; }
@@ -12314,14 +12307,14 @@ var XYExport = (function (Hinote) {  'use strict';
                          <span class="xy-badge xy-badge-success">v${SCRIPT_VERSION}</span>
                     </div>
                     <div style="display:flex; align-items:center; gap:2px;">
-                        <button id="xy-overview-open" class="xy-overview-icon" type="button" title="课程学习数据概览" aria-label="打开课程学习数据概览">📊</button>
-                        <div id="xy-theme-toggle" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 6px; border-radius: 6px; font-size: 14px; transition: 0.2s;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}';" onmouseout="this.style.background='transparent';">🌙</div>
+                        <button id="xy-overview-open" class="xy-overview-icon" type="button" title="课程学习数据概览" aria-label="打开课程学习数据概览"></button>
+                        <div id="xy-theme-toggle" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 6px; border-radius: 6px; font-size: 14px; transition: 0.2s;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}';" onmouseout="this.style.background='transparent';"></div>
                         <div id="xy-minimize" style="cursor: pointer; color: ${T('#64748b','#94a3b8')}; padding: 4px 7px; border-radius: 6px; font-size: 14px; transition: 0.2s; font-weight:700;" onmouseover="this.style.background='${T('rgba(71,85,105,0.4)','#f1f5f9')}'; this.style.color='${T('#e2e8f0','#0f172a')}';" onmouseout="this.style.background='transparent'; this.style.color='${T('#64748b','#94a3b8')}';">⊟</div>
                     </div>
                 </div>
                 <div id="xy-handle-row2" class="xy-seg">
-                    <div id="xy-seg-zone" class="xy-seg-item active" title="当前区域">🛰️ 小雅引擎</div>
-                    <div id="xy-seg-feedback" class="xy-seg-item" title="反馈问题或建议">💬 反馈</div>
+                    <div id="xy-seg-zone" class="xy-seg-item active" title="当前区域">小雅引擎</div>
+                    <div id="xy-seg-feedback" class="xy-seg-item" title="反馈问题或建议">反馈</div>
                     <div id="xy-seg-update" class="xy-seg-item" title="检查脚本更新">↻ 检查更新<span class="xy-seg-dot"></span></div>
                 </div>
             </div>
@@ -12330,13 +12323,13 @@ var XYExport = (function (Hinote) {  'use strict';
 
                 <div class="xy-panel" style="padding: 0; overflow: hidden; border-color: ${T('rgba(129,140,248,0.15)','#c7d2fe')};">
                     <div id="xy-bc-toggle" style="background: ${T('rgba(99,102,241,0.06)','#eef2ff')}; padding: 10px 16px; font-size: 12px; font-weight: 600; color: ${T('#a5b4fc','#3730a3')}; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                        <span>📣 情报站</span>
+                        <span>情报站</span>
                         <span id="xy-bc-arrow" style="transition: transform 0.3s; font-size: 10px; color: ${T('#818cf8','#4f46e5')};">▼</span>
                     </div>
                     <div id="xy-bc-content" style="font-size: 12px; color: ${T('#94a3b8','#475569')}; line-height: 1.7; display: none; background: ${T('rgba(15,23,42,0.4)','#f8fafc')}; border-top: 1px solid var(--xy-border); max-height: 180px; overflow-y: auto;">
                         <div style="padding: 12px 16px; display: flex; min-width: 0; align-items: center; gap: 10px;">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${T('#818cf8','#6366f1')}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation: xy-spin 1s linear infinite;"><circle cx="12" cy="12" r="10" stroke-opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10" stroke="${T('#a5b4fc','#4f46e5')}"/></svg>
-                            <span style="color:${T('#94a3b8','#64748b')}; font-size:13px;">正在连接云端…</span>
+                            <span style="color:${T('#94a3b8','#64748b')}; font-size:13px;">正在连接云端</span>
                             <div style="flex:1; height:3px; background:${T('rgba(99,102,241,0.1)','#e0e7ff')}; border-radius:2px; overflow:hidden; max-width:80px;">
                                 <div style="width:40%; height:100%; background:linear-gradient(90deg, ${T('#818cf8','#6366f1')}, ${T('#a5b4fc','#818cf8')}); border-radius:2px; animation: xy-indeterminate 1.4s ease-in-out infinite;"></div>
                             </div>
@@ -12380,20 +12373,20 @@ var XYExport = (function (Hinote) {  'use strict';
                     <div style="display:flex; align-items:center; gap:9px; padding:10px 14px; border-radius:10px; background: ${T('rgba(99,102,241,0.08)','#eef2ff')}; border: 1px solid ${T('rgba(129,140,248,0.22)','#c7d2fe')}; margin-bottom:10px;">
                         <span style="width:8px; height:8px; border-radius:99px; background:#818cf8; box-shadow:0 0 10px rgba(129,140,248,.6); flex-shrink:0;"></span>
                         <span style="font-size:12.5px; font-weight:700; color:${T('#e2e8f0','#0f172a')};">课程目录</span>
-                        <span id="xy-dir-status" style="margin-left:auto; font-size:10px; color:${T('#94a3b8','#64748b')};">读取中...</span>
+                        <span id="xy-dir-status" style="margin-left:auto; font-size:10px; color:${T('#94a3b8','#64748b')};">读取中</span>
                     </div>
                     <div style="display:flex; gap:8px; margin-bottom:10px;">
-                        <button class="xy-action-btn" id="xy-dir-play" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(16,185,129,0.12)','#ecfdf5')}; border-color:${T('rgba(16,185,129,0.25)','#a7f3d0')}; color:${T('#34d399','#059669')};">▶️ 一键调度</button>
-                        <button class="xy-action-btn" id="xy-dir-download" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(52,211,153,0.12)','#d1fae5')}; border-color:${T('rgba(52,211,153,0.25)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">📥 下载区</button>
-                        <button class="xy-action-btn" id="xy-dir-refresh" style="flex:1; min-height:36px; font-size:12px;">🔄 刷新</button>
+                        <button class="xy-action-btn" id="xy-dir-play" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(16,185,129,0.12)','#ecfdf5')}; border-color:${T('rgba(16,185,129,0.25)','#a7f3d0')}; color:${T('#34d399','#059669')};">一键调度</button>
+                        <button class="xy-action-btn" id="xy-dir-download" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(52,211,153,0.12)','#d1fae5')}; border-color:${T('rgba(52,211,153,0.25)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">下载区</button>
+                        <button class="xy-action-btn" id="xy-dir-refresh" style="flex:1; min-height:36px; font-size:12px;">刷新</button>
                     </div>
                     <div style="max-height:300px; overflow-y:auto; border:1px solid ${T('rgba(71,85,105,0.18)','#e2e8f0')}; border-radius:11px; background:${T('rgba(15,23,42,0.35)','#ffffff')}; padding:4px;" id="xy-dir-list">
-                        <div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">正在读取课程目录...</div>
+                        <div style="color:${T('#94a3b8','#64748b')}; text-align:center; padding:24px 0; font-size:13px;">正在读取课程目录</div>
                     </div>
                 </div>
 
                 <div id="xy-view-course" style="display:none; flex-shrink: 0;">
-                    <div id="xy-status-banner" style="text-align: center; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--xy-border); background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; font-size: 12px; margin-bottom: 10px; font-weight: 600; color: ${T('#94a3b8','#64748b')};">初始化中...</div>
+                    <div id="xy-status-banner" style="text-align: center; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--xy-border); background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; font-size: 12px; margin-bottom: 10px; font-weight: 600; color: ${T('#94a3b8','#64748b')};">初始化中</div>
 
                     <div class="xy-panel" style="padding: 12px;">
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
@@ -12420,17 +12413,17 @@ var XYExport = (function (Hinote) {  'use strict';
                         </div>
                         <div id="xy-body-actions">
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-                                <button class="xy-action-btn" id="xy-btn-dashboard" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')};">🌍 任务总览</button>
-                                <button class="xy-action-btn" id="xy-btn-schedule" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')}; border-color:${T('rgba(251,191,36,0.25)','#fde68a')}; color:${T('#fcd34d','#92400e')};">📅 调度</button>
+                                <button class="xy-action-btn" id="xy-btn-dashboard" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; border-color:${T('rgba(129,140,248,0.3)','#c7d2fe')};">任务总览</button>
+                                <button class="xy-action-btn" id="xy-btn-schedule" style="background:${T('rgba(251,191,36,0.12)','#fffbeb')}; border-color:${T('rgba(251,191,36,0.25)','#fde68a')}; color:${T('#fcd34d','#92400e')};">调度</button>
                             </div>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                <button class="xy-action-btn" id="xy-btn-download-zone" style="background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; border-color:${T('rgba(52,211,153,0.2)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">📥 下载</button>
-                                <button class="xy-action-btn" id="xy-btn-quick-kill" style="background:${T('rgba(239,68,68,0.12)','#fef2f2')}; border-color:${T('rgba(239,68,68,0.25)','#fecaca')}; color:${T('#f87171','#dc2626')}; font-weight:700;">⚡ 快速确认</button>
+                                <button class="xy-action-btn" id="xy-btn-download-zone" style="background:${T('rgba(52,211,153,0.1)','#ecfdf5')}; border-color:${T('rgba(52,211,153,0.2)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">下载</button>
+                                <button class="xy-action-btn" id="xy-btn-quick-kill" style="background:${T('rgba(239,68,68,0.12)','#fef2f2')}; border-color:${T('rgba(239,68,68,0.25)','#fecaca')}; color:${T('#f87171','#dc2626')}; font-weight:700;">快速确认</button>
                             </div>
                         </div>
                     </div>
                     <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 12px; margin-bottom:10px; border-radius:10px; border:1px solid var(--xy-border); background:${T('rgba(30,41,59,0.3)','#f8fafc')};">
-                        <span style="font-size:11.5px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">🔇 强制静音</span>
+                        <span style="font-size:11.5px; font-weight:600; color:${T('#e2e8f0','#0f172a')};">强制静音</span>
                         <button id="xy-btn-quick-mute" style="font-size:11px; font-weight:700; padding:4px 12px; border-radius:20px; cursor:pointer; border:none; transition:0.2s; background: ${guardState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0')}; color: ${guardState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b')};">${guardState.hardwareMute ? 'ON' : 'OFF'}</button>
                     </div>
 
@@ -12442,10 +12435,10 @@ var XYExport = (function (Hinote) {  'use strict';
                         <div id="xy-body-engine" style="margin-top: 10px;">
                             <div style="display:flex; gap:8px;">
                             <div id="xy-engine-video" style="flex:1; padding:10px; background:${T('rgba(52,211,153,0.05)','#f0fdf4')}; border:1px solid ${T('rgba(52,211,153,0.15)','#bbf7d0')}; border-radius:8px; transition: opacity 0.3s;">
-                                <div style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; margin-bottom:6px;">📺 视频 <span id="xy-video-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
+                                <div style="font-size:11px; font-weight:600; color:${T('#6ee7b7','#059669')}; margin-bottom:6px;">视频 <span id="xy-video-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
                             </div>
                             <div id="xy-engine-doc" style="flex:1; padding:10px; background:${T('rgba(168,85,247,0.05)','#faf5ff')}; border:1px solid ${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:8px; transition: opacity 0.3s;">
-                                <div style="font-size:11px; font-weight:600; color:${T('#c4b5fd','#7c3aed')}; margin-bottom:4px;">📄 文档 <span id="xy-doc-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
+                                <div style="font-size:11px; font-weight:600; color:${T('#c4b5fd','#7c3aed')}; margin-bottom:4px;">文档 <span id="xy-doc-status" style="font-weight:400; font-size:10px; color:${T('#94a3b8','#64748b')};">待命</span></div>
                                 <div style="width:100%; height:4px; background:${T('rgba(168,85,247,0.15)','#e9d5ff')}; border-radius:2px; margin-bottom:6px; overflow:hidden;"><div id="xy-doc-progress" style="width:0%; height:100%; background:linear-gradient(90deg, #a855f7, #818cf8); transition:width 0.5s ease-out; border-radius:2px;"></div></div>
                             </div>
                         </div>
@@ -12454,19 +12447,19 @@ var XYExport = (function (Hinote) {  'use strict';
                 </div>
 
             <div id="xy-view-disc" style="display:none; flex-shrink: 0;">
-                <div id="xy-disc-status" style="padding: 10px 14px; border-radius: 8px; background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; border: 1px solid var(--xy-border); font-size: 12px; font-weight: 600; margin-bottom: 10px; text-align: center; color: ${T('#94a3b8','#64748b')};">初始化中...</div>
+                <div id="xy-disc-status" style="padding: 10px 14px; border-radius: 8px; background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; border: 1px solid var(--xy-border); font-size: 12px; font-weight: 600; margin-bottom: 10px; text-align: center; color: ${T('#94a3b8','#64748b')};">初始化中</div>
 
                 <div class="xy-panel">
                     <div class="xy-panel-title">
-                        <span>👥 互动名单</span>
+                        <span>互动名单</span>
                         <label style="display: none; cursor: pointer; font-size: 11px; color: ${T('#a5b4fc','#3730a3')}; background: ${T('rgba(99,102,241,0.1)','#e0e7ff')}; padding: 3px 8px; border-radius: 6px; border: 1px solid ${T('rgba(129,140,248,0.2)','#c7d2fe')}; transition: 0.2s;">
                             <input type="checkbox" id="xy-toggle-dom-scan" ${playState.enableDomScan ? 'checked' : ''} style="accent-color: #818cf8; vertical-align: middle; margin-right: 3px; width: 11px; height: 11px;">智能DOM
                         </label>
                     </div>
 
                     <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-                        <button class="xy-mini-btn" id="xy-btn-fetch-users" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; color:${T('#c7d2fe','#4338ca')}; border-color:${T('rgba(129,140,248,0.25)','#c7d2fe')}; flex:1;">🔄 刷新名单</button>
-                        <button class="xy-mini-btn" id="xy-btn-stop-scrape" style="display:none; flex:1; background:${T('rgba(248,113,113,0.15)','#fee2e2')}; color:${T('#f87171','#dc2626')}; border-color:${T('rgba(248,113,113,0.3)','#fecaca')};">⏹ 停止</button>
+                        <button class="xy-mini-btn" id="xy-btn-fetch-users" style="background:${T('rgba(99,102,241,0.2)','#eef2ff')}; color:${T('#c7d2fe','#4338ca')}; border-color:${T('rgba(129,140,248,0.25)','#c7d2fe')}; flex:1;">刷新名单</button>
+                        <button class="xy-mini-btn" id="xy-btn-stop-scrape" style="display:none; flex:1; background:${T('rgba(248,113,113,0.15)','#fee2e2')}; color:${T('#f87171','#dc2626')}; border-color:${T('rgba(248,113,113,0.3)','#fecaca')};">停止</button>
                         <button class="xy-mini-btn" id="xy-btn-clear-names" style="flex:1;">清空全库</button>
                     </div>
 
@@ -12477,7 +12470,7 @@ var XYExport = (function (Hinote) {  'use strict';
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; background: ${T('rgba(30,41,59,0.4)','#f8fafc')}; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--xy-border);">
                         <span style="font-size:11px; color:${T('#94a3b8','#64748b')};">已选 <span id="xy-checked-count" style="font-weight:700; color:${T('#e2e8f0','#0f172a')}; font-size:14px;">0</span> / <span id="xy-total-count">0</span> <span style="color:#f87171; font-size:10px;">上限15</span></span>
                         <div style="display: flex; gap: 4px;">
-                            <span class="xy-mini-btn" id="xy-btn-copy-names" style="padding:3px 8px; font-size:11px;">📋</span>
+                            <span class="xy-mini-btn" id="xy-btn-copy-names" style="padding:3px 8px; font-size:11px;"></span>
                             <span class="xy-mini-btn" id="xy-btn-select-all" style="padding:3px 8px; font-size:11px;">全选</span>
                             <span class="xy-mini-btn" id="xy-btn-deselect-all" style="padding:3px 8px; font-size:11px;">清空</span>
                         </div>
@@ -12486,45 +12479,45 @@ var XYExport = (function (Hinote) {  'use strict';
                     <div id="xy-target-list" style="max-height: 180px; overflow-y: auto; padding: 4px; margin-bottom: 14px; background: ${T('rgba(15,23,42,0.3)','#f8fafc')}; border-radius: 8px; border: 1px solid var(--xy-border);"></div>
 
                     <div style="display:flex; gap:8px; margin-bottom: 8px;">
-                        <button class="xy-action-btn disc-btn" id="xy-btn-like" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1; font-size:12px;">👍 全局盲赞</button>
-                        <button class="xy-action-btn disc-btn" id="xy-btn-target-like" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1.5; font-size:12px;">⚡ 互动选中</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-like" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1; font-size:12px;">全局盲赞</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-target-like" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1.5; font-size:12px;">互动选中</button>
                     </div>
                     <div style="display:flex; gap:8px;">
-                        <button class="xy-action-btn disc-btn" id="xy-btn-reply" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1; font-size:12px;">💬 全局盲回</button>
-                        <button class="xy-action-btn disc-btn" id="xy-btn-target-reply" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1.5; font-size:12px;">🎯 回复选中</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-reply" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1; font-size:12px;">全局盲回</button>
+                        <button class="xy-action-btn disc-btn" id="xy-btn-target-reply" style="background:${T('rgba(51,65,85,0.5)','#f1f5f9')}; flex:1.5; font-size:12px;">回复选中</button>
                     </div>
 
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding: 10px 14px; background: ${T('rgba(99,102,241,0.04)','#eef2ff')}; border: 1px solid ${T('rgba(129,140,248,0.12)','#c7d2fe')}; border-radius: 8px;">
                         <label style="font-size:12px; font-weight:600; color:${T('#a5b4fc','#3730a3')}; cursor:pointer; display:flex; align-items:center; gap:6px;">
-                            <input type="checkbox" id="xy-toggle-custom-reply" ${discState.useCustomReply ? 'checked' : ''} style="accent-color:#818cf8; width:14px; height:14px; cursor:pointer;"> 自定义语料
+                            <input type="checkbox" id="xy-toggle-custom-reply" ${discState.useCustomReply ? 'checked' : ''} style="accent-color:#818cf8; width:14px; height:14px; cursor:pointer;">自定义语料
                         </label>
-                        <button class="xy-mini-btn" id="xy-btn-edit-reply" style="font-size:11px; padding: 5px 10px;">⚙️ 语料库</button>
+                        <button class="xy-mini-btn" id="xy-btn-edit-reply" style="font-size:11px; padding: 5px 10px;">语料库</button>
                     </div>
                 </div>
             </div>
 
             <div id="xy-view-download" style="display:none; flex-shrink: 0;">
-                <div id="xy-dl-status" style="padding: 10px 14px; border-radius: 8px; background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; border: 1px solid var(--xy-border); font-size: 12px; font-weight: 600; margin-bottom: 10px; text-align: center; color: ${T('#94a3b8','#64748b')};">📥 课件资源加载中...</div>
+                <div id="xy-dl-status" style="padding: 10px 14px; border-radius: 8px; background: ${T('rgba(30,41,59,0.5)','#f8fafc')}; border: 1px solid var(--xy-border); font-size: 12px; font-weight: 600; margin-bottom: 10px; text-align: center; color: ${T('#94a3b8','#64748b')};">课件资源加载中</div>
                 <div class="xy-panel">
                     <div class="xy-panel-title">
-                        <span id="xy-dl-course-name">📦 课件资源</span>
+                        <span id="xy-dl-course-name">课件资源</span>
                         <div style="display:flex; gap:6px;">
                             <button class="xy-mini-btn" id="xy-dl-back" style="padding:3px 10px; font-size:11px;">↩ 返回</button>
-                            <button class="xy-mini-btn" id="xy-dl-refresh" style="padding:3px 10px; font-size:11px;">🔄 刷新</button>
+                            <button class="xy-mini-btn" id="xy-dl-refresh" style="padding:3px 10px; font-size:11px;">刷新</button>
                         </div>
                     </div>
                     <div style="margin-bottom: 10px;">
-                        <input type="text" id="xy-dl-search" class="xy-input-box" placeholder="🔍 搜索文件名..." style="text-align: left; padding: 8px 12px; width: 100%; box-sizing: border-box;">
+                        <input type="text" id="xy-dl-search" class="xy-input-box" placeholder="搜索文件名" style="text-align: left; padding: 8px 12px; width: 100%; box-sizing: border-box;">
                     </div>
                     <div style="display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px;" id="xy-dl-type-filter"></div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 11px; color: ${T('#94a3b8','#64748b')};">
                         <span id="xy-dl-file-count">0 个文件</span>
                         <select id="xy-dl-sort" class="xy-input-box" title="排序方式" style="width:auto; max-width:150px; padding:4px 6px; font-size:11px; text-align:left;">
-                            <option value="unit">📂 单元顺序</option>
-                            <option value="time_desc">🕐 上传时间 新→旧</option>
-                            <option value="time_asc">🕐 上传时间 旧→新</option>
-                            <option value="name_asc">🔤 文件名 A→Z</option>
-                            <option value="name_desc">🔤 文件名 Z→A</option>
+                            <option value="unit">单元顺序</option>
+                            <option value="time_desc">上传时间 新→旧</option>
+                            <option value="time_asc">上传时间 旧→新</option>
+                            <option value="name_asc">文件名 A→Z</option>
+                            <option value="name_desc">文件名 Z→A</option>
                         </select>
                     </div>
                     <div style="max-height:200px; overflow:auto; margin-bottom:8px;" id="xy-dl-file-list">
@@ -12543,17 +12536,17 @@ var XYExport = (function (Hinote) {  'use strict';
                             <div id="xy-dl-progress-bar" class="xy-dl-progress-fill"></div>
                         </div>
                         <div class="xy-dl-progress-foot">
-                            <span id="xy-dl-progress-detail" class="xy-dl-progress-detail">等待开始…</span>
+                            <span id="xy-dl-progress-detail" class="xy-dl-progress-detail">等待开始</span>
                             <div class="xy-dl-progress-actions">
-                                <button class="xy-mini-btn xy-dl-progress-action" id="xy-dl-pause" style="display:none;" title="暂停下载">⏸ 暂停</button>
-                                <button class="xy-mini-btn xy-dl-progress-action xy-dl-stop" id="xy-dl-stop" style="display:none;" title="终止下载">⏹ 终止</button>
+                                <button class="xy-mini-btn xy-dl-progress-action" id="xy-dl-pause" style="display:none;" title="暂停下载">暂停</button>
+                                <button class="xy-mini-btn xy-dl-progress-action xy-dl-stop" id="xy-dl-stop" style="display:none;" title="终止下载">终止</button>
                             </div>
                         </div>
                     </div>
                     <div style="display:flex; gap:8px;">
                         <button class="xy-mini-btn" id="xy-dl-select-all" style="flex:1;">全选</button>
                         <button class="xy-mini-btn" id="xy-dl-deselect-all" style="flex:1;">清空</button>
-                        <button class="xy-action-btn" id="xy-dl-batch-download" style="flex:1.5; background:${T('rgba(52,211,153,0.12)','#ecfdf5')}; border-color:${T('rgba(52,211,153,0.25)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">⬇️ 下载选中</button>
+                        <button class="xy-action-btn" id="xy-dl-batch-download" style="flex:1.5; background:${T('rgba(52,211,153,0.12)','#ecfdf5')}; border-color:${T('rgba(52,211,153,0.25)','#a7f3d0')}; color:${T('#6ee7b7','#059669')};">下载选中</button>
                     </div>
                 </div>
             </div>
@@ -12563,12 +12556,12 @@ var XYExport = (function (Hinote) {  'use strict';
                 <div style="display:flex; align-items:center; gap:9px; padding:11px 14px; border-radius:10px; background: ${T('rgba(6,182,212,0.07)','#f0f9ff')}; border: 1px solid ${T('rgba(6,182,212,0.18)','#bae6fd')}; margin-bottom:10px;">
                     <span style="width:8px; height:8px; border-radius:99px; background:#22d3ee; box-shadow:0 0 10px rgba(34,211,238,.6); flex-shrink:0;"></span>
                     <span style="font-size:12.5px; font-weight:700; color:${T('#e2e8f0','#0f172a')};">作业查看台</span>
-                    <span id="xy-hw-status" style="margin-left:auto; font-size:10px; color:${T('#94a3b8','#64748b')};">等待题目数据...</span>
+                    <span id="xy-hw-status" style="margin-left:auto; font-size:10px; color:${T('#94a3b8','#64748b')};">等待题目数据</span>
                 </div>
                 <!-- 分段切换：题目与批改 / 结果 -->
                 <div style="display:flex; gap:4px; padding:4px; border-radius:10px; background:${T('rgba(15,23,42,0.4)','#eef2f7')}; border:1px solid ${T('rgba(71,85,105,0.25)','#dbe4ee')}; margin-bottom:10px;">
-                    <button id="xy-hw-tab-answer" type="button" style="flex:1; border:none; background:${T('#0e7490','#0ea5e9')}; color:#fff; font-size:12px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer;">📋 题目与批改</button>
-                    <button id="xy-hw-tab-result" type="button" style="flex:1; border:none; background:transparent; color:${T('#94a3b8','#64748b')}; font-size:12px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer;">📊 结果</button>
+                    <button id="xy-hw-tab-answer" type="button" style="flex:1; border:none; background:${T('#0e7490','#0ea5e9')}; color:#fff; font-size:12px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer;">题目与批改</button>
+                    <button id="xy-hw-tab-result" type="button" style="flex:1; border:none; background:transparent; color:${T('#94a3b8','#64748b')}; font-size:12px; font-weight:600; padding:7px 0; border-radius:7px; cursor:pointer;">结果</button>
                 </div>
                 <!-- 题目与批改面板 -->
                 <div id="xy-hw-pane-answer">
@@ -12580,10 +12573,10 @@ var XYExport = (function (Hinote) {  'use strict';
                         <textarea id="xy-hw-ai-input" placeholder="1 => A&#10;2 => B,C&#10;3 => const | let&#10;10 => A:a,d | B:b,c" style="width:100%; min-height:96px; resize:vertical; border:none; background:transparent; color:${T('#dde6f2','#0f172a')}; font:12px/1.6 Consolas, Monaco, monospace; padding:11px 12px; outline:none; box-sizing:border-box;"></textarea>
                     </div>
                     <div style="display:flex; gap:8px; margin-top:12px;">
-                        <button class="xy-action-btn" id="xy-hw-copy-btn" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(6,182,212,0.1)','#e0f2fe')}; border-color:${T('rgba(6,182,212,0.25)','#bae6fd')}; color:${T('#67e8f9','#0e7490')};">📤 提取题目模板</button>
-                        <button class="xy-action-btn" id="xy-hw-save-btn" style="flex:1.4; min-height:36px; font-size:12px; background:linear-gradient(135deg,#06b6d4,#0891b2); border-color:transparent; color:#fff;">🚀 提交并保存</button>
+                        <button class="xy-action-btn" id="xy-hw-copy-btn" style="flex:1; min-height:36px; font-size:12px; background:${T('rgba(6,182,212,0.1)','#e0f2fe')}; border-color:${T('rgba(6,182,212,0.25)','#bae6fd')}; color:${T('#67e8f9','#0e7490')};">提取题目模板</button>
+                        <button class="xy-action-btn" id="xy-hw-save-btn" style="flex:1.4; min-height:36px; font-size:12px; background:linear-gradient(135deg,#06b6d4,#0891b2); border-color:transparent; color:#fff;">提交并保存</button>
                     </div>
-                    <div style="font-size:10px; color:${T('#64748b','#94a3b8')}; text-align:center; margin-top:10px;">格式：题号 => 答案 · 提交后自动刷新成绩</div>
+                    <div style="font-size:10px; color:${T('#64748b','#94a3b8')}; text-align:center; margin-top:10px;">格式：题号 =>答案 · 提交后自动刷新成绩</div>
                     ${xyExpPanelHTML()}
                 </div>
                 <!-- 结果面板 -->
@@ -12593,27 +12586,27 @@ var XYExport = (function (Hinote) {  'use strict';
             </div>
 
             <div id="xy-sys-ctrl" class="xy-panel" style="background:${T('rgba(30,41,59,0.3)','#f8fafc')}; border-style:dashed; padding:7px 10px; margin-bottom:6px; display:flex; align-items:center; gap:9px;">
-                <span style="font-weight:600; font-size:11px; color:${T('#94a3b8','#475569')}; flex-shrink:0;" title="系统控制">⚙ 系统</span>
-                <label style="font-size:10.5px; cursor:pointer; color:${T('#94a3b8','#64748b')}; font-weight:600; display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="toggle-refresh-panel" ${settingsState.showRefreshPanel ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 重载视窗</label>
-                <label style="font-size:10.5px; cursor:pointer; color:${T('#94a3b8','#64748b')}; font-weight:600; display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="toggle-terminal" ${settingsState.showTerminal ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;"> 终端</label>
+                <span style="font-weight:600; font-size:11px; color:${T('#94a3b8','#475569')}; flex-shrink:0;" title="系统控制">系统</span>
+                <label style="font-size:10.5px; cursor:pointer; color:${T('#94a3b8','#64748b')}; font-weight:600; display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="toggle-refresh-panel" ${settingsState.showRefreshPanel ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;">重载视窗</label>
+                <label style="font-size:10.5px; cursor:pointer; color:${T('#94a3b8','#64748b')}; font-weight:600; display:flex; align-items:center; gap:3px; white-space:nowrap;"><input type="checkbox" id="toggle-terminal" ${settingsState.showTerminal ? 'checked' : ''} style="width:12px; height:12px; accent-color:#64748b; cursor:pointer;">终端</label>
                 <div style="display:flex; gap:6px; align-items:center; margin-left:auto; flex-shrink:0;">
-                    <button class="xy-mini-btn" id="btn-clear-logs" title="清空终端日志" style="font-size:10.5px; padding:4px 8px;">🧹 日志</button>
-                    <button class="xy-mini-btn" id="btn-clear-progress" title="重置学习时长统计" style="font-size:10.5px; padding:4px 8px; color:#f87171; border-color:${T('rgba(248,113,113,0.2)','#fecaca')}; background:${T('rgba(248,113,113,0.08)','#fef2f2')};">⏱ 时长</button>
+                    <button class="xy-mini-btn" id="btn-clear-logs" title="清空终端日志" style="font-size:10.5px; padding:4px 8px;">日志</button>
+                    <button class="xy-mini-btn" id="btn-clear-progress" title="重置学习时长统计" style="font-size:10.5px; padding:4px 8px; color:#f87171; border-color:${T('rgba(248,113,113,0.2)','#fecaca')}; background:${T('rgba(248,113,113,0.08)','#fef2f2')};">时长</button>
                 </div>
             </div>
 
             <div id="xy-bottom-containers" style="margin-top: auto; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; margin-bottom: 6px;">
                 <div id="xy-md-home-container" class="xy-panel" style="background:${T('rgba(30,41,59,0.3)','#f8fafc')}; border-color:${T('rgba(71,85,105,0.3)','#e2e8f0')};">
-                    <div style="font-size: 11px; color: ${T('#94a3b8','#475569')}; font-weight: 600; margin-bottom: 8px;">📝 Markdown 转换（粘贴文本 → 导出 Word）</div>
+                    <div style="font-size: 11px; color: ${T('#94a3b8','#475569')}; font-weight: 600; margin-bottom: 8px;"> Markdown 转换（粘贴文本 → 导出 Word）</div>
                     <div id="xy-md-home"></div>
                 </div>
                 <div id="xy-refresh-container" style="display: ${settingsState.showRefreshPanel ? 'block' : 'none'}; background: ${T('rgba(251,191,36,0.06)','#fffbeb')}; padding: 12px 16px; border-radius: 10px; border: 1px solid ${T('rgba(251,191,36,0.15)','#fde68a')};">
-                    <div style="font-size: 11px; color: ${T('#fcd34d','#92400e')}; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">⏳ 动态重载调度</div>
+                    <div style="font-size: 11px; color: ${T('#fcd34d','#92400e')}; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">动态重载调度</div>
                     <div id="xy-refresh-status" style="font-size: 12px; color: ${T('#fbbf24','#92400e')}; font-weight: 600; font-family: monospace;">目前无重载任务</div>
                 </div>
 
                 <div id="xy-terminal-container" style="display: ${settingsState.showTerminal ? 'block' : 'none'}; background: ${T('rgba(0,0,0,0.5)','#f1f5f9')}; padding: 12px; border-radius: 10px; border: 1px solid ${T('rgba(71,85,105,0.3)','#e2e8f0')};">
-                    <div style="font-size: 11px; color: ${T('#64748b','#475569')}; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;"><span style="color:${T('#34d399','#059669')}; font-family:monospace; font-size:13px;">❯</span> 终端</div>
+                    <div style="font-size: 11px; color: ${T('#64748b','#475569')}; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;"><span style="color:${T('#34d399','#059669')}; font-family:monospace; font-size:13px;">❯</span>终端</div>
                     <div id="xy-activity-log" style="height: 110px; overflow-y: auto; font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace; font-size: 11px; display: flex; flex-direction: column; color: ${T('#34d399','#059669')}; padding-right: 4px; line-height: 1.6;"></div>
                 </div>
             </div>
@@ -12691,8 +12684,8 @@ var XYExport = (function (Hinote) {  'use strict';
             logBox.scrollTop = logBox.scrollHeight;
         } else {
             logMsg('=============================', 'silent', true);
-            logMsg('任务总览 已就绪', 'info', false);
-            logMsg('📡 任务总览网持续扫描中...', 'silent', true);
+            logMsg( '任务总览已就绪', 'info', true );
+            logMsg( '任务总览扫描中 · 10 秒一次', 'silent', true );
         }
 
         /* ── §5 事件装配：控件绑定委托给 xyBindPanelEvents ── */
@@ -12893,7 +12886,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 btnQuickMute.style.background = guardState.hardwareMute ? T('rgba(52,211,153,0.2)','#d1fae5') : T('rgba(71,85,105,0.2)','#e2e8f0');
                 btnQuickMute.style.color = guardState.hardwareMute ? T('#34d399','#065f46') : T('#94a3b8','#64748b');
                 document.querySelectorAll('video, audio').forEach(m => { m.muted = guardState.hardwareMute; });
-                logMsg(`🔕 底层音轨强制拦截引擎已${guardState.hardwareMute ? '启动' : '关闭'}！`, guardState.hardwareMute ? 'success' : 'warning', false);
+                logMsg( `底层音轨拦截已${guardState.hardwareMute ? '启动' : '关闭'}`, guardState.hardwareMute ? 'success' : 'warning', false );
             };
         }
 
@@ -12917,18 +12910,18 @@ var XYExport = (function (Hinote) {  'use strict';
             };
         }
 
-        xySafeEl('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg('🧹 终端日志已清空', 'silent', true); };
-        xySafeEl('btn-clear-progress').onclick = () => { recState.recordCount = 0; recState.totalTime = 0; recState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg('🗑️ 时长记录归零', 'error', false); };
+        xySafeEl('btn-clear-logs').onclick = () => { sessionLogs = []; sessionStorage.removeItem('xy_session_logs'); const box = document.getElementById('xy-activity-log'); if(box) box.innerHTML = ''; logMsg( '终端日志已清空', 'silent', true ); };
+        xySafeEl('btn-clear-progress').onclick = () => { recState.recordCount = 0; recState.totalTime = 0; recState.realTime = 0; sessionStorage.removeItem('xy_recordCount'); sessionStorage.removeItem('xy_totalTime'); sessionStorage.removeItem('xy_realTime'); updateCourseUI(); logMsg( '时长记录已归零', 'error', false ); };
 
         xySafeEl('btn-mode-man').onclick = () => {
             if (xyScheduleState.isRunning) { xySchStop(); }
             playState.mode = PLAY_MODE.MANUAL;
             GM_setValue('xy_play_mode', PLAY_MODE.MANUAL);
             clearDynamicRefresh();
-            logMsg('已暂停：所有调度、重载与自动跳转已终止（手动模式下引擎不再自主切换课程）', 'success');
+            logMsg( '已暂停 · 调度与自动跳转全部终止', 'success' );
             updateCourseUI();
         };
-        xySafeEl('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('⚠️ 无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg('安全循环模式开启', 'success'); updateCourseUI(); globalTaskStatusChecker(true); };
+        xySafeEl('btn-mode-loop').onclick = () => { if (!getCourseGroupId() || !getNodeId()) { xyShowModal('无法开启', '请进入具体的视频或文档内容页后再开启'); return; } if (xyScheduleState.isRunning) { xySchStop(); } playState.mode = PLAY_MODE.LOOP; GM_setValue('xy_play_mode', PLAY_MODE.LOOP); logMsg( '安全循环模式已开启', 'success' ); updateCourseUI(); globalTaskStatusChecker(true); };
         xySafeEl('btn-mode-seq').onclick = () => { oneClickRadarPlay(); };
 
         // 防休眠/后台保活/活动保持/状态保持 UI 已删除——引擎按默认状态自动运行，无手动开关
@@ -12981,19 +12974,19 @@ var XYExport = (function (Hinote) {  'use strict';
 
         const hwSaveBtn = document.getElementById('xy-hw-save-btn');
         if (hwSaveBtn) hwSaveBtn.onclick = async () => {
-            if (!hwQuestionsData.length) { logMsg('还没有读取到题目数据，无法保存','error'); return; }
+            if (!hwQuestionsData.length) { logMsg( '未读取到题目数据 · 无法保存', 'error' ); return; }
             const aiText = document.getElementById('xy-hw-ai-input')?.value || '';
-            if (!aiText.trim()) { logMsg('请先在下方输入 AI 返回的答案','warning'); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
-            hwSaveBtn.disabled = true; hwSaveBtn.textContent = '⏳ 正在保存...';
-            try { await hwSaveAnswers(aiText); } catch(e) { logMsg('保存异常：'+e.message,'error'); }
-            hwSaveBtn.disabled = false; hwSaveBtn.textContent = '🚀 提交并保存';
+            if (!aiText.trim()) { logMsg( '请先输入 AI 返回的答案', 'warning' ); showToast('请先粘贴 AI 返回的答案', 'warning'); return; }
+            hwSaveBtn.disabled = true; hwSaveBtn.textContent = '正在保存';
+            try { await hwSaveAnswers(aiText); } catch(e) { logMsg( '保存异常 · ' + e.message, 'error' ); }
+            hwSaveBtn.disabled = false; hwSaveBtn.textContent = '提交并保存';
         };
 
         /* §15 统一导出面板事件绑定（幂等） */
         xyExpBindPanel();
 
         const toggleDomScan = document.getElementById('xy-toggle-dom-scan');
-        if(toggleDomScan) { toggleDomScan.onchange = (e) => { playState.enableDomScan = e.target.checked; logMsg(e.target.checked ? '✅ 智能DOM提取已开启' : '⏸️ 智能DOM提取已暂停', 'info', true); }; }
+        if(toggleDomScan) { toggleDomScan.onchange = (e) => { playState.enableDomScan = e.target.checked; logMsg( e.target.checked ? '智能提取已开启' : '智能提取已暂停', 'info', true ); }; }
 
         const toggleCustomReply = document.getElementById('xy-toggle-custom-reply');
         if(toggleCustomReply) { toggleCustomReply.onchange = (e) => { discState.useCustomReply = e.target.checked; GM_setValue('xy_use_custom_reply', discState.useCustomReply); }; }
@@ -13061,7 +13054,7 @@ var XYExport = (function (Hinote) {  'use strict';
         xySafeEl('xy-dl-pause').onclick = () => {
             dlState.downloadPaused = !dlState.downloadPaused;
             setDownloadButtonsState(true, dlState.downloadPaused);
-            logMsg(dlState.downloadPaused ? '⏸️ 下载已暂停' : '▶️ 下载已继续', 'info', true);
+            logMsg( dlState.downloadPaused ? '下载已暂停' : '下载已继续', 'info', true );
         };
         xySafeEl('xy-dl-back').onclick = () => {
             switchToZone(playState.prevZone || ZONE.COURSE);
@@ -13113,7 +13106,7 @@ var XYExport = (function (Hinote) {  'use strict';
             for(let i = 0; i < Math.min(discState.targetNames.length, 15); i++) { discState.selectedNames.add(discState.targetNames[i]); }
             renderTargetList(document.getElementById('xy-name-search')?.value || '');
             showToast('已全选前 15 名 · 已达上限', 'success');
-            logMsg('已全选（触发互动安全人数限制：最多15人）', 'silent', true); 
+            logMsg( '已全选 · 上限 15 人', 'silent', true ); 
         };
         xySafeEl('xy-btn-deselect-all').onclick = () => { 
             discState.selectedNames.clear(); renderTargetList(document.getElementById('xy-name-search')?.value || ''); logMsg('已清空勾选', 'silent', true); 
@@ -13138,7 +13131,7 @@ var XYExport = (function (Hinote) {  'use strict';
                 playState.enableDomScan = false;
                 const toggle = document.getElementById('xy-toggle-dom-scan');
                 if(toggle) toggle.checked = false;
-                logMsg('已清空全库 (已自动暂停智能DOM提取防回弹)', 'silent', true); 
+                logMsg( '已清空全库 · 智能提取已暂停', 'silent', true ); 
             } else {
                 logMsg('已清空名单库', 'silent', true); 
             }
@@ -13618,7 +13611,7 @@ var XYExport = (function (Hinote) {  'use strict';
         setTimeout(() => xyUpdateAutoCheck(), 2500);
         /* 注：此处**不再**无条件复位 isTaskCompleted。
          *
-         * 曾有一版写成 `playState.isTaskCompleted = false;`，理由是「面板中途被重建时避免
+         * 曾有一版写成`playState.isTaskCompleted = false;`，理由是「面板中途被重建时避免
          * 新面板沿用旧达标态」。经审查该理由不成立，且代码有害：
          *
          *  1) 不可达：本函数开头有幂等守卫
@@ -13627,7 +13620,7 @@ var XYExport = (function (Hinote) {  'use strict';
          *  2) 空操作：若真能走到，说明面板此前不存在（首次构建），isTaskCompleted 本就是
          *     初值 false，复位没有意义。
          *  3) 有害：若在「引擎已确认达标」后被执行，引擎所有入口都有
-         *     `if (!playState.isTaskCompleted)` 门不会被重新触发，而调度 tick 读同一字段
+         *     `if (!playState.isTaskCompleted)`门不会被重新触发，而调度 tick 读同一字段
          *     判 isDone → **调度永久卡在当前项**。与已修复的「预置达标」缺陷同类。
          *
          * 若将来确需处理 UI/引擎达标态错位，应在引擎侧以服务端确认为唯一真源对齐，
@@ -13772,7 +13765,7 @@ var XYExport = (function (Hinote) {  'use strict';
  *    自 Gitee 资产库），LaTeX 公式转 Word 原生 OMML，图片走 GM 特权抓取
  *    （复用 §11 hwFetchImageBlob）；
  *    转换面板常驻主控台底部固定区域（xy-bottom-containers，随 tab 切换始终可见）；
-     * D. 「🖥 预览转 PDF」（v3.7.5 纯前端，课件转 PDF 唯一入口）：桥接当前
+     * D. 「 预览转 PDF」（v3.7.5 纯前端，课件转 PDF 唯一入口）：桥接当前
      *    OW365 预览 iframe，合成 Ctrl+P 触发永中服务端转换 → 抓 printhandler
      *    链接取回 PDF，跨域 postMessage 传 ArrayBuffer，零本地依赖。
      * [DEEP-DOC]
@@ -13813,7 +13806,7 @@ var XYExport = (function (Hinote) {  'use strict';
                             try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) targets.push(unsafeWindow); } catch (e) {}
                             for (const t of targets) { try { if (t && t[globalName]) { lib = t[globalName]; break; } } catch (e) {} }
                             if (lib) return resolve(lib);
-                            retry(globalName + ' 未挂载（' + r.responseText.length + 'B 已执行但未注册全局）');
+                            retry(globalName + '未挂载（' + r.responseText.length + 'B 已执行但未注册全局）');
                         } catch (e) { retry('库代码执行失败: ' + (e.message || e)); }
                     },
                     onerror: () => retry('网络错误（检查代理/网络）'),
@@ -13867,11 +13860,11 @@ var XYExport = (function (Hinote) {  'use strict';
         if (!md.trim()) { showToast('请先粘贴 Markdown 内容', 'warning'); return; }
         const btn = document.getElementById('xy-md-to-docx' + sfx);
         const fname = xyMdFname(sfx);
-        if (btn) { btn.disabled = true; btn.textContent = '⏳ 转换中…'; }
-        xyMdSetStatus('正在加载转换引擎（首次约 1MB，之后有缓存）…', null, sfx);
+        if (btn) { btn.disabled = true; btn.textContent = '转换中'; }
+        xyMdSetStatus('正在加载转换引擎（首次约 1MB，之后有缓存）', null, sfx);
         try {
             const E = await xyMdLoadLib(XYMD.BUNDLE_URL, 'XyMdEngine');
-            xyMdSetStatus('正在生成 Word 文档…', null, sfx);
+            xyMdSetStatus('正在生成 Word 文档', null, sfx);
             const opts = { output: 'blob', title: fname, creator: '小雅辅助工具', imageResolver: xyMdImageResolver };
             let blob;
             try {
@@ -13884,14 +13877,14 @@ var XYExport = (function (Hinote) {  'use strict';
             const _saveAs = (typeof saveAs === 'function') ? saveAs : window.saveAs;
             if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
             _saveAs(blob, fname + '.docx');
-            xyMdSetStatus('✅ Word 已导出：' + fname + '.docx', T('#6ee7b7', '#059669'), sfx);
-            logMsg('📄 Markdown 已导出 Word: ' + fname + '.docx', 'success', true);
+            xyMdSetStatus('Word 已导出：' + fname + '.docx', T('#6ee7b7', '#059669'), sfx);
+            logMsg( '已导出 Word · ' + fname + '.docx', 'success', true );
         } catch (e) {
             console.warn('[小雅] MD→Word 失败:', e);
-            xyMdSetStatus('❌ Word 导出失败：' + (e.message || e), T('#f87171', '#dc2626'), sfx);
+            xyMdSetStatus('Word 导出失败：' + (e.message || e), T('#f87171', '#dc2626'), sfx);
             showToast('Word 导出失败：' + (e.message || e), 'error');
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '📄 导出 Word'; }
+            if (btn) { btn.disabled = false; btn.textContent = '导出 Word'; }
         }
     }
 
@@ -14109,7 +14102,7 @@ var XYExport = (function (Hinote) {  'use strict';
         });
     }
 
-    /** 多选批量转 PDF 主流程（「🖥 转 PDF」按钮）：勾选 Office 课件 → 逐个隐藏
+    /** 多选批量转 PDF 主流程（「 转 PDF」按钮）：勾选 Office 课件 → 逐个隐藏
      * iframe 开 OW365 会话服务端转换 → PDF 逐个落盘；勾选 PDF → 不进桥，直接
      * 签发下载直链原样下载（目标格式就是它本身）。无勾选时退化为转当前预览。
      * 全程浏览器内完成，零本地依赖，任何用户可用。 [DEEP-DOC]
@@ -14137,8 +14130,8 @@ var XYExport = (function (Hinote) {  'use strict';
                 for (let i = 0; i < targets.length; i++) {
                     const f = targets[i];
                     const isPdf = pdfRe.test(String(f.name || ''));
-                    if (btn) btn.textContent = '⏳ ' + (isPdf ? '下载 ' : '转换 ') + (i + 1) + '/' + targets.length + '…';
-                    logMsg('🖥 (' + (i + 1) + '/' + targets.length + ') ' + (isPdf ? 'PDF 直下: ' : '正在转换: ') + f.name, 'info', true);
+                    if (btn) btn.textContent = '' + (isPdf ? '下载' : '转换') + (i + 1) + '/' + targets.length + '';
+                    logMsg( '(' + (i + 1) + '/' + targets.length + ') ' + (isPdf ? '直下 PDF · ' : '转换中 · ') + f.name, 'info', true );
                     try {
                         if (isPdf) {
                             /* PDF 本身就是目标格式：走既有下载链（签发直链 + 落盘），原文件保存 */
@@ -14146,22 +14139,22 @@ var XYExport = (function (Hinote) {  'use strict';
                             if (!u) throw new Error('下载地址签发失败');
                             await downloadFile(u, f.name, null);
                             okCnt++;
-                            logMsg('✅ PDF 已下载: ' + f.name, 'success', true);
+                            logMsg( '已下载 PDF · ' + f.name, 'success', true );
                         } else {
                             const r = await xyOw365ConvertOne(f);
                             const name = String(f.name || '课件').replace(/\.[^.]+$/, '') + '.pdf';
                             _saveAs(new Blob([r.buf], { type: 'application/pdf' }), name);
                             okCnt++;
-                            logMsg('✅ 已转 PDF: ' + name, 'success', true);
+                            logMsg( '已转 PDF · ' + name, 'success', true );
                         }
                     } catch (e) {
                         failCnt++;
-                        logMsg('❌ ' + (isPdf ? '下载失败: ' : '转换失败: ') + f.name + ' (' + (e.message || e) + ')', 'error', true);
+                        logMsg( (isPdf ? '下载失败 · ' : '转换失败 · ') + f.name + '（' + (e.message || e) + '）', 'error', true );
                     }
                     await sleep(800);
                 }
-                showToast('转换完成 · 成功 ' + okCnt + (failCnt ? ' · 失败 ' + failCnt : ''), okCnt ? 'success' : 'error');
-                logMsg('🖥 批量转 PDF 结束（成功 ' + okCnt + (failCnt ? ' · 失败 ' + failCnt : '') + '）', okCnt ? 'success' : 'error', true);
+                showToast('转换完成 · 成功' + okCnt + (failCnt ? ' · 失败' + failCnt : ''), okCnt ? 'success' : 'error');
+                logMsg( '批量转 PDF 完成 · 成功' + okCnt + (failCnt ? ' · 失败' + failCnt : ''), okCnt ? 'success' : 'error', true );
             } else {
                 /* 单文件模式：转当前预览（无勾选时） */
                 const r = await xyBridgeConvertCurrentPdf();
@@ -14170,13 +14163,13 @@ var XYExport = (function (Hinote) {  'use strict';
                 if (!_saveAs) throw new Error('FileSaver 未就绪，请刷新页面重试');
                 _saveAs(new Blob([r.buf], { type: 'application/pdf' }), name);
                 showToast('已导出 PDF · ' + name, 'success');
-                logMsg('🖥 课件预览已转 PDF（OW365 服务端转换 · 纯前端）: ' + name, 'success', true);
+                logMsg( '已转 PDF · OW365 服务端转换 · ' + name, 'success', true );
             }
         } catch (e) {
             showToast('转 PDF 失败：' + (e.message || e), 'error');
-            logMsg('❌ 转 PDF 失败: ' + (e.message || e), 'error', true);
+            logMsg( '转 PDF 失败 · ' + (e.message || e), 'error', true );
         } finally {
-            if (btn) { btn.disabled = false; btn.textContent = '🖥 转 PDF'; }
+            if (btn) { btn.disabled = false; btn.textContent = '转 PDF'; }
         }
     }
 
@@ -14193,12 +14186,12 @@ var XYExport = (function (Hinote) {  'use strict';
         wrap.id = 'xy-md-toolbox' + sfx;
         wrap.innerHTML =
             '<div style="margin-top:10px;">' +
-            '<button class="xy-action-btn" id="xy-md-toggle' + sfx + '" type="button" style="width:100%; min-height:34px; font-size:12px; background:' + T('rgba(168,85,247,0.1)', '#faf5ff') + '; border-color:' + T('rgba(168,85,247,0.28)', '#e9d5ff') + '; color:' + T('#d8b4fe', '#7e22ce') + ';">📝 Markdown 转换（Word）</button>' +
+            '<button class="xy-action-btn" id="xy-md-toggle' + sfx + '" type="button" style="width:100%; min-height:34px; font-size:12px; background:' + T('rgba(168,85,247,0.1)', '#faf5ff') + '; border-color:' + T('rgba(168,85,247,0.28)', '#e9d5ff') + '; color:' + T('#d8b4fe', '#7e22ce') + ';"> Markdown 转换（Word）</button>' +
             '<div id="xy-md-panel' + sfx + '" style="display:none; margin-top:8px; padding:11px; border:1px solid ' + bd + '; border-radius:11px; background:' + bg + ';">' +
-            '<textarea id="xy-md-input' + sfx + '" placeholder="粘贴 Markdown 文本（支持 # 标题、**加粗**、表格、代码块、$公式$、![图片](url)）…" style="width:100%; box-sizing:border-box; min-height:140px; resize:vertical; padding:8px 10px; font-size:12px; font-family:Consolas,monospace; line-height:1.6; border-radius:8px; border:1px solid ' + bd + '; background:' + T('rgba(15,23,42,0.5)', '#f8fafc') + '; color:' + tx + '; outline:none;"></textarea>' +
+            '<textarea id="xy-md-input' + sfx + '" placeholder="粘贴 Markdown 文本（支持 # 标题、**加粗**、表格、代码块、$公式$、![图片](url)）" style="width:100%; box-sizing:border-box; min-height:140px; resize:vertical; padding:8px 10px; font-size:12px; font-family:Consolas,monospace; line-height:1.6; border-radius:8px; border:1px solid ' + bd + '; background:' + T('rgba(15,23,42,0.5)', '#f8fafc') + '; color:' + tx + '; outline:none;"></textarea>' +
             '<input id="xy-md-fname' + sfx + '" placeholder="文件名（默认：Markdown 导出）" style="width:100%; box-sizing:border-box; margin-top:8px; padding:6px 9px; font-size:11.5px; border-radius:7px; border:1px solid ' + bd + '; background:' + T('rgba(15,23,42,0.5)', '#f8fafc') + '; color:' + tx + '; outline:none;">' +
             '<div style="display:flex; gap:8px; margin-top:8px;">' +
-            '<button class="xy-action-btn" id="xy-md-to-docx' + sfx + '" type="button" style="flex:1.2; background:' + T('rgba(168,85,247,0.14)', '#f3e8ff') + '; border-color:' + T('rgba(168,85,247,0.3)', '#d8b4fe') + '; color:' + T('#d8b4fe', '#7e22ce') + ';">📄 导出 Word</button>' +
+            '<button class="xy-action-btn" id="xy-md-to-docx' + sfx + '" type="button" style="flex:1.2; background:' + T('rgba(168,85,247,0.14)', '#f3e8ff') + '; border-color:' + T('rgba(168,85,247,0.3)', '#d8b4fe') + '; color:' + T('#d8b4fe', '#7e22ce') + ';">导出 Word</button>' +
             '<button class="xy-mini-btn" id="xy-md-clear' + sfx + '" type="button" style="flex:.5;">清空</button>' +
             '</div>' +
             '<div id="xy-md-status' + sfx + '" style="margin-top:7px; font-size:11px; color:' + tx2 + '; min-height:15px; line-height:1.5;"></div>' +
@@ -14223,7 +14216,7 @@ var XYExport = (function (Hinote) {  'use strict';
         try { const d = GM_getValue('xy_md_draft', ''); if (d) ta.value = d; } catch (e) {}
     }
 
-    /** UI 注入（幂等，可重复调用）：A. 下载区按钮行追加「🖥 预览转 PDF」（检测到 OW365 预览时显示）；
+    /** UI 注入（幂等，可重复调用）：A. 下载区按钮行追加「 预览转 PDF」（检测到 OW365 预览时显示）；
      * B. Markdown 转换面板挂主控台底部固定区域（xy-bottom-containers，全部 tab 下常驻，
      * 不依附于下载区/答题区等局部视图）。
      * [DEEP-DOC]
@@ -14237,7 +14230,7 @@ var XYExport = (function (Hinote) {  'use strict';
             const b = document.createElement('button');
             b.id = 'xy-preview-to-pdf'; b.className = 'xy-action-btn'; b.type = 'button';
             b.style.cssText = 'flex:1.5; background:' + T('rgba(6,182,212,0.12)', '#e0f2fe') + '; border-color:' + T('rgba(6,182,212,0.3)', '#bae6fd') + '; color:' + T('#67e8f9', '#0e7490') + ';';
-            b.textContent = '🖥 转 PDF';
+            b.textContent = '转 PDF';
             b.title = '多选 ppt/doc/docx/pptx 后点击：逐个自动转 PDF 下载；勾选 PDF 则直接原样下载（纯前端，走 OW365 服务端转换，无需安装任何东西）；未勾选时转换当前预览的课件';
             b.addEventListener('click', () => { void xyPreviewToPdf(); });
             batchBtn.parentNode.appendChild(b);
