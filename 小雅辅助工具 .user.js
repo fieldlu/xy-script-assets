@@ -3538,7 +3538,17 @@
 
     const originalTitle = document.title;
     /**
-     * 标签页标题状态机：
+     * 标签页标题改写开关（默认关闭）。
+     *
+     * 关闭原因：它每秒重写一次 document.title，学文档时标签页会一直显示
+     * 「[36%] 文档阅读中」，把站点自己的标题「我学的课 | 理工智课」顶掉，
+     * 多标签时根本认不出是哪个页面。标签页属于浏览器 chrome，不该被脚本占用。
+     *
+     * 想要回进度显示，把下面改成 true 即可，其它逻辑原样保留。
+     */
+    const TITLE_BAR_SYNC_ENABLED = false;
+    /**
+     * 标签页标题状态机（仅在 TITLE_BAR_SYNC_ENABLED 打开时生效）：
      *   调度运行中 → 「[i/n] 计划调度 · 任务名前10字」（截断防超长）
      *   course 区 → video 引擎显示播放百分比+循环/连播标记；doc 引擎显示阅读
      *               进度百分比或达标 ✓；其他引擎显示通用学习标记
@@ -3547,6 +3557,8 @@
      * [DEEP-DOC]
      */
     function updateTitleBar() {
+        // 默认不改写标签页标题：每秒覆盖成「[x%] 文档阅读中」会把站点标题顶掉
+        if (!TITLE_BAR_SYNC_ENABLED) return;
         if (xyScheduleState.isRunning) {
             const cur = xyScheduleState.queue[xyScheduleState.currentIdx];
             const name = cur ? cur.name.substring(0, 10) : '...';
